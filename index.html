@@ -45,6 +45,17 @@ body.theater-open{overflow:hidden}
 }
 @media (prefers-reduced-motion:reduce){.stage-overlay-play,.primary-btn{transition:none!important}}
 
+/* Viewer-driven, low-overhead quality and frame rate controls. */
+.quality-control{display:flex;align-items:center;gap:5px;color:#adabb2;font-size:10px;font-weight:700;white-space:nowrap}
+.quality-control select{background:#28252c;color:#f3e3d2;border:1px solid #51464b;border-radius:7px;max-width:126px;min-width:75px;padding:5px 4px;font-size:11px;cursor:pointer}
+.quality-control select:disabled{opacity:.65}
+.fps-toggle{background:#28252c;color:#b7b2ba;border:1px solid #51464b;border-radius:7px;font-size:10px;font-weight:800;padding:7px;line-height:1;min-height:28px;cursor:pointer}
+.fps-toggle[aria-pressed="true"]{color:#ffbf76;border-color:#ffb462}
+.fps-overlay{position:absolute;z-index:6;right:10px;top:10px;pointer-events:none;color:#d9fce0;font:700 11px/1.1 ui-monospace,SFMono-Regular,Consolas,monospace;padding:5px 7px;background:#101419c9;border:1px solid #d8f3de44;border-radius:6px;font-variant-numeric:tabular-nums}
+.quality-hint{margin:10px 0 0;color:#aaa0a5;font-size:10px;line-height:1.35;min-height:15px}
+.quality-hint strong{color:#e9c69c;font-weight:700}
+@media(max-width:650px){.buttonrow{flex-wrap:wrap;gap:6px}.controls-right{flex-wrap:wrap;justify-content:flex-end}.quality-control select{max-width:110px}}
+@media(max-width:370px){.quality-control{font-size:9px}.quality-control select{min-width:66px}.controls-right{width:100%}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
 
@@ -63,6 +74,7 @@ body.theater-open{overflow:hidden}
       <section class="screen-column" aria-label="Video player">
         <div class="stage" id="dropZone">
           <video id="player" playsinline preload="metadata"></video>
+          <span class="fps-overlay" id="fpsOverlay" hidden aria-live="off">— FPS</span>
           <button class="exit-theater" id="exitTheater" type="button" aria-label="Exit theater mode" title="Exit theater mode">✕</button>
           <div class="stage-empty" id="stageEmpty">
             <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="m12 8 13 8-13 8V8Z" fill="currentColor"/></svg></span></div>
@@ -81,9 +93,10 @@ body.theater-open{overflow:hidden}
           <div class="seekrow"><span class="timecode" id="currentTime">00:00</span><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled><span class="timecode" id="duration">00:00</span></div>
           <div class="buttonrow">
             <div class="controls-left"><button class="icon-btn" id="playPause" title="Play / pause" aria-label="Play / pause" disabled><svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button class="icon-btn skip-btn" id="skipBack" aria-label="Back 10 seconds" title="Back 10 seconds" disabled><svg viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 1 3 6.7M3 5v7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" fill="currentColor" font-size="8" font-weight="700">10</text></svg></button><button class="icon-btn skip-btn" id="skipForward" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled><svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 1 0-3 6.7M21 5v7h-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" fill="currentColor" font-size="8" font-weight="700">10</text></svg></button><span class="control-divider"></span><button class="icon-btn" id="muteBtn" title="Mute / unmute" aria-label="Mute / unmute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 0 1 0 6m2.5-9a8 8 0 0 1 0 12" stroke-linecap="round"/></svg></button><input type="range" id="volume" value="80" min="0" max="100" aria-label="Volume"></div>
-            <div class="controls-right"><span class="network-label" id="networkLabel">P2P READY</span><button class="icon-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Fullscreen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m13-5v4a1 1 0 0 1-1 1h-4"/></svg></button></div>
+            <div class="controls-right"><label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="auto">Auto (recommended)</option></select></label><button class="fps-toggle" id="fpsToggle" type="button" aria-pressed="false" title="Show my displayed frames per second">FPS</button><span class="network-label" id="networkLabel">P2P READY</span><button class="icon-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Fullscreen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m13-5v4a1 1 0 0 1-1 1h-4"/></svg></button></div>
           </div>
         </div>
+        <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
         <div class="below-stage"><span><span class="small-shield">✳</span> Video streams peer-to-peer. No video file upload.</span><span id="mediaHint">Optimized for low latency, not zero latency.</span></div>
       </section>
 
@@ -127,7 +140,8 @@ body.theater-open{overflow:hidden}
     inviteLink: $('inviteLink'), copy: $('copyLink'), startBroadcast: $('startBroadcast'),
     endRoom: $('endRoom'), joinInput: $('roomInput'), joinRoom: $('joinRoom'), joinActive: $('joinActive'),
     joinedCode: $('joinedCode'), leave: $('leaveRoom'), toast: $('toast'), hint: $('mediaHint'),
-    exitTheater: $('exitTheater'),
+    exitTheater: $('exitTheater'), qualitySelect: $('qualitySelect'), qualityHint: $('qualityHint'),
+    fpsToggle: $('fpsToggle'), fpsOverlay: $('fpsOverlay'),
   };
   const media = el.player;
   const PEER_PREFIX = 'marmalade-';
@@ -162,13 +176,25 @@ body.theater-open{overflow:hidden}
   const STREAM_WIDTH = isMobile ? 640 : 960;
   const STREAM_HEIGHT = isMobile ? 360 : 540;
   const STREAM_FPS = isMobile ? 20 : 24;
-  const PROFILES = [
-    { name: 'Low', bitrate: 200000, scale: 2.0, fps: 12 },
-    { name: 'Saver', bitrate: 380000, scale: 1.5, fps: 16 },
-    { name: 'Balanced', bitrate: 700000, scale: 1.15, fps: 20 },
-    { name: 'Clear', bitrate: 1150000, scale: 1.0, fps: 24 },
+  // Base capture remains lightweight. Native/full-resolution capture is lazy and
+  // only started when somebody explicitly requests >540p or Original.
+  const LEVELS = [
+    { id: '144', height: 144, bitrate: 110000, fps: 12 },
+    { id: '240', height: 240, bitrate: 220000, fps: 15 },
+    { id: '360', height: 360, bitrate: 420000, fps: 20 },
+    { id: '540', height: 540, bitrate: 850000, fps: 24 },
+    { id: '720', height: 720, bitrate: 1650000, fps: 30 },
+    { id: '1080', height: 1080, bitrate: 3200000, fps: 30 },
   ];
-  const MAX_TOTAL_VIDEO_BPS = isMobile ? 1450000 : 2400000;
+  const MAX_TOTAL_VIDEO_BPS = isMobile ? 2500000 : 7200000;
+  const DEFAULT_LEVEL = isMobile ? '360' : '540';
+  const QUALITY_STORAGE = 'marmalade-quality-v2';
+  function getSavedQuality() {
+    try { return localStorage.getItem(QUALITY_STORAGE) || 'auto'; } catch { return 'auto'; }
+  }
+  function saveQuality(value) {
+    try { localStorage.setItem(QUALITY_STORAGE, value); } catch { /* storage disabled */ }
+  }
   const PLAY_PATH = '<path d="M8 5v14l11-7z"/>';
   const PAUSE_PATH = '<path d="M7 5h4v14H7zM14 5h4v14h-4z"/>';
   const state = {
@@ -179,6 +205,10 @@ body.theater-open{overflow:hidden}
     guestCall: null, lastVolume: .8, pingAt: 0, connecting: false, toastTimeout: null,
     theaterMode: false, broadcastStarting: false, streamWaitTimer: null,
     guestQualitySample: null, qualityTimer: null, hostPlaying: false,
+    sourceHeight: 0, sourceWidth: 0, requestedQuality: getSavedQuality(),
+    recommendation: DEFAULT_LEVEL, stableReports: 0, unhealthyReports: 0,
+    highStream: null, highTrack: null, highTimer: null, highCanvas: null,
+    bitrateEstimate: 0, videoFrameHandle: null, fpsFrames: 0, fpsAt: 0,
   };
 
   function notify(message) {
@@ -191,6 +221,103 @@ body.theater-open{overflow:hidden}
     el.connectionText.textContent = label;
     el.connectionPill.classList.toggle('online', type === 'online');
     el.connectionPill.classList.toggle('error', type === 'error');
+  }
+  // A connection-speed number from Network Information API is a rough hint about
+  // downlink, not a measured video path, especially on Firefox and Safari.
+  function estimatedStartingLevel() {
+    const net = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (net?.saveData || net?.effectiveType === 'slow-2g' || net?.effectiveType === '2g') return '144';
+    if (net?.effectiveType === '3g') return '240';
+    const down = Number(net?.downlink);
+    if (Number.isFinite(down) && down > 0) {
+      if (down < 0.7) return '144';
+      if (down < 1.4) return '240';
+      if (down < 2.3) return '360';
+    }
+    return DEFAULT_LEVEL;
+  }
+  function sourceHeight() {
+    if (state.role === 'guest') return state.sourceHeight || 0;
+    if (state.source === 'screen') return state.screenStream?.getVideoTracks()[0]?.getSettings?.().height || media.videoHeight || 0;
+    return media.videoHeight || 0;
+  }
+  function availableLevels() {
+    const max = sourceHeight();
+    return LEVELS.filter(level => !max || level.height <= max);
+  }
+  function recommendedLevel(id) {
+    const available = availableLevels();
+    return (available.find(level => level.id === id) || available.filter(level => Number(level.id) <= Number(id)).at(-1) || available[0] || LEVELS[2]).id;
+  }
+  function buildQualitySelect() {
+    const oldValue = state.requestedQuality;
+    const host = state.role === 'host';
+    el.qualitySelect.replaceChildren();
+    const items = host ? [['original', 'Original (local)']] : [
+      ['auto', 'Auto (recommended)'], ['original', 'Original (source)'],
+      ...availableLevels().slice().reverse().map(level => [level.id, `${level.id}p`]),
+    ];
+    for (const [value, label] of items) {
+      const option = document.createElement('option');
+      option.value = value; option.textContent = label;
+      el.qualitySelect.appendChild(option);
+    }
+    el.qualitySelect.disabled = host;
+    const acceptable = items.some(x => x[0] === oldValue);
+    if (!host && !acceptable) { state.requestedQuality = 'auto'; saveQuality('auto'); }
+    el.qualitySelect.value = host ? 'original' : acceptable ? oldValue : 'auto';
+    updateQualityHint();
+  }
+  function updateQualityHint(extra = '') {
+    if (state.role === 'host') {
+      el.qualityHint.textContent = 'Local: original quality · Guests independently choose their stream quality.';
+      return;
+    }
+    const rec = recommendedLevel(state.recommendation);
+    const selected = el.qualitySelect.value || 'auto';
+    const bps = state.bitrateEstimate > 0 ? ` · received ${((state.bitrateEstimate / 1000000)).toFixed(2)} Mbps` : '';
+    const net = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const basis = state.bitrateEstimate > 0 ? 'live stream stability' :
+      net?.downlink || net?.effectiveType ? 'connection estimate' : 'conservative starting profile';
+    el.qualityHint.textContent = `Recommended: ${rec}p · ${basis}${bps} · ${selected === 'auto' ? 'Auto adjusts to reduce stutter.' : selected === 'original' ? 'Original resolution, re-encoded for streaming.' : 'Manual selection.'}${extra ? ' · ' + extra : ''}`;
+  }
+  function sendQualityPreference() {
+    if (state.role !== 'guest' || !state.guestConn?.open) return;
+    send(state.guestConn, { type: 'quality-preference', quality: state.requestedQuality,
+      recommendation: recommendedLevel(state.recommendation) });
+  }
+  // requestVideoFrameCallback measures *displayed video frames* on this device.
+  // Unlike source FPS or RTCP counters, it also reveals decode/render stutters.
+  function updateFpsOverlay() {
+    el.fpsOverlay.hidden = el.fpsToggle.getAttribute('aria-pressed') !== 'true';
+    if (!el.fpsOverlay.hidden) el.fpsOverlay.textContent = '— FPS';
+  }
+  function startFpsMeasurement() {
+    if (typeof media.requestVideoFrameCallback === 'function') {
+      const frame = (now) => {
+        if (!el.fpsOverlay.hidden && !media.paused && media.readyState >= 2) {
+          if (!state.fpsAt) { state.fpsAt = now; state.fpsFrames = 0; }
+          state.fpsFrames++;
+          if (now - state.fpsAt >= 950) {
+            el.fpsOverlay.textContent = `${Math.round(state.fpsFrames * 1000 / (now - state.fpsAt))} FPS`;
+            state.fpsAt = now; state.fpsFrames = 0;
+          }
+        } else { state.fpsAt = 0; state.fpsFrames = 0;
+          if (!el.fpsOverlay.hidden) el.fpsOverlay.textContent = media.paused ? 'PAUSED' : '— FPS'; }
+        state.videoFrameHandle = media.requestVideoFrameCallback(frame);
+      };
+      state.videoFrameHandle = media.requestVideoFrameCallback(frame);
+    } else if (typeof media.getVideoPlaybackQuality === 'function') {
+      let previousFrames = null, previousAt = 0;
+      setInterval(() => {
+        if (el.fpsOverlay.hidden) return;
+        const now = performance.now();
+        const total = media.getVideoPlaybackQuality().totalVideoFrames;
+        el.fpsOverlay.textContent = media.paused ? 'PAUSED' :
+          previousAt && total >= previousFrames ? `${Math.round((total - previousFrames) * 1000 / (now - previousAt))} FPS` : '— FPS';
+        previousAt = now; previousFrames = total;
+      }, 1100);
+    }
   }
   function timeString(seconds) {
     const s = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
@@ -249,7 +376,7 @@ body.theater-open{overflow:hidden}
     return { type: 'state', name: state.file ? state.file.name : state.source === 'screen' ? 'Shared player window' : 'Waiting for video',
       playing: !media.paused, time: state.source === 'file' ? media.currentTime : 0,
       duration: state.source === 'file' && Number.isFinite(media.duration) ? media.duration : 0,
-      live: state.broadcasting };
+      live: state.broadcasting, sourceHeight: sourceHeight(), sourceWidth: media.videoWidth || 0 };
   }
   function syncState() { if (state.role === 'host' && state.peer) broadcast(hostStatus()); }
   function requirePeerJS() {
@@ -296,6 +423,7 @@ body.theater-open{overflow:hidden}
     state.guestConn = state.guestCall = state.peer = null;
     state.guestQualitySample = null;
     state.hostPlaying = false;
+    state.sourceHeight = 0; state.sourceWidth = 0;
     state.code = '';
     state.connecting = false;
     state.hostActive = false;
@@ -308,6 +436,7 @@ body.theater-open{overflow:hidden}
     renderCount();
     badge('');
     leaveTheater();
+    buildQualitySelect();
   }
   function stopBroadcast(keepScreen = false) {
     state.broadcasting = false;
@@ -319,6 +448,11 @@ body.theater-open{overflow:hidden}
     if (state.outgoing && !keepScreen) for (const track of state.outgoing.getVideoTracks()) track.stop();
     if (state.outgoing && keepScreen && state.source !== 'screen') for (const track of state.outgoing.getVideoTracks()) track.stop();
     if (state.screenStream && !keepScreen) for (const track of state.screenStream.getTracks()) track.stop();
+    if (state.highTimer) { clearInterval(state.highTimer); state.highTimer = null; }
+    if (state.highTrack && state.highTrack !== state.outgoing?.getVideoTracks()[0]) {
+      try { state.highTrack.stop(); } catch { /* already stopped */ }
+    }
+    state.highTrack = state.highStream = state.highCanvas = null;
     state.outgoing = state.nativeCapture = state.canvasStream = null;
     if (!keepScreen) state.screenStream = null;
     for (const entry of state.connections.values()) { try { entry.call?.close(); } catch { /* no-op */ } entry.call = null; }
@@ -343,6 +477,7 @@ body.theater-open{overflow:hidden}
     el.fileInfo.textContent = 'MP4, WebM, and browser-supported media. Or drop a file on the player.';
     showStage(false);
     updateTransport();
+    buildQualitySelect();
   }
   function selectRole(role) {
     if (role === state.role) return;
@@ -360,6 +495,7 @@ body.theater-open{overflow:hidden}
     if (host) setStage('Ready for movie night?', 'Choose your video to begin.', 'YOUR PRIVATE CINEMA');
     else setStage('You’re invited.', 'Enter the room link and watch live with your host.', 'THE BEST SEAT IS YOURS');
     updateTransport();
+    buildQualitySelect();
   }
   function isVideoFile(file) {
     return !!file && (file.type.startsWith('video/') || file.type.startsWith('audio/') || /\.(mkv|avi|mov|m4v|ts|m2ts|flv|wmv|mp4|webm|mp3|flac|wav|ogg)$/i.test(file.name));
@@ -388,8 +524,9 @@ body.theater-open{overflow:hidden}
       if (state.peer !== peer) { conn.close(); return; }
       const prior = state.connections.get(conn.peer);
       if (prior) { try { prior.call?.close(); prior.conn.close(); } catch { /* no-op */ } }
-      const entry = { conn, call: null, tier: 2, healthy: 0, warning: 0, tuning: false,
-        applied: '', lastTuneAt: 0 };
+      const entry = { conn, call: null, mode: 'auto', recommendation: DEFAULT_LEVEL,
+        tier: 2, healthy: 0, warning: 0, tuning: false,
+        applied: '', lastTuneAt: 0, requestedLevel: DEFAULT_LEVEL, trackType: 'base' };
       state.connections.set(conn.peer, entry);
       conn.on('open', () => {
         if (state.peer !== peer) return;
@@ -402,6 +539,16 @@ body.theater-open{overflow:hidden}
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
         if (data.type === 'ping') send(conn, { type: 'pong', at: data.at });
+        if (data.type === 'quality-preference' && typeof data.quality === 'string') {
+          const allowed = data.quality === 'auto' || data.quality === 'original' || LEVELS.some(l => l.id === data.quality);
+          if (allowed) {
+            entry.mode = data.quality;
+            if (typeof data.recommendation === 'string' && LEVELS.some(l => l.id === data.recommendation))
+              entry.recommendation = data.recommendation;
+            entry.applied = '';
+            void tuneAllGuests();
+          }
+        }
         if (data.type === 'hello' || data.type === 'requeststate') send(conn, hostStatus());
         if (data.type === 'requestmedia' && state.outgoing && !entry.call) callGuest(conn.peer);
         if (data.type === 'quality' && entry.call && Number.isFinite(data.loss) && Number.isFinite(data.jitter)) {
@@ -421,7 +568,7 @@ body.theater-open{overflow:hidden}
             entry.warning = 0;
             entry.healthy = 0;
           } else if (entry.healthy >= 6) {
-            entry.tier = Math.min(PROFILES.length - 1, entry.tier + 1);
+            entry.tier = Math.min(LEVELS.length - 1, entry.tier + 1);
             entry.healthy = 0;
           }
           void tuneGuest(entry);
@@ -440,48 +587,104 @@ body.theater-open{overflow:hidden}
       conn.on('error', (error) => console.warn('Guest data connection error', error));
     });
   }
-  // Bitrate and frame-rate are limited independently for each guest. If one guest has a
-  // poor connection, their sender drops quality without making everybody else's video stall.
+  function levelForGuest(entry) {
+    if (entry.mode === 'original') return { id: 'original', height: Math.max(144, sourceHeight()),
+      bitrate: 6000000, fps: 30 };
+    const requested = entry.mode === 'auto' ? entry.recommendation : entry.mode;
+    const available = availableLevels();
+    const target = available.find(l => l.id === requested) ||
+      available.filter(l => l.height <= Number(requested)).at(-1) || available.at(-1) || LEVELS[2];
+    if (entry.mode !== 'auto') return target;
+    // Receiver chooses the target, sender also applies hysteresis from packet loss.
+    const ceiling = LEVELS[Math.min(entry.tier + 1, LEVELS.length - 1)];
+    return available.filter(l => l.height <= target.height && l.height <= ceiling.height).at(-1) || available[0] || target;
+  }
+  // One 540p track is shared by low-bandwidth guests. A second original-size
+  // track is captured ONLY on demand. This prevents 4K processing for everyone.
+  function getHighVideoTrack() {
+    if (state.source === 'screen') return state.outgoing?.getVideoTracks()[0] || null;
+    if (state.highTrack?.readyState === 'live') return state.highTrack;
+    const nativeTrack = state.nativeCapture?.getVideoTracks()[0];
+    if (nativeTrack?.readyState === 'live') {
+      state.highTrack = nativeTrack;
+      return nativeTrack;
+    }
+    if (!media.videoWidth || !media.videoHeight) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = media.videoWidth; canvas.height = media.videoHeight;
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    if (!ctx || !canvas.captureStream) return null;
+    const paint = () => {
+      if (!media.paused && media.readyState >= 2) {
+        try { ctx.drawImage(media, 0, 0, canvas.width, canvas.height); } catch { /* next frame */ }
+      }
+    };
+    paint();
+    state.highTimer = setInterval(paint, Math.round(1000 / 30));
+    state.highCanvas = canvas;
+    state.highStream = canvas.captureStream(30);
+    state.highTrack = state.highStream.getVideoTracks()[0] || null;
+    return state.highTrack;
+  }
+  function budgetForGuest(entry, desired) {
+    // Global safety cap is for each room, not each viewer. Never invent a user's
+    // upload speed: WebRTC still lowers these maxima using real congestion control.
+    const entries = [...state.connections.values()].filter(e => e.call && e.conn.open);
+    const wanted = entries.map(e => levelForGuest(e).bitrate);
+    const totalWanted = wanted.reduce((total, rate) => total + rate, 0);
+    if (totalWanted <= MAX_TOTAL_VIDEO_BPS) return desired;
+    // A per-room upload ceiling shared proportionally across ALL senders.
+    // Manually selecting Original must not silently flood the other connections.
+    return Math.max(64000, Math.min(desired, Math.floor(MAX_TOTAL_VIDEO_BPS * desired / totalWanted)));
+  }
+  // Change quality without renegotiating or restarting the movie whenever possible.
+  // The guest's own signal applies only to their peer connection.
   async function tuneGuest(entry) {
     if (!entry?.call || entry.tuning) return;
     const pc = entry.call.peerConnection;
     if (!pc || pc.signalingState === 'closed') return;
     const sender = pc.getSenders?.().find(item => item.track?.kind === 'video');
-    if (!sender?.setParameters) return;
-    const params = sender.getParameters();
-    if (!params.encodings?.length) return; // Some browsers create encodings after negotiation.
-    const livePeers = [...state.connections.values()].filter(x => x.call && x.conn.open).length || 1;
-    const profile = PROFILES[entry.tier];
-    const bitrate = Math.max(160000, Math.min(profile.bitrate, Math.floor(MAX_TOTAL_VIDEO_BPS / livePeers)));
-    const settings = sender.track?.getSettings?.() || {};
-    // Window sharing may arrive in 1080p or 4K; scale it to the same lightweight
-    // baseline instead of encoding the full desktop for each remote participant.
-    const sourceScale = Math.max(1, (settings.width || STREAM_WIDTH) / STREAM_WIDTH,
-      (settings.height || STREAM_HEIGHT) / STREAM_HEIGHT);
-    const scale = Math.max(1, sourceScale * profile.scale);
-    const signature = `${bitrate}-${scale}-${Math.min(STREAM_FPS, profile.fps)}`;
+    if (!sender?.getParameters || !sender.setParameters) return;
+    const current = levelForGuest(entry);
+    const wantsHigh = current.height > STREAM_HEIGHT && sourceHeight() > STREAM_HEIGHT;
+    const newTrack = wantsHigh ? getHighVideoTrack() : state.outgoing?.getVideoTracks()[0];
+    if (!newTrack || newTrack.readyState !== 'live') return;
+    const bitrate = budgetForGuest(entry, current.bitrate);
+    const naturalHeight = newTrack.getSettings?.().height || (wantsHigh ? sourceHeight() : STREAM_HEIGHT);
+    const naturalWidth = newTrack.getSettings?.().width || (wantsHigh ? media.videoWidth : STREAM_WIDTH);
+    const scale = Math.max(1, naturalHeight / Math.max(1, current.height),
+      naturalWidth / Math.max(1, Math.round(current.height * naturalWidth / Math.max(1, naturalHeight))));
+    const signature = `${newTrack.id}/${bitrate}/${scale.toFixed(2)}/${current.fps}`;
     if (signature === entry.applied) return;
-    const encoding = params.encodings[0];
-    encoding.maxBitrate = bitrate;
-    encoding.maxFramerate = Math.min(STREAM_FPS, profile.fps);
-    encoding.scaleResolutionDownBy = scale;
-    // Keep native congestion control active below these ceilings; never set minBitrate.
     entry.tuning = true;
     try {
-      await sender.setParameters(params);
-      if (entry.call?.peerConnection === pc) entry.applied = signature;
-    } catch (error) {
-      // Some browsers reject resolution scaling or maxFramerate but accept bitrate.
-      try {
+      if (sender.track !== newTrack) await sender.replaceTrack(newTrack);
+      const params = sender.getParameters();
+      if (!params.encodings?.length) return;
+      params.encodings[0].maxBitrate = bitrate;
+      params.encodings[0].maxFramerate = current.fps;
+      params.encodings[0].scaleResolutionDownBy = scale;
+      let scalingSupported = true;
+      try { await sender.setParameters(params); }
+      catch (error) {
         const fallback = sender.getParameters();
-        if (fallback.encodings?.length) {
-          fallback.encodings[0].maxBitrate = bitrate;
-          await sender.setParameters(fallback);
-          if (entry.call?.peerConnection === pc) entry.applied = signature;
-        }
-      } catch (fallbackError) {
-        console.debug('Video quality control limited by browser', error, fallbackError);
+        if (!fallback.encodings?.length) throw error;
+        fallback.encodings[0].maxBitrate = bitrate;
+        await sender.setParameters(fallback); // Browser may not support scaling.
+        scalingSupported = false;
       }
+      if (entry.call?.peerConnection === pc) {
+        entry.applied = signature;
+        entry.trackType = wantsHigh ? 'original' : 'base';
+        send(entry.conn, { type: 'quality-applied', level: scalingSupported ? current.id : 'limited',
+          width: Math.round(naturalWidth / (scalingSupported ? scale : 1)),
+          height: Math.round(naturalHeight / (scalingSupported ? scale : 1)),
+          bitrate, limited: bitrate < current.bitrate,
+          message: scalingSupported ? '' : 'Browser permits bitrate control but not resolution scaling' });
+      }
+    } catch (error) {
+      console.debug('Browser cannot apply requested quality; keeping stream alive', error);
+      send(entry.conn, { type: 'quality-applied', level: 'limited', message: 'Browser-limited quality; playback continues' });
     } finally { entry.tuning = false; }
   }
   async function tuneAllGuests() {
@@ -555,6 +758,7 @@ body.theater-open{overflow:hidden}
       call.on('stream', async (stream) => {
         if (state.guestCall !== call) return;
         state.guestQualitySample = null;
+        sendQualityPreference();
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
         media.srcObject = stream;
@@ -592,6 +796,14 @@ body.theater-open{overflow:hidden}
   }
   function receiveState(data) {
     if (typeof data.playing === 'boolean') state.hostPlaying = data.playing;
+    if (Number.isFinite(data.sourceHeight) && data.sourceHeight >= 0 && data.sourceHeight <= 16384 &&
+        Number.isFinite(data.sourceWidth) && data.sourceWidth >= 0 && data.sourceWidth <= 16384 &&
+        (state.sourceHeight !== data.sourceHeight || state.sourceWidth !== data.sourceWidth)) {
+      state.sourceHeight = data.sourceHeight;
+      state.sourceWidth = data.sourceWidth;
+      buildQualitySelect();
+      sendQualityPreference();
+    }
     if (typeof data.name === 'string' && data.name.length <= 250) el.fileName.textContent = data.name;
     if (typeof data.time === 'number' && Number.isFinite(data.time) && data.time >= 0) {
       el.current.textContent = timeString(data.time);
@@ -645,10 +857,15 @@ body.theater-open{overflow:hidden}
         renderCount();
         setStage('Waiting for the host…', 'They’ll start the movie when they’re ready.', 'ROOM CONNECTED');
         send(conn, { type: 'hello' });
+        sendQualityPreference();
       });
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
         if (data.type === 'state') receiveState(data);
+        if (data.type === 'quality-applied') {
+          state.appliedQuality = data.level;
+          updateQualityHint(data.limited ? 'Host bandwidth safety limit' : data.message || `Receiving ${data.height || '?'}p`);
+        }
         if (data.type === 'pong' && typeof data.at === 'number') {
           el.network.textContent = `${Math.max(0, Math.round(performance.now() - data.at))} MS RTT`;
         }
@@ -698,6 +915,7 @@ body.theater-open{overflow:hidden}
       const sample = {
         at: performance.now(), lost: v.packetsLost || 0, received: v.packetsReceived || 0,
         frames: v.framesDecoded ?? v.framesReceived ?? 0, freezes: v.freezeCount ?? 0,
+         bytes: v.bytesReceived || 0,
         jitterDelay: v.jitterBufferDelay || 0,
         jitterFrames: v.jitterBufferEmittedCount || 0,
       };
@@ -710,11 +928,40 @@ body.theater-open{overflow:hidden}
       const frozen = Math.max(0, sample.freezes - prev.freezes);
       const decodeFps = Math.max(0, sample.frames - prev.frames) / elapsed;
       const stall = sample.frames > 0 && received > 10 && decodeFps < 5 ? 1 : 0;
+       const incomingBitrate = 8 * Math.max(0, sample.bytes - (prev.bytes || 0)) / elapsed;
+       state.bitrateEstimate = incomingBitrate;
+       const poor = frozen > 0 || stall || lost / Math.max(1, lost + received) > 0.04;
       const jitterFrames = sample.jitterFrames - prev.jitterFrames;
       const jitterMs = jitterFrames > 0 ?
         Math.max(0, (sample.jitterDelay - prev.jitterDelay) / jitterFrames * 1000) : 0;
       // Avoid judging packet loss from too few packets; packet counts reset on a new call.
       if (received + lost < 15) return;
+       // Hysteresis: reduce promptly on stalls, increase only after six clean samples.
+       const current = LEVELS.findIndex(l => l.id === state.recommendation);
+       const before = state.recommendation;
+       if (poor) {
+         state.unhealthyReports++;
+         state.stableReports = 0;
+         if (state.unhealthyReports >= 1) {
+           state.recommendation = LEVELS[Math.max(0, current - 1)].id;
+           state.unhealthyReports = 0;
+         }
+       } else {
+         state.unhealthyReports = 0;
+         state.stableReports++;
+         if (state.stableReports >= 6 && current < LEVELS.length - 1) {
+           const next = LEVELS[current + 1];
+           // Don't promote to a higher profile when the browser reports a slow link.
+           const net = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+           const downlink = Number(net?.downlink);
+           if (!net?.saveData && (!Number.isFinite(downlink) || downlink <= 0 || next.bitrate < downlink * 700000))
+             state.recommendation = next.id;
+           state.stableReports = 0;
+         }
+       }
+       state.recommendation = recommendedLevel(state.recommendation);
+       if (before !== state.recommendation && state.requestedQuality === 'auto') sendQualityPreference();
+       updateQualityHint();
       send(state.guestConn, {
         type: 'quality', loss: lost / Math.max(1, lost + received),
         jitter: Math.min(1000, jitterMs), freezes: frozen, stalls: stall,
@@ -839,6 +1086,7 @@ body.theater-open{overflow:hidden}
     el.fileName.textContent = 'Shared player window';
     el.fileInfo.textContent = stream.getAudioTracks().length ? 'Screen + audio capture ready' : 'No audio track captured';
     el.startBroadcast.disabled = !state.peer?.open;
+    buildQualitySelect();
     el.hint.textContent = 'For system audio, your browser must support tab/window audio sharing.';
     stream.getVideoTracks()[0]?.addEventListener('ended', () => {
       if (state.screenStream !== stream) return;
@@ -915,6 +1163,18 @@ body.theater-open{overflow:hidden}
     if (!media.muted && media.volume > 0) { state.lastVolume = media.volume; media.muted = true; el.volume.value = '0'; }
     else { media.muted = false; media.volume = state.lastVolume || .8; el.volume.value = String(Math.round(media.volume * 100)); }
   });
+  el.qualitySelect.addEventListener('change', () => {
+    if (state.role !== 'guest') return;
+    state.requestedQuality = el.qualitySelect.value;
+    saveQuality(state.requestedQuality);
+    sendQualityPreference();
+    updateQualityHint();
+  });
+  el.fpsToggle.addEventListener('click', () => {
+    const enabled = el.fpsToggle.getAttribute('aria-pressed') !== 'true';
+    el.fpsToggle.setAttribute('aria-pressed', String(enabled));
+    updateFpsOverlay();
+  });
   el.fullscreen.addEventListener('click', toggleFullscreen);
   el.exitTheater.addEventListener('click', leaveTheater);
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') leaveTheater(); });
@@ -923,6 +1183,7 @@ body.theater-open{overflow:hidden}
     state.fileReady = true;
     showStage(true);
     el.startBroadcast.disabled = !state.peer?.open;
+    buildQualitySelect();
     updateTransport();
     syncState();
     autoStartIfPlaying();
@@ -980,6 +1241,9 @@ body.theater-open{overflow:hidden}
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
   }
+  state.recommendation = estimatedStartingLevel();
+  buildQualitySelect();
+  startFpsMeasurement();
   updateTransport();
 })();
 
