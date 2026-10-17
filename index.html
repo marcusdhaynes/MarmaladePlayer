@@ -165,7 +165,7 @@ body.theater-open{overflow:hidden}
     screenStream: null, audioContext: null, audioDestination: null, animationFrame: 0,
     canvasStream: null, interval: null, connections: new Map(), guestConn: null,
     guestCall: null, lastVolume: .8, pingAt: 0, connecting: false, toastTimeout: null,
-    theaterMode: false,
+    theaterMode: false, broadcastStarting: false, streamWaitTimer: null,
   };
 
   function notify(message) {
@@ -272,6 +272,8 @@ body.theater-open{overflow:hidden}
     return address.toString();
   }
   function closeConnections() {
+    clearTimeout(state.streamWaitTimer);
+    state.streamWaitTimer = null;
     for (const entry of state.connections.values()) {
       try { entry.call?.close(); entry.conn.close(); } catch { /* already closed */ }
     }
@@ -377,12 +379,15 @@ body.theater-open{overflow:hidden}
         renderCount();
         send(conn, hostStatus());
         if (state.outgoing) callGuest(conn.peer);
+        else autoStartIfPlaying();
         notify('A guest joined your room.');
       });
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
         if (data.type === 'ping') send(conn, { type: 'pong', at: data.at });
         if (data.type === 'hello' || data.type === 'requeststate') send(conn, hostStatus());
+        if (data.type === 'requestmedia' && state.outgoing) callGuest(conn.peer);
+        if (data.type === 'hello' && state.outgoing && !entry.call) callGuest(conn.peer);
       });
       conn.on('close', () => {
         const current = state.connections.get(conn.peer);
@@ -428,6 +433,7 @@ body.theater-open{overflow:hidden}
       el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
       connection('Room is ready', 'online');
       notify('Room created. Share the link with your guest.');
+      autoStartIfPlaying();
     });
     peer.on('disconnected', () => {
       if (state.peer !== peer) return;
@@ -449,6 +455,8 @@ body.theater-open{overflow:hidden}
       state.guestCall = call;
       call.on('stream', async (stream) => {
         if (state.guestCall !== call) return;
+        clearTimeout(state.streamWaitTimer);
+        state.streamWaitTimer = null;
         media.srcObject = stream;
         media.autoplay = true;
         media.muted = false;
@@ -457,6 +465,7 @@ body.theater-open{overflow:hidden}
         showStage(true);
         badge('LIVE WITH HOST');
         el.network.textContent = 'P2P LIVE';
+        connection('Watching live', 'online');
         try { await media.play(); needsTapToPlay(false); el.overlayPlay.hidden = true; }
         catch { needsTapToPlay(true); notify('Tap the play button in the video to enable playback with sound.'); }
       });
@@ -468,6 +477,8 @@ body.theater-open{overflow:hidden}
         if (state.guestCall !== call) return;
         state.guestCall = null;
         state.source = null;
+        clearTimeout(state.streamWaitTimer);
+        state.streamWaitTimer = null;
         media.pause();
         media.srcObject = null;
         needsTapToPlay(false);
@@ -491,7 +502,16 @@ body.theater-open{overflow:hidden}
       setStage('Waiting for the host…', 'They’ll start the movie when they’re ready.', 'ROOM CONNECTED');
     }
     if (data.live && state.source !== 'remote') {
-      setStage('Connecting your stream…', 'Your host has started playback.', 'ALMOST THERE');
+      if (!state.streamWaitTimer) {
+        setStage('Connecting your stream…', 'Your host has started playback.', 'ALMOST THERE');
+        state.streamWaitTimer = setTimeout(() => {
+          state.streamWaitTimer = null;
+          if (state.role !== 'guest' || state.source === 'remote' || !state.guestConn?.open) return;
+          setStage('Video has not connected', 'Retrying the media connection. If this persists, your network may require a TURN relay.', 'CONNECTION TROUBLE');
+          connection('Video reconnecting…', 'error');
+          send(state.guestConn, { type: 'requestmedia' });
+        }, 10000);
+      }
     }
   }
   async function joinRoom() {
@@ -610,9 +630,18 @@ body.theater-open{overflow:hidden}
     if (!tracks.length) throw new Error('The media contains no capturable tracks.');
     return new MediaStream(tracks);
   }
+  function autoStartIfPlaying() {
+    if (state.role === 'host' && state.peer?.open && state.source === 'file' && state.fileReady &&
+        !media.paused && !state.broadcasting && !state.broadcastStarting) {
+      void startBroadcast();
+    }
+  }
   async function startBroadcast() {
     if (state.role !== 'host' || !state.peer?.open) { notify('Create your watch room first.'); return; }
     if (!state.fileReady && state.source !== 'screen') { notify('Choose a playable video first, or share a player window.'); return; }
+    if (state.broadcasting || state.broadcastStarting) return;
+    state.broadcastStarting = true;
+    el.startBroadcast.disabled = true;
     try {
       if (state.source === 'file') {
         // Make sure captureStream sees the video track after playback starts.
@@ -630,10 +659,15 @@ body.theater-open{overflow:hidden}
       el.network.textContent = 'WEBRTC ACTIVE';
       for (const peerId of state.connections.keys()) callGuest(peerId);
       syncState();
+      connection('Broadcasting live', 'online');
       notify('Live! Guests can watch and hear your video.');
     } catch (error) {
       console.error('Unable to start broadcast', error);
       notify(`Broadcast could not start: ${error.message || 'unsupported media'}`);
+      connection('Stream unavailable', 'error');
+    } finally {
+      state.broadcastStarting = false;
+      el.startBroadcast.disabled = state.broadcasting || (!state.fileReady && state.source !== 'screen');
     }
   }
   async function shareScreen() {
@@ -739,6 +773,7 @@ body.theater-open{overflow:hidden}
     el.startBroadcast.disabled = !state.peer?.open;
     updateTransport();
     syncState();
+    autoStartIfPlaying();
   });
   media.addEventListener('error', () => {
     if (state.role !== 'host' || state.source !== 'file') return;
@@ -747,7 +782,7 @@ body.theater-open{overflow:hidden}
     setStage('Can’t decode this file', 'Try an MP4 / WebM, or share an external video-player window.', 'FORMAT NOT SUPPORTED');
     notify('This browser cannot decode that format. Try “Share a video-player window”.');
   });
-  for (const event of ['play', 'pause', 'seeked', 'ended']) media.addEventListener(event, () => { updateTransport(); syncState(); });
+  for (const event of ['play', 'pause', 'seeked', 'ended']) media.addEventListener(event, () => { updateTransport(); syncState(); if (event === 'play') autoStartIfPlaying(); });
   media.addEventListener('timeupdate', () => {
     if (state.role === 'host' && state.source === 'file') { updateTransport(); syncState(); }
   });
