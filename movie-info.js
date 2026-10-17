@@ -356,7 +356,9 @@
     labeled(scoreGrid,'TMDB community',data.score ? data.score.toFixed(1) + '/10' + (data.votes ? ' · ' + data.votes.toLocaleString() + ' votes' : '') : 'Not rated');
     if (data.imdbScore) labeled(scoreGrid,'IMDb via OMDb',data.imdbScore + '/10');
     if (data.metacritic) labeled(scoreGrid,'Metacritic via OMDb',data.metacritic + '/100');
-    for (const rating of data.ratings || []) labeled(scoreGrid,rating.source,rating.value);
+    for (const rating of data.ratings || []) {
+      if (!/Internet Movie Database|Metacritic/i.test(rating.source || '')) labeled(scoreGrid,rating.source,rating.value);
+    }
     const production = section(ui.results,'Production & finances');
     const financial = line(production,'div','mi-stats');
     labeled(financial,'Budget',data.kind === 'movie' ? plainMoney(data.budget) : 'Not consistently reported for TV');
@@ -483,6 +485,12 @@
   });
   window.MarmaladeInfoShare = () => share(displayed);
   window.MarmaladeInfoReceive = payload => {
+    if (payload === null) {
+      displayed = null; detected = null;
+      ui.matches.replaceChildren();ui.results.replaceChildren();
+      status('Host is identifying the video');
+      closePanel(); return;
+    }
     if (!payload || typeof payload !== 'object' || typeof payload.title !== 'string' ||
       payload.title.length > 250 || !['movie','tv'].includes(payload.kind) ||
       !Array.isArray(payload.cast) || payload.cast.length > 40) return;
