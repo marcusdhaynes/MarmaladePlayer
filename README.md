@@ -45,3 +45,26 @@ python -m http.server 8080
 Then visit `http://localhost:8080`. Chrome, Edge, and Firefox provide the strongest browser-based file/streaming support; Safari uses the canvas capture fallback.
 
 Made for lightweight movie nights.
+
+## Cross-platform support
+
+Marmalade Player is a **responsive web app**, not an OS-specific executable. Guests open the same HTTPS link in a modern browser. No guest installation is needed.
+
+| Platform | Local-file hosting | Guest playback | Window sharing |
+|---|---|---|---|
+| Windows, macOS, Linux (modern desktop browsers) | Supported for browser-decodable files | Supported | Supported if the browser/OS allows it |
+| Android browsers | Supported for browser-decodable files | Supported; touch to enable sound if prompted | Generally unavailable in mobile browsers |
+| iPhone / iPad Safari and other iOS browsers | Supported when the installed WebKit version can capture and encode media | Supported; tap-to-play may be required | Usually unavailable on iOS/iPadOS browsers |
+| Other platforms with current HTML5 + WebRTC browsers | Capability-dependent | Capability-dependent | Capability-dependent |
+
+Additional compatibility details:
+
+- Touch-friendly controls and mobile-responsive layout.
+- iPhone/iPad: device hardware controls set volume; playback stays inline unless native video fullscreen is available. A CSS theater-mode fallback provides expanded viewing.
+- Mobile hosts use a lower capture ceiling (720p / 24 fps) to reduce encoding load, heat, and lag.
+- Where available, Screen Wake Lock helps keep an active hosting tab awake. Mobile OSes may still stop capture if the tab is backgrounded; **keep the hosting tab foregrounded**.
+- Different browsers decode different video/audio codecs. There is no reliable universal-format support without host-side conversion or a native helper.
+- Connections need HTTPS and internet signaling. TURN relay infrastructure is required for reliable connectivity on more restrictive Wi-Fi, mobile networks, and corporate/firewall setups.
+- Tested using Chromium desktop and mobile viewport emulations, not a physical-device certification program. Verify with real iOS Safari, Android, and target desktop browsers before promising production compatibility.
+
+GitHub Pages deployment requires a **public** Pages-capable repository or a paid plan that supports private Pages, plus a repo rename to `marmaladeplayer`. The current source repository is still `marmaladeplayer05-21118134`.
