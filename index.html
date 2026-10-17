@@ -136,6 +136,39 @@ body.theater-open{overflow:hidden}
 .popover-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .popover-heading button{border:1px solid #635452;background:#2b282e;color:#f8e6d2;border-radius:7px;padding:4px 9px;min-width:29px;min-height:27px}
 @media(max-width:650px){.theater-popover{bottom:8px;max-height:calc(100% - 16px);overflow-y:auto}}
+
+/* Compact action-first panel */
+.workspace{grid-template-columns:minmax(0,1fr) 302px;gap:20px}
+.compact-sidepanel{padding:17px 15px;border-radius:13px;box-shadow:none}
+.compact-join,.compact-room{display:flex;flex-direction:column;gap:8px}
+.compact-sidepanel [hidden]{display:none!important}
+.compact-label{font-size:12px;font-weight:750;color:#f7e9dc;display:flex;gap:8px;align-items:center}
+.compact-icon{color:var(--orange);font-weight:900}
+.compact-sidepanel .text-input{margin:0;padding:12px 10px;border-radius:8px;font-size:11px}
+.compact-help{font-size:10px;line-height:1.45;color:#9b949a;margin:0}
+.compact-heading{display:flex;align-items:center;gap:8px;font-size:12px}
+.compact-heading strong{flex:1}
+.room-indicator{width:7px;height:7px;flex-shrink:0;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px #8ccd9e18}
+.compact-text-btn{color:#f4ba81;font-size:10px;border:0;background:none;padding:6px;cursor:pointer}
+.compact-text-btn:hover{color:#ffe5c2;text-decoration:underline}
+.compact-copy{margin:0}
+.compact-copy input{font-size:10px}
+.compact-room-code{font:700 12px/1.4 ui-monospace,monospace;color:var(--orange)}
+.compact-separator{height:1px;background:#ffffff19;margin:14px 0}
+.compact-sidepanel .hosted-link{margin:0;background:transparent;border:0;border-radius:0;padding:0;gap:9px}
+.compact-sidepanel .hosted-link small{font-size:10px;line-height:1.48}
+.compact-sidepanel .hosted-link input{font-size:11px;padding:10px;border-radius:7px}
+.compact-sidepanel .hosted-link button{padding:10px 6px;font-size:11px;font-weight:700}
+.stage.is-pickable{cursor:pointer}
+.stage.is-pickable:hover{border-color:#aa7953}
+.stage.is-pickable:focus-visible{outline:2px solid var(--orange);outline-offset:3px}
+.stage.is-pickable .stage-empty .play-disc{transition:transform .17s,border-color .17s}
+.stage.is-pickable:hover .stage-empty .play-disc{transform:scale(1.06);border-color:#ffbc7f}
+.settings-tools{display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid #ffffff20}
+.settings-tools button.settings-utility{border:1px solid #594a48;background:#28252b;color:#ffe6be;padding:8px;border-radius:7px}
+.theater-popover .settings-tools .local-copy{margin:0}
+@media(max-width:1080px){.workspace{grid-template-columns:minmax(0,1fr) 286px;gap:15px}.compact-sidepanel{padding:15px}}
+@media(max-width:800px){.workspace{grid-template-columns:1fr;gap:13px}.compact-sidepanel{width:100%;padding:14px}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
 
@@ -156,9 +189,9 @@ body.theater-open{overflow:hidden}
           <video id="player" playsinline preload="metadata"></video>
           <div class="stage-empty" id="stageEmpty">
             <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="m12 8 13 8-13 8V8Z" fill="currentColor"/></svg></span></div>
-            <span class="eyebrow" id="stageEyebrow">YOUR PRIVATE CINEMA</span>
-            <h1 id="stageTitle">Good movies.<em> Better company.</em></h1>
-            <p id="stageSubtitle">Choose a video and invite someone. Nothing to upload, nothing to install.</p>
+            <span class="eyebrow" id="stageEyebrow">CLICK TO HOST</span>
+            <h1 id="stageTitle">Choose a movie.</h1>
+            <p id="stageSubtitle">Click here or drop a video file to start your room.</p>
           </div>
           
           <div class="theater-top">
@@ -203,34 +236,54 @@ body.theater-open{overflow:hidden}
             <label><input type="checkbox" id="peerAssist" checked> Peer rescue</label>
             <button type="button" id="diagnosticsToggle" aria-expanded="false">Diagnostics</button>
             <div class="stability-info" id="stabilityInfo" hidden role="status" aria-live="off">Waiting for playback statistics.</div>
+            <div class="settings-tools">
+              <button type="button" id="screenShareBtn" class="settings-utility">Share a video-player window</button>
+              <div class="local-copy" id="localCopyPanel" hidden><small>Already have the same movie? Verify your local copy for bandwidth-free playback.</small>
+                <button type="button" id="localCopyButton">Use my local copy</button>
+                <input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4v" hidden>
+                <small id="localCopyStatus">Optional · your file stays on your device.</small>
+              </div>
+            </div>
           </div>
         </div>
         <div class="below-stage"><span><span class="small-shield">✳</span> Video streams peer-to-peer. No video file upload.</span><span id="mediaHint">Optimized for low latency, not zero latency.</span></div>
       </section>
 
-      <aside class="sidepanel" aria-label="Watch party setup">
-        <div class="panel-intro"><div class="tiny-pill">WELCOME TO MOVIE NIGHT</div><h2>Watch together.<br><span>From anywhere.</span></h2><p>Your movie, your room, your rules.</p></div>
-        <div class="role-tabs" role="tablist" aria-label="Choose a role"><button id="hostTab" role="tab" aria-selected="true" class="active">Host a room</button><button id="joinTab" role="tab" aria-selected="false">Join a room</button></div>
-        <div id="hostPanel" class="role-panel">
-          <div class="step-heading"><span class="step-num">01</span><div><strong>Pick what to watch</strong><small>Plays straight from your device</small></div></div>
-          <div class="file-picker"><button class="file-btn" id="chooseFile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4v16m-8-8h16"/></svg> Choose a video file</button><input id="fileInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg" hidden><p id="fileInfo">MP4, WebM, and browser-supported media. Or drop a file on the player.</p></div>
-          <button class="fallback-link" id="screenShareBtn">File won't play? Share a video-player window <span>↗</span></button>
-          <div class="hosted-link"><small><strong>Buffer-first / CDN option:</strong> enter your own public HLS (.m3u8) or MP4 URL. This distributes video directly from its host instead of your upload connection. Requires CORS-enabled hosting.</small>
-            <input type="url" id="hostedUrl" placeholder="https://your-media-host/movie.m3u8" aria-label="Hosted video URL" autocomplete="off">
-            <input type="url" id="fallbackUrl" placeholder="Optional backup URL (failover)" aria-label="Fallback video URL" autocomplete="off">
-            <button type="button" id="hostedStart">Use hosted video + create room</button>
-          </div>
-          <div class="panel-line"></div>
-          <div class="step-heading"><span class="step-num">02</span><div><strong>Your watch room</strong><small>Automatically created when you choose a file</small></div></div>
-          <button id="createRoom" class="primary-btn" hidden>Create watch room <span>→</span></button>
-          <div id="hostActive" class="active-room" hidden><div class="room-label"><span>YOUR ROOM LINK</span><span class="room-live">● OPEN</span></div><div class="copy-row"><input id="inviteLink" readonly aria-label="Invite link"><button id="copyLink" aria-label="Copy invite link" title="Copy link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg></button></div><p>Send this link to your guest. Keep this tab open.</p><button id="startBroadcast" class="primary-btn stream-btn" disabled>Start watching <span>▶</span></button><button id="endRoom" class="soft-btn">End room</button></div>
-        </div>
-        <div id="joinPanel" class="role-panel" hidden><div class="step-heading"><span class="step-num">01</span><div><strong>Enter your invite</strong><small>Paste a link or a room code</small></div></div><label class="field-label" for="roomInput">ROOM CODE OR LINK</label><input id="roomInput" class="text-input" type="text" placeholder="Paste the host’s room link" autocomplete="off" spellcheck="false"><button id="joinRoom" class="primary-btn">Join the watch party <span>→</span></button><div class="local-copy" id="localCopyPanel" hidden><small><strong>Already have the same movie?</strong> Select your local copy. Marmalade verifies a fingerprint and syncs directly with the host—no video bandwidth needed.</small>
-            <button type="button" id="localCopyButton">Use my local copy</button><input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4v" hidden>
-            <small id="localCopyStatus">Optional. Otherwise you receive the stream as usual.</small></div><div id="joinActive" class="active-room" hidden><div class="room-label"><span>CONNECTED ROOM</span><span class="room-live">● JOINED</span></div><strong id="joinedCode" class="joined-code">—</strong><p>Anyone can play, pause, skip or seek for the whole room. Your volume and quality are yours.</p><button id="leaveRoom" class="soft-btn">Leave room</button></div><p class="joining-tip">Only your host needs the video file. You don't.</p></div>
-        <div class="panel-footer"><div class="footer-mark">✴</div><div><strong>Made to feel like you're there.</strong><span>Lightweight. Private-by-design. Almost instant.</span></div></div>
+
+      <aside class="sidepanel compact-sidepanel" aria-label="Watch room">
+        <section class="compact-join" id="joinSection">
+          <label for="roomInput" class="compact-label"><span class="compact-icon">↗</span> Join a room</label>
+          <input id="roomInput" class="text-input" type="text" placeholder="Paste invitation link or room code" autocomplete="off" spellcheck="false" aria-describedby="joinHelp">
+          <p class="compact-help" id="joinHelp">Paste an invite to join automatically.</p>
+        </section>
+        <section id="hostActive" class="compact-room" hidden>
+          <div class="compact-heading"><span class="room-indicator"></span><strong>Hosting</strong><button id="endRoom" type="button" class="compact-text-btn">End room</button></div>
+          <div class="copy-row compact-copy"><input id="inviteLink" readonly aria-label="Your invitation link"><button id="copyLink" type="button" title="Copy invite link" aria-label="Copy invite link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg></button></div>
+          <p class="compact-help">Copy this link to invite someone.</p>
+        </section>
+        <section id="joinActive" class="compact-room" hidden>
+          <div class="compact-heading"><span class="room-indicator"></span><strong>Watching together</strong><button id="leaveRoom" type="button" class="compact-text-btn">Leave</button></div>
+          <span id="joinedCode" class="compact-room-code">—</span>
+        </section>
+        <div class="compact-separator"></div>
+        <section class="hosted-link compact-cdn" aria-label="Buffer-first CDN video">
+          <small><strong>Buffer-first / CDN option:</strong> enter your own public HLS (.m3u8) or MP4 URL. This distributes video directly from its host instead of your upload connection. Requires CORS-enabled hosting.</small>
+          <input type="url" id="hostedUrl" placeholder="https://your-media-host/movie.m3u8" aria-label="Hosted video URL" autocomplete="off">
+          <input type="url" id="fallbackUrl" placeholder="Optional backup URL (failover)" aria-label="Fallback video URL" autocomplete="off">
+          <button type="button" id="hostedStart">Use hosted video + create room</button>
+        </section>
       </aside>
-    </main>
+      <div class="compatibility-controls" hidden aria-hidden="true">
+        <div class="role-tabs"><button id="hostTab" type="button">Host</button><button id="joinTab" type="button">Join</button></div>
+        <div id="hostPanel">
+          <button id="chooseFile" type="button">Choose video</button>
+          <input id="fileInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg">
+          <span id="fileInfo"></span>
+          <button id="createRoom" type="button">Create room</button>
+          <button id="startBroadcast" type="button">Start broadcast</button>
+        </div>
+        <div id="joinPanel"><button id="joinRoom" type="button">Join</button></div>
+      </div>   </main>
     <footer class="footer"><span>© Marmalade Player</span><span>Local playback · WebRTC streaming · Invite-only rooms</span></footer>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
