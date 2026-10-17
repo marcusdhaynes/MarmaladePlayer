@@ -77,7 +77,7 @@ try {
     await page.locator('#bufferToggle').click({force:true});
     assert.equal(await page.locator('#bufferToggle').getAttribute('aria-pressed'),'true');
     assert.equal(await page.locator('#bufferReadout').isVisible(),true);
-    assert.match((await page.locator('#bufferReadout').textContent()).trim(),/^(?:—|\\d+\\.\\d)s$/,'Only forward seconds appear');
+    assert.match((await page.locator('#bufferReadout').textContent()).trim(),/^(?:—|\d+\.\d)s$/,'Only forward seconds appear');
     await page.locator('#bufferToggle').click({force:true});
     assert.equal(await page.locator('#bufferReadout').isVisible(),false);
     await page.locator('#fpsToggle').click({force:true});
