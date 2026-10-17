@@ -182,11 +182,11 @@ try {
     const directory=mkdtempSync(join(tmpdir(),'marmalade-sync-'));
     let fixture;
     try {
-      const filename=join(directory,'movie.mp4');
+      const filename=join(directory,'movie.webm');
       execFileSync('ffmpeg',['-hide_banner','-loglevel','error',
         '-f','lavfi','-i','color=c=black:s=64x64:r=5','-t','2',
-        '-an','-c:v','libx264','-pix_fmt','yuv420p',
-        '-preset','ultrafast','-crf','42','-movflags','+faststart','-y',filename],
+        '-an','-c:v','libvpx','-pix_fmt','yuv420p',
+        '-deadline','realtime','-cpu-used','5','-crf','42','-b:v','0','-y',filename],
         {timeout:20000});
       fixture=readFileSync(filename);
     } finally {rmSync(directory,{recursive:true,force:true});}
@@ -210,24 +210,27 @@ try {
     assert.equal(await page.locator('#settingsPanel #localCopyPanel').count(),0,'No hidden duplicate controls');
     await page.evaluate(fp=>{
       const conn=window.__connections[0];
-      conn.callbacks.data({type:'state',mediaKind:'file',name:'movie.mp4',
+      conn.callbacks.data({type:'state',mediaKind:'file',name:'movie.webm',
         fingerprint:fp,revision:0,playing:false,time:0,duration:2,sourceWidth:64,
         sourceHeight:64,live:true});
     },sampledFingerprint(fixture));
     await page.waitForFunction(()=>!document.querySelector('#localCopyButton').disabled);
-    await page.locator('#localCopyInput').setInputFiles({name:'wrong-name.mp4',
-      mimeType:'video/mp4',buffer:fixture});
+    await page.locator('#localCopyInput').setInputFiles({name:'wrong-name.webm',
+      mimeType:'video/webm',buffer:fixture});
     await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('Filename differs'));
     assert.equal(await page.locator('#player').getAttribute('src'),null,
       'Wrong filename must not replace a guest media stream');
-    await page.locator('#localCopyInput').setInputFiles({name:'movie.mp4',
-      mimeType:'video/mp4',buffer:Buffer.from('definitely not the same movie')});
+    await page.locator('#localCopyInput').setInputFiles({name:'movie.webm',
+      mimeType:'video/webm',buffer:Buffer.from('definitely not the same movie')});
     await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('content or file size differs'));
     assert.equal(await page.locator('#player').getAttribute('src'),null,
       'Wrong content must keep streaming as fallback');
-    await page.locator('#localCopyInput').setInputFiles({name:'movie.mp4',
-      mimeType:'video/mp4',buffer:fixture});
-    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('Verified ✓'),null,{timeout:12000});
+    await page.locator('#localCopyInput').setInputFiles({name:'movie.webm',
+      mimeType:'video/webm',buffer:fixture});
+    await page.waitForTimeout(1400);
+    console.log('LOCAL SYNC TRACE',await page.locator('#localCopyStatus').textContent(),
+      'video src:',await page.locator('#player').getAttribute('src'),'browserErrors:',errors);
+    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('Verified ✓'),null,{timeout:6000});
     assert((await page.locator('#player').getAttribute('src')).startsWith('blob:'),
       'Matching playable local file must replace the incoming stream');
     assert.equal(await page.locator('#localCopyButton').isDisabled(),true);
