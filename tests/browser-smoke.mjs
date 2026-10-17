@@ -84,7 +84,8 @@ try {
     const order = await page.locator('.theater-bottom button').evaluateAll(buttons=>buttons.map(b=>b.id));
     assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','subtitlesBtn','mediaInfoToggle','popoutBtn','fullscreenBtn','settingsBtn']);
     assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,'Info drawer starts closed');
-    await page.locator('#mediaInfoToggle').click({force:true});
+    await page.waitForFunction(() => typeof window.MarmaladeInfoShare === 'function');
+    await page.locator('#mediaInfoToggle').evaluate(button => button.click()); // Theater controls are intentionally hover-hidden until media loads.
     assert.equal(await page.locator('#mediaInfoPanel').isVisible(),true,'Info button opens drawer');
     assert.equal(await page.locator('#miSources').count(),1,'API sources exist');
     await page.locator('#miClose').click();
