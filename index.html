@@ -320,6 +320,7 @@ body.theater-open{overflow:hidden}
     loadSubtitle: $('loadSubtitle'), hideSubtitle: $('hideSubtitle'), popoutBtn: $('popoutBtn'),
     bufferedFill: $('bufferedFill'), bufferMeterFill: $('bufferMeterFill'), bufferText: $('bufferText'),
     closeSettings: $('closeSettingsPanel'), closeSubtitles: $('closeSubtitlePanel'),
+    joinSection: $('joinSection'),
   };
   const media = el.player;
   const PEER_PREFIX = 'marmalade-';
@@ -391,7 +392,7 @@ body.theater-open{overflow:hidden}
     bufferedMode: false, waitingForBuffer: false, hostSyncVersion: 0, pendingHostedLoad: '', hostedFallbackOf: '',
     localLastSync: 0, hostedLastSync: 0, statsPrev: null, observedRtt: 0, statsSamples: [],
     peerCache: new Map(), peerCacheBytes: 0, peerTransfer: new Map(),
-    peerAssistance: true, heldForBuffer:false,
+    peerAssistance: true, heldForBuffer:false, joinDebounce: null,
     showStatus: true, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
@@ -1038,9 +1039,9 @@ body.theater-open{overflow:hidden}
     updateDiagnostics();
   }
   function beginHostedStream() {
-    if(state.role!=='host')return;
     const url=validMediaUrl(el.hostedUrl.value), backup=validMediaUrl(el.fallbackUrl.value);
     if(!url){notify('Enter a public HTTPS media URL.');return;}
+    if(state.role!=='host') selectRole('host');
     closeConnections();removeMedia();
     state.hostedUrl=url;state.backupUrl=backup; state.hostedFallbackOf=''; state.source='hosted';state.fileReady=true;
     state.bufferTarget=60;
@@ -1048,6 +1049,7 @@ body.theater-open{overflow:hidden}
     el.fileInfo.textContent='Independent CDN playback; 10–120s of forward buffer when available.';
     void loadHostedPlayback(url);
     void createRoom();
+    updateRoomPanel();
   }
   function recoveryCheck() {
     if(state.role!=='guest'||!state.guestConn?.open)return;
@@ -1101,6 +1103,7 @@ body.theater-open{overflow:hidden}
     badge('');
     leaveTheater();
     buildQualitySelect();
+    updateRoomPanel();
   }
   function stopBroadcast(keepScreen = false) {
     state.broadcasting = false;
@@ -1156,8 +1159,41 @@ body.theater-open{overflow:hidden}
     updateTransport();
     buildQualitySelect();
   }
+
+  function updateRoomPanel() {
+    el.joinSection.hidden = !el.hostActive.hidden || !el.joinActive.hidden || state.connecting;
+    const canPick = !state.source && !state.connecting && !state.peer && !state.guestConn;
+    el.stage.classList.toggle('is-pickable', canPick);
+    el.stage.setAttribute('aria-label', canPick ?
+      'Click to choose a movie and host' : 'Watch-together video player');
+    if (canPick && state.role === 'host') {
+      el.stageEyebrow.textContent = 'CLICK TO HOST';
+      el.stageTitle.textContent = 'Choose a movie.';
+      el.stageSubtitle.textContent = 'Click here or drop a video file to start your room.';
+    }
+  }
+  function selectHostFile(file) {
+    if (!isVideoFile(file)) { notify('Choose a video or audio file.'); return; }
+    clearTimeout(state.joinDebounce);
+    if (state.role !== 'host') selectRole('host');
+    el.joinInput.value = '';
+    chooseVideo(file);
+    updateRoomPanel();
+  }
+  function openMoviePicker() {
+    if (state.source || state.connecting || state.peer || state.guestConn) return;
+    if (state.role !== 'host') selectRole('host');
+    el.fileInput.click();
+  }
+  function autoJoinCode() {
+    const code = parseCode(el.joinInput.value);
+    if (!code || state.connecting || state.guestConn?.open) return;
+    if (state.role === 'host' && state.peer && state.source) return;
+    void joinRoom();
+  }
   function selectRole(role) {
     if (role === state.role) return;
+    clearTimeout(state.joinDebounce);
     closeConnections();
     removeMedia();
     state.role = role;
@@ -1170,10 +1206,11 @@ body.theater-open{overflow:hidden}
     el.hostPanel.hidden = !host;
     el.joinPanel.hidden = host;
     el.network.textContent = 'P2P READY';
-    if (host) setStage('Ready for movie night?', 'Choose your video to begin.', 'YOUR PRIVATE CINEMA');
+    if (host) setStage('Choose a movie.', 'Click the video area to select a file.', 'CLICK TO HOST');
     else setStage('You’re invited.', 'Enter the room link and watch live with your host.', 'THE BEST SEAT IS YOURS');
     updateTransport();
     buildQualitySelect();
+    updateRoomPanel();
   }
   function isVideoFile(file) {
     return !!file && (file.type.startsWith('video/') || file.type.startsWith('audio/') || /\.(mkv|avi|mov|m4v|ts|m2ts|flv|wmv|mp4|webm|mp3|flac|wav|ogg)$/i.test(file.name));
@@ -1199,6 +1236,7 @@ body.theater-open{overflow:hidden}
     el.startBroadcast.disabled = true;
     if (!state.peer && !state.connecting) void createRoom();
     syncState();
+    updateRoomPanel();
   }
   function setupHostConnections(peer) {
     peer.on('connection', (conn) => {
@@ -1463,6 +1501,7 @@ body.theater-open{overflow:hidden}
       state.code = code;
       el.inviteLink.value = inviteUrl(code);
       el.hostActive.hidden = false;
+      updateRoomPanel();
       el.createRoom.disabled = true;
       el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
       connection('Room is ready', 'online');
@@ -1605,6 +1644,7 @@ body.theater-open{overflow:hidden}
     state.code = code;
     state.connecting = true;
     el.joinRoom.disabled = true;
+    updateRoomPanel();
     connection('Connecting…');
     setStage('Finding your party…', 'Connecting securely to your host.', 'JOINING');
     const peer = new window.Peer(PEER_OPTIONS);
@@ -1619,6 +1659,7 @@ body.theater-open{overflow:hidden}
         state.connecting = false;
         el.joinActive.hidden = false;
         el.joinedCode.textContent = code;
+        updateRoomPanel();
         el.joinRoom.disabled = true;
         connection('Watching with host', 'online');
         renderCount();
@@ -1667,6 +1708,7 @@ body.theater-open{overflow:hidden}
     });
   }
   function leaveRoom() {
+    clearTimeout(state.joinDebounce);
     closeConnections();
     removeMedia();
     if (state.role === 'guest') setStage('You’re invited.', 'Enter a room link and watch live with your host.', 'THE BEST SEAT IS YOURS');
@@ -2049,13 +2091,32 @@ body.theater-open{overflow:hidden}
     }catch{notify('Play a video first to use pop-out.');}
   });
   window.setInterval(()=>{updateBufferDisplay();updateSubtitles();updateStatusDisplay();},500);
+
+  el.stage.addEventListener('click', event => {
+    if (event.target.closest('button,input,select,label,.theater-popover')) return;
+    if (el.stage.classList.contains('is-pickable')) openMoviePicker();
+  });
+  el.stage.addEventListener('keydown', event => {
+    if (event.target !== el.stage || !['Enter',' '].includes(event.key)) return;
+    if (!el.stage.classList.contains('is-pickable')) return;
+    event.preventDefault();openMoviePicker();
+  });
+  el.joinInput.addEventListener('input', () => {
+    clearTimeout(state.joinDebounce);
+    if (parseCode(el.joinInput.value))
+      state.joinDebounce = setTimeout(autoJoinCode,220);
+  });
+  el.joinInput.addEventListener('paste', () => {
+    clearTimeout(state.joinDebounce);
+    state.joinDebounce = setTimeout(autoJoinCode,260);
+  });
   el.hostTab.addEventListener('click', () => selectRole('host'));
   el.joinTab.addEventListener('click', () => selectRole('guest'));
   el.chooseFile.addEventListener('click', () => el.fileInput.click());
-  el.fileInput.addEventListener('change', (event) => { if (event.target.files[0]) chooseVideo(event.target.files[0]); event.target.value = ''; });
-  el.stage.addEventListener('dragover', (event) => { if (state.role === 'host') { event.preventDefault(); el.stage.classList.add('dragover'); } });
+  el.fileInput.addEventListener('change', (event) => { if (event.target.files[0]) selectHostFile(event.target.files[0]); event.target.value = ''; });
+  el.stage.addEventListener('dragover', (event) => { event.preventDefault(); el.stage.classList.add('dragover'); });
   el.stage.addEventListener('dragleave', () => el.stage.classList.remove('dragover'));
-  el.stage.addEventListener('drop', (event) => { if (state.role === 'host') { event.preventDefault(); el.stage.classList.remove('dragover'); chooseVideo(event.dataTransfer.files?.[0]); } });
+  el.stage.addEventListener('drop', (event) => { event.preventDefault(); el.stage.classList.remove('dragover'); if (event.dataTransfer.files?.[0]) selectHostFile(event.dataTransfer.files[0]); });
   el.screenShare.addEventListener('click', shareScreen);
   el.hostedStart.addEventListener('click',beginHostedStream);
   el.localCopyButton.addEventListener('click',()=>el.localCopyInput.click());
@@ -2188,9 +2249,11 @@ body.theater-open{overflow:hidden}
   });
   const queryCode = parseCode(new URLSearchParams(window.location.search).get('room'));
   if (queryCode) {
-    selectRole('guest');
     el.joinInput.value = queryCode;
-    setStage('Your seat is ready.', 'Press “Join the watch party” to connect to your host.', 'INVITED TO WATCH');
+    setStage('Joining your watch party…', 'Connecting to your host automatically.', 'YOUR INVITATION');
+    window.addEventListener('load', () => {
+      if (state.role === 'host' && !state.peer && !state.source) autoJoinCode();
+    }, {once:true});
   }
   if (!navigator.mediaDevices?.getDisplayMedia) {
     el.screenShare.disabled = true;
@@ -2210,6 +2273,7 @@ body.theater-open{overflow:hidden}
   buildQualitySelect();
   startFpsMeasurement();
   updateTransport();
+  updateRoomPanel();
 })();
 
 </script>
