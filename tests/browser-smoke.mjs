@@ -9,7 +9,10 @@ import { chromium } from 'playwright';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const infoJs = readFileSync(new URL('../movie-info.js', import.meta.url), 'utf8');
-const parserBody = infoJs.match(/function parseFilename\\(name\\) \\{[\\s\\S]*?\\n  \\}/)?.[0];
+const parserStart = infoJs.indexOf('function parseFilename(name) {');
+assert(parserStart >= 0, 'The filename parser must remain available');
+const parserEnd = infoJs.indexOf('\n  }', parserStart);
+const parserBody = infoJs.slice(parserStart, parserEnd + 4);
 assert(parserBody, 'The filename parser must remain available');
 const parseMovieFilename = new Function('name', 'return ('+parserBody+')(name)');
 assert.deepEqual(parseMovieFilename('The.Matrix.1999.1080p.BluRay.x264.mkv'),
