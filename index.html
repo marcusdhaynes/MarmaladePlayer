@@ -72,6 +72,66 @@ body.theater-open{overflow:hidden}
 .controls-left input#volume{width:95px;min-width:64px}
 .controls-right{flex-wrap:wrap;justify-content:flex-end}
 @media (max-width:510px){.controls-left input#volume{width:77px}.vol-mark{min-width:32px}}
+
+/* Marmalade Theater: unobtrusive overlay controls and accessible touch reveal. */
+.stage{background:#050506}
+.theater-top{position:absolute;z-index:9;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;gap:12px;pointer-events:none;align-items:center}
+.stage-state,.stage-fps{display:flex;gap:7px;align-items:center;min-width:0}
+.theater-pill{pointer-events:auto;border:1px solid #ffffff2a;background:#111319c9;color:#fff;border-radius:7px;padding:6px 9px;font-size:10px;font-weight:800;letter-spacing:.8px;cursor:pointer}
+.theater-pill[aria-pressed=false]{text-decoration:line-through;color:#a6a3ac}
+.stage-badge{position:static;display:inline-flex!important;padding:6px 9px;border:1px solid #ffffff2b;font-size:10px;letter-spacing:.35px;background:#111319d9}
+.stage-badge[hidden]{display:none!important}
+.stage-badge.is-broken .live-dot{background:#fd756e;box-shadow:0 0 7px #fd756e}
+.stage-badge.is-paused .live-dot{background:#ffbc74;box-shadow:none}
+.stage-fps .fps-overlay{position:static;background:#111319cf;color:#f6dfb9;font-size:11px;min-width:60px;text-align:center;padding:6px 7px;border-radius:6px;border:1px solid #ffffff24}
+.stage-fps .fps-overlay[hidden]{display:none}
+.theater-controls{position:absolute;z-index:8;bottom:0;left:0;right:0;padding:40px 16px 10px;background:linear-gradient(transparent,#050509d9 37%,#07070be8);opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .23s ease,transform .23s ease}
+.theater-top .theater-pill{opacity:0;transition:opacity .23s ease}
+.stage:hover .theater-controls,.stage:focus-within .theater-controls,.stage.controls-visible .theater-controls,.stage:fullscreen .theater-controls{opacity:1;transform:translateY(0);pointer-events:auto}
+.stage:hover .theater-top .theater-pill,.stage:focus-within .theater-top .theater-pill,.stage.controls-visible .theater-top .theater-pill{opacity:1}
+.stage:not(.has-video) .theater-controls{opacity:0;pointer-events:none}
+.theater-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:5px;color:#faf5ed;font-size:11px}
+.theater-title strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:650;max-width:70%}
+.theater-seek{display:flex;align-items:center;gap:9px;margin:0 0 7px}
+.theater-seek .timecode{font-size:10px;color:#e0d6d4}
+.seek-stack{position:relative;display:flex;align-items:center;min-width:0;flex:1;height:19px}
+.seek-stack input{position:relative;z-index:2;width:100%;margin:0;background:transparent;height:18px;accent-color:#ffac53}
+.seek-stack input::-webkit-slider-runnable-track{height:4px;background:#ffffff4d;border-radius:5px}
+.seek-stack input::-moz-range-track{height:4px;background:#ffffff4d;border-radius:5px}
+.seek-stack input::-webkit-slider-thumb{margin-top:-5px}
+.buffered-fill{position:absolute;z-index:1;left:0;top:50%;height:4px;width:0;transform:translateY(-50%);background:#ffc78b;opacity:.6;border-radius:6px;pointer-events:none}
+.theater-bottom,.theater-actions{display:flex;align-items:center;gap:6px}
+.theater-bottom{justify-content:space-between;gap:10px}
+.theater-right{justify-content:flex-end;min-width:0}
+.theater-controls .icon-btn{height:32px;width:34px;min-width:32px;font-size:17px;color:#fff;flex-shrink:0}
+.theater-controls .icon-btn:hover{background:#ffffff2d;color:#ffc17d}
+.theater-controls .skip-btn{font-size:24px;line-height:18px;position:relative}
+.theater-controls .skip-btn small{position:absolute;font-size:8px;top:12px;left:12px}
+.theater-controls .theater-play{background:#ffffff20;border-radius:9px;width:39px}
+.theater-controls #volume{width:92px;min-width:38px;height:18px;flex-shrink:1}
+.theater-controls .vol-mark{font-size:10px;min-width:30px;color:#e4d6d3}
+.buffer-line{display:flex;gap:7px;align-items:center;margin-top:5px;font-size:9px;color:#a7a5ab;min-height:12px}
+.buffer-meter{width:65px;height:3px;background:#ffffff2d;border-radius:99px;overflow:hidden}
+.buffer-meter span{display:block;height:100%;width:0;background:#ffaf61;transition:width .25s}
+.buffer-line .network-label{margin-left:auto;font-size:8px}
+.theater-popover{position:absolute;z-index:15;right:12px;bottom:87px;background:#19191feF;border:1px solid #665148;box-shadow:0 16px 45px #000b;border-radius:11px;padding:13px;width:min(300px,calc(100% - 24px));max-height:75%;overflow-y:auto;color:#e7e1dc;display:flex;flex-direction:column;gap:10px;font-size:11px}
+.theater-popover[hidden]{display:none}
+.theater-popover strong{font-size:13px}
+.theater-popover p{margin:0;color:#aaa1a6;font-size:11px}
+.theater-popover select,.theater-popover button{border:1px solid #594a48;border-radius:7px;background:#28252b;color:#ffe6be;padding:7px}
+.theater-popover label{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.theater-popover label.quality-control{font-size:11px}
+.theater-popover .quality-control select{max-width:160px}
+.theater-popover .quality-hint{margin:0;font-size:10px;min-height:0}
+.theater-popover .popover-actions{display:flex;gap:9px}
+.theater-popover .popover-actions button{flex:1}
+.theater-popover .stability-info{word-break:break-word;font-size:10px}
+.subtitle-overlay{position:absolute;z-index:6;bottom:98px;left:7%;right:7%;text-align:center;color:#fff;text-shadow:0 2px 3px #000,0 0 5px #000;background:#0005;font-weight:650;font-size:clamp(13px,2vw,24px);padding:4px 8px;pointer-events:none;white-space:pre-line}
+.subtitle-overlay[hidden]{display:none}
+@media(max-width:800px){.theater-controls{padding:27px 9px 8px}.theater-controls .icon-btn{width:29px;min-width:28px}.theater-controls #volume{width:64px}.theater-right{gap:1px}.theater-title{font-size:10px}.theater-popover{bottom:84px}}
+@media(max-width:450px){.theater-controls{padding:20px 5px 5px}.theater-controls .icon-btn{width:25px;min-width:25px;font-size:15px}.theater-controls .skip-btn{font-size:20px}.theater-controls .skip-btn small{top:10px;left:8px}.theater-controls #volume{width:42px}.theater-controls .vol-mark{min-width:27px;font-size:9px}.theater-bottom{gap:2px}.theater-actions{gap:1px}.theater-seek{gap:5px}.theater-seek .timecode{font-size:9px}.buffer-line{font-size:8px}.buffer-meter{width:38px}.theater-popover{bottom:77px}.subtitle-overlay{bottom:82px}}
+@media(pointer:coarse){.stage.controls-visible .theater-controls{opacity:1;pointer-events:auto}.stage:hover:not(.controls-visible) .theater-controls{opacity:0;pointer-events:none}.theater-controls .icon-btn{min-height:34px}.theater-top .theater-pill{min-height:30px}}
+@media(prefers-reduced-motion:reduce){.theater-controls,.theater-top .theater-pill{transition:none}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
 
@@ -88,37 +148,53 @@ body.theater-open{overflow:hidden}
 
     <main class="workspace">
       <section class="screen-column" aria-label="Video player">
-        <div class="stage" id="dropZone">
+        <div class="stage" id="dropZone" tabindex="0" aria-label="Video theater, tap to reveal controls">
           <video id="player" playsinline preload="metadata"></video>
-          <span class="fps-overlay" id="fpsOverlay" hidden aria-live="off">— FPS</span>
-          <button class="exit-theater" id="exitTheater" type="button" aria-label="Exit theater mode" title="Exit theater mode">✕</button>
-          <div class="stage-empty" id="stageEmpty">
-            <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="m12 8 13 8-13 8V8Z" fill="currentColor"/></svg></span></div>
-            <span class="eyebrow" id="stageEyebrow">YOUR PRIVATE CINEMA</span>
-            <h1 id="stageTitle">Good movies.<br><em>Better company.</em></h1>
-            <p id="stageSubtitle">Choose a video and invite someone. Nothing to upload, nothing to install.</p>
+          
+          <div class="theater-top">
+            <div class="stage-state"><button type="button" id="statusToggle" class="theater-pill" aria-pressed="true" title="Toggle playback status">STATUS</button><span class="stage-badge" id="stageBadge" hidden><span class="live-dot"></span><span id="stageBadgeText">Live</span></span></div>
+            <div class="stage-fps"><span class="fps-overlay" id="fpsOverlay" hidden aria-live="off">— FPS</span><button type="button" class="theater-pill fps-toggle" id="fpsToggle" aria-pressed="false" title="Toggle my displayed FPS">FPS</button></div>
           </div>
-          <div class="stage-badge" id="stageBadge" hidden><span class="live-dot"></span><span id="stageBadgeText">LIVE</span></div>
+          <div class="subtitle-overlay" id="subtitleOverlay" hidden></div>
           <button class="stage-overlay-play" id="overlayPlay" title="Play / pause" aria-label="Play or pause" hidden><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
-        </div>
-        <div class="transport" aria-label="Playback controls">
-          <div class="transport-row">
-            <div class="now-playing"><span class="now-label">NOW PLAYING</span><strong id="fileName">Nothing selected</strong></div>
-            <span class="watchers" id="viewerCount"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 watching</span></span>
+          <button class="exit-theater" id="exitTheater" type="button" aria-label="Exit theater mode" title="Exit theater mode">✕</button>
+          <div class="theater-controls" id="theaterControls" aria-label="Video controls">
+            <div class="theater-title"><strong id="fileName">Nothing selected</strong><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 watching</span></span></div>
+            <div class="theater-seek" id="seekArea">
+              <span class="timecode" id="currentTime">00:00</span>
+              <div class="seek-stack"><div id="bufferedFill" class="buffered-fill" aria-hidden="true"></div><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled></div>
+              <span class="timecode" id="duration">00:00</span>
+            </div>
+            <div class="theater-bottom">
+              <div class="theater-actions">
+                <button class="icon-btn skip-btn" id="skipBack" aria-label="Rewind 10 seconds" title="Rewind 10 seconds" disabled>↶<small>10</small></button>
+                <button class="icon-btn theater-play" id="playPause" title="Play / pause for everyone" aria-label="Play / pause" disabled><svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+                <button class="icon-btn skip-btn" id="skipForward" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled>↷<small>10</small></button>
+              </div>
+              <div class="theater-actions theater-right">
+                <button class="icon-btn" id="muteBtn" title="Mute / unmute for me" aria-label="Mute / unmute">◖))</button>
+                <input type="range" id="volume" value="100" min="0" max="200" step="1" aria-label="My volume from 0 to 200 percent">
+                <span class="vol-mark" id="volumeMark">100%</span>
+                <button type="button" class="icon-btn" id="subtitlesBtn" title="Subtitles" aria-label="Subtitles" aria-expanded="false">CC</button>
+                <button type="button" class="icon-btn" id="popoutBtn" title="Picture in Picture" aria-label="Pop out video">▣</button>
+                <button class="icon-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+                <button type="button" class="icon-btn" id="settingsBtn" title="Settings" aria-label="Video settings" aria-expanded="false">⚙</button>
+              </div>
+            </div>
+            <div class="buffer-line"><div class="buffer-meter"><span id="bufferMeterFill"></span></div><span id="bufferText">Buffer: checking…</span><span class="network-label" id="networkLabel">P2P READY</span></div>
           </div>
-          <div class="seekrow"><span class="timecode" id="currentTime">00:00</span><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled><span class="timecode" id="duration">00:00</span></div>
-          <div class="buttonrow">
-            <div class="controls-left"><button class="icon-btn" id="playPause" title="Play / pause" aria-label="Play / pause" disabled><svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button class="icon-btn skip-btn" id="skipBack" aria-label="Back 10 seconds" title="Back 10 seconds" disabled><svg viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 1 3 6.7M3 5v7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" fill="currentColor" font-size="8" font-weight="700">10</text></svg></button><button class="icon-btn skip-btn" id="skipForward" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled><svg viewBox="0 0 24 24" fill="none"><path d="M21 12a9 9 0 1 0-3 6.7M21 5v7h-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" fill="currentColor" font-size="8" font-weight="700">10</text></svg></button><span class="control-divider"></span><button class="icon-btn" id="muteBtn" title="Mute / unmute" aria-label="Mute / unmute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 0 1 0 6m2.5-9a8 8 0 0 1 0 12" stroke-linecap="round"/></svg></button><span class="vol-mark" id="volumeMark">100%</span><input type="range" id="volume" value="100" min="0" max="200" step="1" aria-label="My volume up to 200 percent"></div>
-            <div class="controls-right"><label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (recommended)</option></select></label><button class="fps-toggle" id="fpsToggle" type="button" aria-pressed="false" title="Show my displayed frames per second">FPS</button><span class="network-label" id="networkLabel">P2P READY</span><button class="icon-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Fullscreen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m13-5v4a1 1 0 0 1-1 1h-4"/></svg></button></div>
+          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><strong>Subtitles</strong><p id="subtitleName">Off · Supports .srt and .vtt</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" hidden></div>
+          <div class="theater-popover settings-popover" id="settingsPanel" hidden>
+            <strong>Playback settings</strong>
+            <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (recommended)</option></select></label>
+            <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
+            <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast">Lowest delay</option></select></label>
+            <label><input type="checkbox" id="strictSync" checked> Keep everyone together</label>
+            <label><input type="checkbox" id="peerAssist" checked> Peer rescue</label>
+            <button type="button" id="diagnosticsToggle" aria-expanded="false">Diagnostics</button>
+            <div class="stability-info" id="stabilityInfo" hidden role="status" aria-live="off">Waiting for playback statistics.</div>
           </div>
         </div>
-        <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
-        <div class="stability-strip"><label>Playback <select id="stabilityMode" aria-label="Stream stability">
-          <option value="smooth">Smooth (recommended)</option><option value="balanced">Balanced</option><option value="fast">Lowest delay</option>
-        </select></label><label><input type="checkbox" id="strictSync" checked> Keep everyone together</label>
-        <label title="When CDN segment downloads fail, optionally ask your host for cached fragments"><input type="checkbox" id="peerAssist" checked> Peer rescue</label>
-        <button id="diagnosticsToggle" type="button" aria-expanded="false">Diagnostics</button></div>
-        <div class="stability-info" id="stabilityInfo" hidden role="status" aria-live="off">Waiting for playback statistics.</div>
         <div class="below-stage"><span><span class="small-shield">✳</span> Video streams peer-to-peer. No video file upload.</span><span id="mediaHint">Optimized for low latency, not zero latency.</span></div>
       </section>
 
@@ -175,6 +251,11 @@ body.theater-open{overflow:hidden}
     peerAssist: $('peerAssist'), stabilityInfo: $('stabilityInfo'), localCopyPanel: $('localCopyPanel'), localCopyButton: $('localCopyButton'),
     localCopyInput: $('localCopyInput'), localCopyStatus: $('localCopyStatus'),
     hostedUrl: $('hostedUrl'), fallbackUrl: $('fallbackUrl'), hostedStart: $('hostedStart'),
+    controls: $('theaterControls'), settingsBtn: $('settingsBtn'), settingsPanel: $('settingsPanel'),
+    statusToggle: $('statusToggle'), subtitleBtn: $('subtitlesBtn'), subtitlePanel: $('subtitlePanel'),
+    subtitleOverlay: $('subtitleOverlay'), subtitleFile: $('subtitleFile'), subtitleName: $('subtitleName'),
+    loadSubtitle: $('loadSubtitle'), hideSubtitle: $('hideSubtitle'), popoutBtn: $('popoutBtn'),
+    bufferedFill: $('bufferedFill'), bufferMeterFill: $('bufferMeterFill'), bufferText: $('bufferText'),
   };
   const media = el.player;
   const PEER_PREFIX = 'marmalade-';
@@ -247,6 +328,9 @@ body.theater-open{overflow:hidden}
     localLastSync: 0, hostedLastSync: 0, statsPrev: null, observedRtt: 0, statsSamples: [],
     peerCache: new Map(), peerCacheBytes: 0, peerTransfer: new Map(),
     peerAssistance: true, heldForBuffer:false,
+    showStatus: true, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
+    clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
+    lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
   };
 
   function notify(message) {
@@ -385,13 +469,98 @@ body.theater-open{overflow:hidden}
       el.seek.value = '0';
     }
     el.playIcon.innerHTML = (state.role === 'guest' ? !state.hostPlaying : media.paused) ? PLAY_PATH : PAUSE_PATH;
+    updateStatusDisplay();
+    updateBufferDisplay();
     if (state.role === 'host') el.overlayPlay.hidden = !canControl;
     else if (media.srcObject && !media.paused) el.overlayPlay.hidden = true;
+  }
+
+  function updateStatusDisplay() {
+    const guest = state.role === 'guest';
+    const broken = Boolean(media.error || (guest && state.source === 'remote' &&
+      state.hostPlaying && state.mediaStallAt && performance.now() - state.mediaStallAt > 4000));
+    const paused = guest ? !state.hostPlaying : media.paused;
+    const label = broken ? 'Broken' : paused ? 'Paused' : 'Live';
+    el.badgeText.textContent = label;
+    el.badge.hidden = !state.showStatus || !(state.fileReady || state.source === 'remote' ||
+      state.localVerified || state.bufferedMode || state.broadcasting);
+    el.badge.classList.toggle('is-broken', broken);
+    el.badge.classList.toggle('is-paused', !broken && paused);
+  }
+  function revealControls() {
+    el.stage.classList.add('controls-visible');
+    clearTimeout(state.controlHideTimer);
+    if (!el.settingsPanel.hidden || !el.subtitlePanel.hidden || el.stage.matches(':focus-within')) return;
+    state.controlHideTimer = setTimeout(() => {
+      if (el.settingsPanel.hidden && el.subtitlePanel.hidden &&
+          !el.stage.matches(':focus-within')) el.stage.classList.remove('controls-visible');
+    }, 3600);
+  }
+  function updateBufferDisplay() {
+    if (!el.bufferMeterFill) return;
+    let buffered = 0, percent = 0, text = 'Buffer: checking…';
+    if ((state.bufferedMode || state.localVerified || state.source === 'file' || state.source === 'hosted') &&
+        Number.isFinite(media.duration) && media.duration > 0) {
+      let end = 0;
+      for(let i=0;i<media.buffered.length;i++){
+        if(media.buffered.start(i) <= media.currentTime + .1 && media.buffered.end(i) >= media.currentTime)
+          end = Math.max(end,media.buffered.end(i));
+      }
+      buffered = Math.max(0,end-media.currentTime);
+      percent = Math.min(100,buffered/(state.bufferTarget || 30)*100);
+      el.bufferedFill.style.width = `${Math.min(100,end/media.duration*100)}%`;
+      text = `Buffered ${buffered.toFixed(1)}s ahead`;
+    } else if (state.role === 'guest' && state.source === 'remote') {
+      const ms = Math.max(0,Math.round(state.jitterTarget || 0));
+      percent = Math.min(100,ms / 2000 * 100);
+      text = `Live jitter target ${ms}ms · no future buffer`;
+      el.bufferedFill.style.width = '0%';
+    } else {
+      el.bufferedFill.style.width = '0%';
+      text = 'Waiting for media';
+    }
+    el.bufferMeterFill.style.width = `${percent.toFixed(1)}%`;
+    el.bufferText.textContent = text;
+    el.bufferMeterFill.title = text;
+  }
+  function parseSubtitleTime(value) {
+    const parts = value.trim().replace(',','.').split(':').map(Number);
+    if (!parts.length || parts.some(v=>!Number.isFinite(v))) return NaN;
+    return parts.reduce((a,v)=>a*60+v,0);
+  }
+  function parseSubtitles(raw) {
+    const normalized = String(raw).replace(/\r\n?/g,'\n').replace(/^\uFEFF/,'');
+    const blocks = normalized.replace(/^WEBVTT[^\n]*\n(?:[^\n]*\n)*?\n/,'').split(/\n\s*\n/);
+    const cues = [];
+    for (const block of blocks) {
+      const lines = block.trim().split('\n');
+      const i = lines.findIndex(line=>line.includes('-->'));
+      if (i < 0) continue;
+      const [a,b] = lines[i].split('-->');
+      const start = parseSubtitleTime(a), end = parseSubtitleTime((b||'').trim().split(/\s+/)[0]);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end<=start || end-start>120) continue;
+      const body = lines.slice(i+1).join('\n').replace(/<[^>]*>/g,'').trim();
+      if(body) cues.push({start,end,text:body.slice(0,500)});
+      if(cues.length>=10000)break;
+    }
+    return cues.sort((a,b)=>a.start-b.start);
+  }
+  function updateSubtitles() {
+    if (!state.subtitlesEnabled || !state.subtitles.length || !el.stage.classList.contains('has-video')) {
+      el.subtitleOverlay.hidden = true; return;
+    }
+    const t = state.role === 'guest' ? Math.max(0, state.sharedTime +
+      (state.hostPlaying ? (performance.now()-state.sharedAt)/1000 : 0)) :
+      media.currentTime;
+    const cue=state.subtitles.find(c=>c.start<=t && c.end>=t);
+    el.subtitleOverlay.hidden = !cue;
+    if(cue && el.subtitleOverlay.textContent !== cue.text)el.subtitleOverlay.textContent=cue.text;
   }
   function showStage(show) {
     el.stage.classList.toggle('has-video', show);
     el.empty.hidden = show;
-    if (!show) { el.overlayPlay.hidden = true; needsTapToPlay(false); }
+    if (!show) { el.overlayPlay.hidden = true; needsTapToPlay(false);
+      el.settingsPanel.hidden = true; el.subtitlePanel.hidden = true; }
   }
   function setStage(title, subtitle, eyebrow) {
     el.stageTitle.textContent = title;
@@ -400,8 +569,8 @@ body.theater-open{overflow:hidden}
     showStage(false);
   }
   function badge(value) {
-    el.badge.hidden = !value;
-    el.badgeText.textContent = value || '';
+    state.statusDetail = value;
+    updateStatusDisplay();
   }
   function renderCount() {
     const count = state.role === 'host'
@@ -424,7 +593,8 @@ body.theater-open{overflow:hidden}
       mediaKind: state.source === 'hosted' ? 'hosted' : state.source,
       hostedUrl: state.source === 'hosted' ? state.hostedUrl : '',
       backupUrl: state.source === 'hosted' ? state.backupUrl : '',
-      strictSync: state.strictSync, heldForBuffer: !!state.heldForBuffer };
+      strictSync: state.strictSync, heldForBuffer: !!state.heldForBuffer,
+      ackPeer: state.lastTransportAck?.peer || '', ackId: state.lastTransportAck?.id || 0 };
   }
   function syncState() { if (state.role === 'host' && state.peer) broadcast(hostStatus()); }
   function issueKeyframe() {
@@ -438,7 +608,7 @@ body.theater-open{overflow:hidden}
   }
   // Everyone controls ONE authoritative media clock: the host's local file.
   // Guests never seek their live MediaStream (which has no seekable timeline).
-  function applyTransport(action, value) {
+  function applyTransport(action, value, commandPeer = '', commandId = 0) {
     if (state.role !== 'host' || !['file','hosted'].includes(state.source) || !state.fileReady) return;
     if (action === 'toggle') action = media.paused ? 'play' : 'pause';
     if (action === 'play') void media.play().catch(() => notify('Playback blocked. Tap play again.'));
@@ -452,6 +622,8 @@ body.theater-open{overflow:hidden}
       issueKeyframe();
     }
     state.transportRevision++;
+    state.lastTransportAck = commandPeer && Number.isSafeInteger(commandId) ?
+      {peer: commandPeer, id: commandId} : null;
     updateTransport();
     syncState();
   }
@@ -460,12 +632,26 @@ body.theater-open{overflow:hidden}
     const now = performance.now();
     const current = Math.min(state.sharedDuration, state.sharedTime + (state.hostPlaying ? (now - state.sharedAt) / 1000 : 0));
     if (action === 'toggle') state.hostPlaying = !state.hostPlaying;
+    if (action === 'play') state.hostPlaying = true;
+    if (action === 'pause') state.hostPlaying = false;
     if (action === 'skip' || action === 'seek')
       state.sharedTime = Math.min(state.sharedDuration, Math.max(0, action === 'seek' ? Number(value) : current + Number(value)));
     else state.sharedTime = current;
     state.sharedAt = now;
+    const id = ++state.clientCommandId;
+    state.pendingTransport = { id, expires: now + 2800 };
     updateTransport();
-    send(state.guestConn, { type: 'transport', action, value });
+    // For seekable sources this is an immediate local preview; P2P cannot
+    // display future frames until the host's stream reaches the requested position.
+    if (state.localVerified || state.bufferedMode) {
+      if (action === 'seek' || action === 'skip') {
+        try { media.currentTime = state.sharedTime; } catch {}
+      }
+      if (action === 'pause' || (action === 'toggle' && !state.hostPlaying)) media.pause();
+      if (action === 'play' || (action === 'toggle' && state.hostPlaying))
+        void media.play().catch(()=>needsTapToPlay(true));
+    }
+    send(state.guestConn, { type: 'transport', action, value, id });
   }
   function requirePeerJS() {
     if (!supportsCalls) {
@@ -822,6 +1008,7 @@ body.theater-open{overflow:hidden}
     state.guestQualitySample = null;
     state.remoteFingerprint = null;state.localVerified=false;
     state.hostPlaying = false; state.sharedDuration = 0; state.sharedTime = 0; state.sharedAt = 0;
+    state.pendingTransport = null; state.lastAcceptedRevision = -1; state.lastTransportAck = null;
     state.sourceHeight = 0; state.sourceWidth = 0;
     state.code = '';
     state.connecting = false;
@@ -915,7 +1102,7 @@ body.theater-open{overflow:hidden}
     state.localFingerprint = null;
     void fileFingerprint(file).then(hash=>{if(state.file===file){state.localFingerprint=hash;syncState();}}).catch(()=>{ /* Fingerprint unavailable in insecure browser context. */ });
     state.fileUrl = URL.createObjectURL(file);
-    media.muted = false;
+    media.muted = state.soundMuted || state.volumePercent === 0;
     media.autoplay = false;
     media.src = state.fileUrl;
     media.preload = 'auto';
@@ -983,7 +1170,7 @@ body.theater-open{overflow:hidden}
         }
         if (data.type === 'transport' && typeof data.action === 'string' &&
             ['toggle', 'play', 'pause', 'seek', 'skip'].includes(data.action)) {
-          applyTransport(data.action, data.value);
+          applyTransport(data.action, data.value, conn.peer, data.id);
         }
         if (data.type === 'quality' && entry.call && Number.isFinite(data.loss)) {
           entry.lastHealth={loss:data.loss,freezes:data.freezes||0,stalls:data.stalls||0,jitter:data.jitter||0};
@@ -1186,7 +1373,7 @@ body.theater-open{overflow:hidden}
         applyReceiverPlayout();
         media.srcObject = stream;
         media.autoplay = true;
-        media.muted = false;
+        media.muted = state.soundMuted || state.volumePercent === 0;
         state.source = 'remote';
         state.fileReady = false;
         showStage(true);
@@ -1230,12 +1417,23 @@ body.theater-open{overflow:hidden}
         void loadHostedPlayback(url);
       }
     }
-    if(Number.isInteger(data.revision) && data.revision>state.hostSyncVersion)state.hostSyncVersion=data.revision;
-    if (typeof data.playing === 'boolean') state.hostPlaying = data.playing;
-    if (Number.isFinite(data.duration) && data.duration > 0) state.sharedDuration = data.duration;
-    if (Number.isFinite(data.time) && data.time >= 0) {
-      state.sharedTime = data.time; state.sharedAt = performance.now();
-      if(state.localVerified || state.bufferedMode)void syncSeekablePlayback();
+    if (Number.isInteger(data.revision) && data.revision < state.lastAcceptedRevision) return;
+    const pending = state.pendingTransport;
+    const acknowledged = pending && data.ackPeer === state.peer?.id && data.ackId === pending.id;
+    const waitingForAck = pending && !acknowledged && performance.now() < pending.expires;
+    if (acknowledged || (pending && !waitingForAck)) state.pendingTransport = null;
+    // Don't overwrite a just-pressed button with a pre-command periodic host update.
+    if (!waitingForAck) {
+      if (Number.isInteger(data.revision)) {
+        state.lastAcceptedRevision = Math.max(state.lastAcceptedRevision,data.revision);
+        if (data.revision > state.hostSyncVersion) state.hostSyncVersion = data.revision;
+      }
+      if (typeof data.playing === 'boolean') state.hostPlaying = data.playing;
+      if (Number.isFinite(data.duration) && data.duration > 0) state.sharedDuration = data.duration;
+      if (Number.isFinite(data.time) && data.time >= 0) {
+        state.sharedTime = data.time; state.sharedAt = performance.now();
+        if(state.localVerified || state.bufferedMode)void syncSeekablePlayback();
+      }
     }
     if (Number.isFinite(data.sourceHeight) && data.sourceHeight >= 0 && data.sourceHeight <= 16384 &&
         Number.isFinite(data.sourceWidth) && data.sourceWidth >= 0 && data.sourceWidth <= 16384 &&
@@ -1247,7 +1445,7 @@ body.theater-open{overflow:hidden}
       sendQualityPreference();
     }
     if (typeof data.name === 'string' && data.name.length <= 250) el.fileName.textContent = data.name;
-    if (typeof data.time === 'number' && Number.isFinite(data.time) && data.time >= 0 && !state.seeking) {
+    if (!state.pendingTransport && typeof data.time === 'number' && Number.isFinite(data.time) && data.time >= 0 && !state.seeking) {
       el.current.textContent = timeString(data.time);
       if (Number.isFinite(data.duration) && data.duration > 0) {
         el.duration.textContent = timeString(data.duration);
@@ -1453,14 +1651,14 @@ body.theater-open{overflow:hidden}
   }
   function applyVolume() {
     const level = state.soundMuted ? 0 : state.volumePercent / 100;
+    // Native mute is a hard safety gate even when Web Audio exists but is suspended.
+    // Gain is applied to speakers only; it is never part of the outgoing P2P track.
+    const hardMute = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;
+    media.muted = hardMute;
+    try { media.volume = state.speakerGain ? 1 : Math.min(1,level); } catch {}
     if (state.speakerGain) {
       const now = state.audioContext.currentTime;
       state.speakerGain.gain.setTargetAtTime(level, now, 0.014);
-    } else {
-      try { media.volume = Math.min(1, level);
-        media.muted = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;
-      }
-      catch { /* Some mobile browsers control physical output volume only. */ }
     }
     el.volumeMark.textContent = `${state.volumePercent}%`;
     el.volume.value = String(state.volumePercent);
@@ -1475,9 +1673,11 @@ body.theater-open{overflow:hidden}
     state.volumePercent = next;
     if (next) { state.lastVolume = next / 100; state.soundMuted = false; }
     applyVolume();
-    if (next > 100 && !state.audioContext) void ensureAudioPlayback().then(ok => {
-      if (!ok) notify('Your browser may require a tap to enable audio above 100%.');
-    });
+    // Every slider gesture unlocks the gain graph, not only values over 100.
+    // A fallback to native volume is retained when Web Audio is unsupported.
+    void ensureAudioPlayback().then(ok => {
+      if (!ok && next > 100) notify('This browser may limit volume above 100%.');
+    }).catch(()=>{});
   }
   async function ensureAudioCapture() {
     await ensureAudioPlayback();
@@ -1657,6 +1857,61 @@ body.theater-open{overflow:hidden}
     el.stage.classList.add('fullscreen-fallback');
     document.body.classList.add('theater-open');
   }
+
+  // Stage controls fade when untouched; remain reachable through hover,
+  // keyboard focus and mobile tap.
+  el.stage.addEventListener('pointermove', revealControls, {passive:true});
+  el.stage.addEventListener('pointerdown', revealControls, {passive:true});
+  el.stage.addEventListener('focusin', revealControls);
+  el.stage.addEventListener('pointerleave', () => {
+    if (el.settingsPanel.hidden && el.subtitlePanel.hidden) {
+      clearTimeout(state.controlHideTimer);
+      el.controlHideTimer = setTimeout(() => {
+        if (!el.stage.matches(':focus-within')) el.stage.classList.remove('controls-visible');
+      }, 450);
+    }
+  });
+  function togglePopover(panel, button) {
+    const open=panel.hidden;
+    el.settingsPanel.hidden = true; el.subtitlePanel.hidden = true;
+    el.settingsBtn.setAttribute('aria-expanded', 'false');
+    el.subtitleBtn.setAttribute('aria-expanded', 'false');
+    panel.hidden=!open;button.setAttribute('aria-expanded',String(open));
+    revealControls();
+  }
+  el.settingsBtn.addEventListener('click',()=>togglePopover(el.settingsPanel,el.settingsBtn));
+  el.subtitleBtn.addEventListener('click',()=>togglePopover(el.subtitlePanel,el.subtitleBtn));
+  el.statusToggle.addEventListener('click',()=>{
+    state.showStatus=!state.showStatus;
+    el.statusToggle.setAttribute('aria-pressed',String(state.showStatus));
+    updateStatusDisplay();
+  });
+  el.loadSubtitle.addEventListener('click',()=>el.subtitleFile.click());
+  el.hideSubtitle.addEventListener('click',()=>{
+    state.subtitlesEnabled=false;updateSubtitles();el.subtitleName.textContent='Off';
+  });
+  el.subtitleFile.addEventListener('change', async ()=>{
+    const file=el.subtitleFile.files?.[0]; if(!file)return;
+    if(file.size>5*1024*1024){notify('Choose a subtitle file under 5 MB.');return;}
+    try{
+      const cues=parseSubtitles(await file.text());
+      if(!cues.length)throw Error('No readable subtitle cues');
+      state.subtitles=cues;state.subtitlesEnabled=true;
+      el.subtitleName.textContent=file.name+' · '+cues.length+' cues';
+      el.subtitlePanel.hidden=true;el.subtitleBtn.setAttribute('aria-expanded','false');
+      notify('Subtitles loaded locally.');
+    }catch(e){notify('Subtitle file could not be read. Try .srt or .vtt.');}
+    el.subtitleFile.value='';
+  });
+  el.popoutBtn.addEventListener('click',async ()=>{
+    try{
+      if(document.pictureInPictureElement){await document.exitPictureInPicture();}
+      else if(media.requestPictureInPicture){await media.requestPictureInPicture();}
+      else if(media.webkitSetPresentationMode){media.webkitSetPresentationMode('picture-in-picture');}
+      else notify('Pop-out is unavailable in this browser.');
+    }catch{notify('Play a video first to use pop-out.');}
+  });
+  window.setInterval(()=>{updateBufferDisplay();updateSubtitles();updateStatusDisplay();},500);
   el.hostTab.addEventListener('click', () => selectRole('host'));
   el.joinTab.addEventListener('click', () => selectRole('guest'));
   el.chooseFile.addEventListener('click', () => el.fileInput.click());
