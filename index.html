@@ -8,6 +8,7 @@
   <title>Marmalade Player — Watch together.</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2216%22%20fill%3D%22%2319191f%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2225%22%20fill%3D%22%23ffad45%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2219%22%20fill%3D%22none%22%20stroke%3D%22%2376452a%22%20stroke-width%3D%222%22%2F%3E%3Cpath%20d%3D%22M32%2013v38M13%2032h38M18.6%2018.6l26.8%2026.8m0-26.8L18.6%2045.4%22%20stroke%3D%22%23fff0d6%22%20stroke-width%3D%223%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%224%22%20fill%3D%22%2376452a%22%2F%3E%3C%2Fsvg%3E%0A" type="image/svg+xml">
   <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="./movie-info.css">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <style>
@@ -235,6 +236,7 @@ body.theater-open{overflow:hidden}
 .stage-overlay-play{display:none!important}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
+  <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
 
 </head>
 <body>
@@ -285,7 +287,8 @@ body.theater-open{overflow:hidden}
                 <input type="range" id="volume" value="100" min="0" max="200" step="1" aria-label="My volume from 0 to 200 percent">
                 <span class="vol-mark" id="volumeMark">100%</span>
                 <button type="button" class="icon-btn" id="subtitlesBtn" title="Subtitles" aria-label="Subtitles" aria-expanded="false"><svg class="captions-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.4"/><path d="M6.5 12h4m-4 3h4m3-3h4m-4 3h4"/></svg></button>
-                <button type="button" class="icon-btn" id="popoutBtn" title="Picture in Picture" aria-label="Pop out video">▣</button>
+                <button type="button" class="icon-btn" id="mediaInfoToggle" title="Movie and series information" aria-label="Movie and series information" aria-expanded="false" aria-controls="mediaInfoPanel">ⓘ</button>
+                 <button type="button" class="icon-btn" id="popoutBtn" title="Picture in Picture" aria-label="Pop out video">▣</button>
                 <button class="icon-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Fullscreen">⛶</button>
                 <button type="button" class="icon-btn" id="settingsBtn" title="Settings" aria-label="Video settings" aria-expanded="false">⚙</button>
               </div>
@@ -308,6 +311,27 @@ body.theater-open{overflow:hidden}
           </div>
         </div>
         <div class="below-stage"><span><span class="small-shield">✳</span> Video streams peer-to-peer. No video file upload.</span><span id="mediaHint">Optimized for low latency, not zero latency.</span></div>
+
+        <section class="media-info" id="mediaInfoPanel" aria-label="Movie and TV information" hidden>
+          <div class="mi-header"><strong>Movie &amp; series information</strong><div class="mi-header-right"><span id="miStatus" class="mi-muted" role="status" aria-live="polite">No video selected</span><button type="button" id="miClose" aria-label="Close movie information">✕</button></div></div>
+          <form id="miSearchForm" class="mi-search-row" role="search">
+            <input id="miSearch" type="search" aria-label="Search title" placeholder="Movie or series title" autocomplete="off" maxlength="160">
+            <select id="miKind" aria-label="Movie or TV series"><option value="movie">Movie</option><option value="tv">TV</option></select>
+            <button type="submit">Find</button>
+          </form>
+          <details class="mi-credentials" id="miSources">
+            <summary>Information sources · API access</summary>
+            <p class="mi-settings-help">Use your own keys. They are stored in this browser, never in the repository or sent to watch-party guests. Only metadata lookups contact the services; the video file stays local.</p>
+            <div class="mi-settings-row"><label for="miTmdbToken">TMDB API key or Read Access Token (primary)</label><input type="password" id="miTmdbToken" autocomplete="off" spellcheck="false" placeholder="Required for full filmography"></div>
+            <div class="mi-settings-row"><label for="miOmdbKey">OMDb key (optional: IMDb, Rotten Tomatoes, Metacritic, awards)</label><input type="password" id="miOmdbKey" autocomplete="off" spellcheck="false" placeholder="Optional"></div>
+            <div class="mi-settings-row"><label for="miSubtitlesKey">OpenSubtitles API key (optional: file-hash identification)</label><input type="password" id="miSubtitlesKey" autocomplete="off" spellcheck="false" placeholder="Optional"></div>
+            <div class="mi-settings-row"><button type="button" id="miSave">Save sources &amp; look up</button><button type="button" id="miForget">Forget keys</button></div>
+            <p class="mi-settings-help">Get credentials: <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">TMDB</a> · <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener noreferrer">OMDb</a> · <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noopener noreferrer">OpenSubtitles</a>. Some services limit free usage.</p>
+          </details>
+          <div id="miMatches"></div>
+          <div id="miResults"></div>
+          <p class="mi-attribution">Film and TV information provided by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a>, with optional data from OMDb, OpenSubtitles and Wikipedia. This product uses the TMDB API but is not endorsed or certified by TMDB. Wikipedia production extracts are licensed under CC BY-SA and linked to their source.</p>
+        </section>
       </section>
 
 
@@ -715,6 +739,9 @@ body.theater-open{overflow:hidden}
   function broadcast(message) {
     for (const entry of state.connections.values()) send(entry.conn, message);
   }
+  window.MarmaladeInfoBroadcast = (payload) => {
+    if (state.role === 'host') broadcast({ type: 'movie-info', payload });
+  };
   function hostStatus() {
     return { type: 'state', name: state.file ? state.file.name : state.source === 'screen' ? 'Shared player window' : 'Waiting for video',
       playing: !media.paused, time: state.source === 'file' ? media.currentTime : 0,
@@ -1277,6 +1304,7 @@ body.theater-open{overflow:hidden}
     el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
   }
   function removeMedia() {
+    window.dispatchEvent(new Event('marmalade:media-cleared'));
     stopBroadcast();
     media.pause();
     needsTapToPlay(false);
@@ -1372,6 +1400,7 @@ body.theater-open{overflow:hidden}
     media.load();
     el.fileName.textContent = file.name;
     el.fileInfo.textContent = `${file.name} · ${(file.size / 1048576).toFixed(1)} MB`;
+    window.dispatchEvent(new CustomEvent('marmalade:video-selected', { detail: { file } }));
     el.hint.textContent = 'Only media formats decoded by your browser play as files.';
     setStage('Loading your video…', 'Preparing local playback. Your file stays on your device.', 'LOADING');
     el.startBroadcast.disabled = true;
@@ -1392,6 +1421,7 @@ body.theater-open{overflow:hidden}
         if (state.peer !== peer) return;
         renderCount();
         send(conn, hostStatus());
+        send(conn, { type: 'movie-info', payload: window.MarmaladeInfoShare?.() || null });
         if (state.outgoing && !entry.localMirror && state.source!=='hosted') callGuest(conn.peer);
         else autoStartIfPlaying();
         notify('A guest joined your room.');
@@ -1824,6 +1854,7 @@ body.theater-open{overflow:hidden}
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
         if (data.type === 'state') receiveState(data);
+        if (data.type === 'movie-info') window.MarmaladeInfoReceive?.(data.payload);
         if(data.type==='segment-part' && typeof data.id==='string')receiveRescueChunk(data);
         if(data.type==='segment-missing' && state.peerTransfer.has(data.id)){
           const t=state.peerTransfer.get(data.id);clearTimeout(t.timer);state.peerTransfer.delete(data.id);t.fail();
@@ -2435,5 +2466,6 @@ body.theater-open{overflow:hidden}
 })();
 
 </script>
+<script src="./movie-info.js" defer></script>
 </body>
 </html>
