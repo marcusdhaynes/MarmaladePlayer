@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 
@@ -28,6 +32,7 @@ try {
     await page.goto('http://127.0.0.1:'+port+'/',{waitUntil:'domcontentloaded'});
     await page.waitForTimeout(400);
     assert.equal(await page.locator('#player').count(),1);
+    assert.equal(await page.locator('#overlayPlay').count(),0,'Floating center play icon removed');
     assert.equal(await page.locator('.transport').count(),0,'Old Now Playing panel must be gone');
     assert.equal(await page.locator('#theaterControls').count(),1);
     assert.equal(await page.locator('#volume').getAttribute('max'),'200');
@@ -98,6 +103,7 @@ try {
   // Simulated signaling: verify that the entry point determines Host or Guest.
   const fakePeer = `
     window.__peerTrace=[];
+    window.__connections=[];
     window.Peer = class MockPeer {
       constructor(id) {this.id=typeof id==='string'?id:'guest-test';this.open=true;this.handlers={};window.__peerTrace.push(['constructed',this.id]);}
       on(name,callback) {
@@ -106,12 +112,14 @@ try {
       }
       connect(id) {
         window.__peerTrace.push(['connect',id]);
-        return {
-          peer:id,open:false,callbacks:{},
+        const conn={
+          peer:id,open:false,callbacks:{},sent:[],
           on(name,callback){this.callbacks[name]=callback;window.__peerTrace.push(['connection-on',name]);
             if(name==='open')setTimeout(()=>{this.open=true;window.__peerTrace.push(['connection-open']);callback();},0);},
-          send(){},close(){this.open=false;}
+          send(message){this.sent.push(message);},close(){this.open=false;}
         };
+        window.__connections.push(conn);
+        return conn;
       }
       destroy(){}
       reconnect(){}
@@ -166,6 +174,70 @@ try {
     assert.deepEqual(errors,[],'Pasted room must join cleanly');
     await page.close();
     console.log('PASS pasted code automatically joins guest room');
+  }
+
+  // A connected guest can choose an identically named, content-verified movie.
+  // A negative check must not replace or interrupt incoming streaming media.
+  {
+    const directory=mkdtempSync(join(tmpdir(),'marmalade-sync-'));
+    let fixture;
+    try {
+      const filename=join(directory,'movie.mp4');
+      execFileSync('ffmpeg',['-hide_banner','-loglevel','error',
+        '-f','lavfi','-i','color=c=black:s=64x64:r=5','-t','2',
+        '-an','-c:v','libx264','-pix_fmt','yuv420p',
+        '-preset','ultrafast','-crf','42','-movflags','+faststart','-y',filename],
+        {timeout:20000});
+      fixture=readFileSync(filename);
+    } finally {rmSync(directory,{recursive:true,force:true});}
+    function sampledFingerprint(bytes) {
+      const chunkSize=Math.min(65536,bytes.length);
+      const samples=bytes.length<=chunkSize?1:16;
+      const input=Buffer.alloc(16+chunkSize*samples);
+      input.writeDoubleBE(0,0); // overwritten with little-endian DataView parity below
+      input.writeDoubleLE(bytes.length,0);
+      input.writeUInt32LE(chunkSize,8);
+      input.writeUInt32LE(samples,12);
+      for(let i=0;i<samples;i++){
+        const offset=samples===1?0:Math.floor((bytes.length-chunkSize)*i/(samples-1));
+        bytes.copy(input,16+i*chunkSize,offset,offset+chunkSize);
+      }
+      return bytes.length+'-'+createHash('sha256').update(input).digest('hex');
+    }
+    const {page,errors}=await launchRoomPage('/?room=ABCDEFGH');
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,null,{timeout:6000});
+    assert.equal(await page.locator('#localCopyPanel').isVisible(),true,'Guest local-copy option displayed');
+    assert.equal(await page.locator('#localCopyButton').isDisabled(),true,'Wait for movie identity');
+    assert.equal(await page.locator('#settingsPanel #localCopyPanel').count(),0,'No hidden duplicate controls');
+    await page.evaluate(fp=>{
+      const conn=window.__connections[0];
+      conn.callbacks.data({type:'state',mediaKind:'file',name:'movie.mp4',
+        fingerprint:fp,revision:0,playing:false,time:0,duration:2,sourceWidth:64,
+        sourceHeight:64,live:true});
+    },sampledFingerprint(fixture));
+    await page.waitForFunction(()=>!document.querySelector('#localCopyButton').disabled);
+    await page.locator('#localCopyInput').setInputFiles({name:'wrong-name.mp4',
+      mimeType:'video/mp4',buffer:fixture});
+    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('Filename differs'));
+    assert.equal(await page.locator('#player').getAttribute('src'),null,
+      'Wrong filename must not replace a guest media stream');
+    await page.locator('#localCopyInput').setInputFiles({name:'movie.mp4',
+      mimeType:'video/mp4',buffer:Buffer.from('definitely not the same movie')});
+    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('content or file size differs'));
+    assert.equal(await page.locator('#player').getAttribute('src'),null,
+      'Wrong content must keep streaming as fallback');
+    await page.locator('#localCopyInput').setInputFiles({name:'movie.mp4',
+      mimeType:'video/mp4',buffer:fixture});
+    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('Verified ✓'),null,{timeout:12000});
+    assert((await page.locator('#player').getAttribute('src')).startsWith('blob:'),
+      'Matching playable local file must replace the incoming stream');
+    assert.equal(await page.locator('#localCopyButton').isDisabled(),true);
+    const confirmations=await page.evaluate(()=>window.__connections[0].sent.filter(
+      x=>x.type==='local-verified'&&x.verified===true));
+    assert.equal(confirmations.length,1,'Host must be told to stop this guest media stream');
+    assert.deepEqual(errors,[],'Local-copy verification must not throw browser errors');
+    await page.close();
+    console.log('PASS guest same-name/size/fingerprint/decoding checks and streaming fallback');
   }
   {
     const {page,errors}=await launchRoomPage('/?room=ABCDEFGH');
