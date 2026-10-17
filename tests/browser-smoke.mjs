@@ -8,6 +8,21 @@ import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const infoJs = readFileSync(new URL('../movie-info.js', import.meta.url), 'utf8');
+const parserStart = infoJs.indexOf('function parseFilename(name) {');
+assert(parserStart >= 0, 'The filename parser must remain available');
+const parserEnd = infoJs.indexOf('\n  }', parserStart);
+const parserBody = infoJs.slice(parserStart, parserEnd + 4);
+assert(parserBody, 'The filename parser must remain available');
+const parseMovieFilename = new Function('name', 'return ('+parserBody+')(name)');
+assert.deepEqual(parseMovieFilename('The.Matrix.1999.1080p.BluRay.x264.mkv'),
+  {title:'The Matrix',year:1999,kind:'movie',season:null,episode:null});
+assert.deepEqual(parseMovieFilename('Interstellar (2014) [1080p].mp4'),
+  {title:'Interstellar',year:2014,kind:'movie',season:null,episode:null});
+assert.deepEqual(parseMovieFilename('Oz.S02E02.WEBRip.mkv'),
+  {title:'Oz',year:null,kind:'tv',season:2,episode:2});
+assert.deepEqual(parseMovieFilename('The.Last.of.Us.1x03.720p.mp4'),
+  {title:'The Last of Us',year:null,kind:'tv',season:1,episode:3});
 const port = 38817;
 const server = createServer((req,res) => {
   if (req.url?.startsWith('/manifest.webmanifest')) {
@@ -15,6 +30,12 @@ const server = createServer((req,res) => {
     res.end('{"name":"Marmalade","start_url":"./"}');
   } else if (req.url?.startsWith('/favicon.svg')) {
     res.writeHead(200, {'content-type':'image/svg+xml'}); res.end('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  } else if (req.url?.startsWith('/movie-info.js')) {
+    res.writeHead(200, {'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../movie-info.js', import.meta.url), 'utf8'));
+  } else if (req.url?.startsWith('/movie-info.css')) {
+    res.writeHead(200, {'content-type':'text/css'});
+    res.end(readFileSync(new URL('../movie-info.css', import.meta.url), 'utf8'));
   } else if (req.url?.startsWith('/sw.js')) {
     res.writeHead(200, {'content-type':'application/javascript'}); res.end('');
   } else {
@@ -29,6 +50,7 @@ try {
     const errors=[];
     page.on('pageerror', error => errors.push(error.stack || String(error)));
     await page.route('**/npm/peerjs@*/**', route=>route.fulfill({status:200,contentType:'application/javascript',body:'window.Peer = function(){};'}));
+    await page.route('**/mediainfo.js@*', route=>route.fulfill({status:200,contentType:'application/javascript',body:'window.MediaInfo = async () => ({analyzeData:async()=>({media:{track:[]}})});'}));
     await page.goto('http://127.0.0.1:'+port+'/',{waitUntil:'domcontentloaded'});
     await page.waitForTimeout(400);
     assert.equal(await page.locator('#player').count(),1);
@@ -60,7 +82,13 @@ try {
     });
     assert.equal(openedFilePicker,1,'Clicking empty video must open file picker');
     const order = await page.locator('.theater-bottom button').evaluateAll(buttons=>buttons.map(b=>b.id));
-    assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn']);
+    assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','subtitlesBtn','mediaInfoToggle','popoutBtn','fullscreenBtn','settingsBtn']);
+    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,'Info drawer starts closed');
+    await page.locator('#mediaInfoToggle').click({force:true});
+    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),true,'Info button opens drawer');
+    assert.equal(await page.locator('#miSources').count(),1,'API sources exist');
+    await page.locator('#miClose').click();
+    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,'Close button hides drawer');
     // No dependence on browser autoplay or a remote network for UI tests.
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     await page.locator('#settingsBtn').click({force:true});
@@ -131,6 +159,7 @@ try {
     page.on('pageerror',e=>errors.push(e.stack||String(e)));
     await page.route('**/npm/peerjs@*/**',route=>route.fulfill({
       status:200,contentType:'application/javascript',body:fakePeer}));
+    await page.route('**/mediainfo.js@*', route=>route.fulfill({status:200,contentType:'application/javascript',body:'window.MediaInfo = async () => ({analyzeData:async()=>({media:{track:[]}})});'}));
     await page.goto('http://127.0.0.1:'+port+path,{waitUntil:'load'});
     return {page,errors};
   }

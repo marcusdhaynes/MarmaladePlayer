@@ -34,6 +34,41 @@ Repository must be named **`marcusdhaynes/marmaladeplayer`** for the address **h
 - Media is not uploaded to a backend, but WebRTC networking can expose peers' IP addresses to each other and signaling metadata passes through PeerJS. Room codes are not passwords.
 - Every additional viewer needs more host uplink bandwidth; this version is best for small rooms.
 
+## AI-free movie and TV information
+
+The small **ⓘ** button beside the subtitles control opens the information drawer.
+When a host selects a local video, Marmalade attempts to identify it from its
+filename (including season/episode numbers), embedded tags via MediaInfo.js, and
+optionally an OpenSubtitles moviehash lookup. No frames, audio, or video files
+are uploaded for identification. The OpenSubtitles hash reads only the beginning
+and end of the local file; only the hash/filename query leaves the browser.
+
+**One-time setup:** open the ⓘ drawer → **Information sources · API access** and
+enter your own [TMDB](https://www.themoviedb.org/settings/api) API v3 key or
+Read Access Token. TMDB authentication is needed for rich lookups because the
+public GitHub Pages site has no private backend or API key. Optional
+[OMDb](https://www.omdbapi.com/apikey.aspx) and
+[OpenSubtitles](https://www.opensubtitles.com/en/consumers) keys add
+IMDb/Metacritic/Rotten Tomatoes ratings and filehash identification.
+Keys remain in this browser's localStorage and are sent only to their matching
+API services. On shared devices, clear keys using **Forget keys**.
+
+The drawer provides an automatic title match and manual search/correction,
+movie posters, synopsis, episode titles, cast/characters/creators, dates,
+studios, release status, runtime, genre, TMDB ratings, budgets and revenue
+where reported, optional OMDb ratings and awards, plus sourced Wikipedia
+production background or an external IMDb trivia link. Unreported values are
+marked unavailable, not filled in by AI. Wikipedia/IMDb trivia may be missing
+because they do not offer an unrestricted comprehensive public trivia API.
+
+Identified information is copied to connected guests using the existing data
+channel (no keys or video bytes). The info feature is separate from playback,
+local-file verification, synchronization, streaming and bandwidth controls.
+Lookup needs an internet connection. It may be unavailable due to API quotas,
+browser CORS policies, incomplete embedded metadata, or missing database
+records. TMDB's developer API is free for permitted non-commercial uses with
+attribution; commercial uses require a separate agreement.
+
 ## Local development
 
 Serve the files on localhost (rather than opening `file://`):
