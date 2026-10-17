@@ -60,7 +60,7 @@
     if (episode) clean = clean.slice(0, episode.index);
     const year = clean.match(/\b(19\d{2}|20\d{2})\b/);
     if (year && !episode) clean = clean.slice(0, year.index);
-    clean = clean.replace(/\s*[-–]\s*$/, '').trim();
+    clean = clean.replace(/[\s(\[{–-]+$/, '').trim();
     return {
       title: clean || base,
       year: year ? Number(year[1]) : null,
