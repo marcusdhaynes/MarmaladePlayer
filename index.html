@@ -2000,7 +2000,7 @@ body.theater-open{overflow:hidden}
       requestWakeLock();
       badge('LIVE');
       el.startBroadcast.textContent = 'Broadcasting  ●';
-      el.network.textContent = 'WEBRTC ACTIVE';
+      el.network.textContent = ''; // Historical label remains hidden; the player chrome stays minimal.
       for (const peerId of state.connections.keys()) callGuest(peerId);
       if (state.qualityTimer) clearInterval(state.qualityTimer);
       state.qualityTimer = setInterval(() => { void tuneAllGuests(); }, 4000);
