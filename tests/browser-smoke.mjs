@@ -35,13 +35,26 @@ try {
     assert.equal(await page.locator('#popoutBtn').count(),1);
     assert.equal(await page.locator('#settingsBtn').count(),1);
     assert.equal(await page.locator('#bufferedFill').count(),1);
+    assert.equal(await page.locator('#joinSection').isVisible(),true,'Join field must be visible initially');
+    assert.equal(await page.locator('.compact-cdn').isVisible(),true,'CDN option must remain');
+    assert.equal(await page.locator('#hostTab').isVisible(),false,'No manual Host/Join tabs');
+    assert.equal(await page.locator('#chooseFile').isVisible(),false,'File picker belongs in the video');
+    assert.equal(await page.locator('.panel-intro').count(),0,'Remove decorative sidebar intro');
+    const openedFilePicker = await page.locator('#dropZone').evaluate(stage => {
+      let clicks=0;
+      const f=document.getElementById('fileInput');
+      f.addEventListener('click', e=>{clicks++; e.preventDefault();},{once:true});
+      stage.click();
+      return clicks;
+    });
+    assert.equal(openedFilePicker,1,'Clicking empty video must open file picker');
     const order = await page.locator('.theater-bottom button').evaluateAll(buttons=>buttons.map(b=>b.id));
     assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn']);
     // No dependence on browser autoplay or a remote network for UI tests.
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     await page.locator('#settingsBtn').click({force:true});
     assert.equal(await page.locator('#settingsPanel').isVisible(),true);
-    await page.locator('#joinTab').click();
+    await page.locator('#joinTab').evaluate(el=>el.click()); // hidden compatibility action, not user-facing
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     const options=await page.locator('#qualitySelect option').allTextContents();
     assert(options.some(x=>x.includes('480')));
@@ -68,6 +81,66 @@ try {
     assert.deepEqual(errors,[], 'Browser runtime errors');
     await page.close();
     console.log('PASS',viewport.width,'x',viewport.height,'theater UI / volume / subtitles / FPS');
+  }
+
+  // Simulated signaling: verify that the entry point determines Host or Guest.
+  const fakePeer = `
+    window.Peer = class MockPeer {
+      constructor(id) {this.id=typeof id==='string'?id:'guest-test';this.open=true;this.handlers={};}
+      on(name,callback) {
+        this.handlers[name]=callback;
+        if(name==='open') setTimeout(()=>callback(this.id),0);
+      }
+      connect(id) {
+        return {
+          peer:id,open:false,callbacks:{},
+          on(name,callback){this.callbacks[name]=callback;
+            if(name==='open')setTimeout(()=>{this.open=true;callback();},0);},
+          send(){},close(){this.open=false;}
+        };
+      }
+      destroy(){}
+      reconnect(){}
+    };
+  `;
+  async function launchRoomPage(path='/') {
+    const page=await browser.newPage({viewport:{width:1280,height:800}});
+    const errors=[];
+    page.on('pageerror',e=>errors.push(e.stack||String(e)));
+    await page.route('https://cdn.jsdelivr.net/npm/peerjs@*',route=>route.fulfill({
+      status:200,contentType:'application/javascript',body:fakePeer}));
+    await page.goto('http://127.0.0.1:'+port+path,{waitUntil:'load'});
+    return {page,errors};
+  }
+  {
+    const {page,errors}=await launchRoomPage();
+    await page.locator('#fileInput').setInputFiles({
+      name:'movie.mp4',mimeType:'video/mp4',buffer:Buffer.from('not a real mp4')
+    });
+    await page.waitForFunction(()=>!document.querySelector('#hostActive').hidden);
+    assert((await page.locator('#inviteLink').inputValue()).includes('?room='));
+    assert.equal(await page.locator('#joinSection').isVisible(),false);
+    assert.deepEqual(errors,[],'Hosting must not produce runtime errors');
+    await page.close();
+    console.log('PASS choose-file automatically creates host room');
+  }
+  {
+    const {page,errors}=await launchRoomPage();
+    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
+    assert.equal(await page.locator('#joinedCode').textContent(),'ABCDEFGH');
+    assert.equal(await page.locator('#joinSection').isVisible(),false);
+    assert.deepEqual(errors,[],'Pasted room must join cleanly');
+    await page.close();
+    console.log('PASS pasted code automatically joins guest room');
+  }
+  {
+    const {page,errors}=await launchRoomPage('/?room=ABCDEFGH');
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
+    assert.equal(await page.locator('#joinedCode').textContent(),'ABCDEFGH');
+    assert.deepEqual(errors,[],'Opening invite URL must join cleanly');
+    await page.close();
+    console.log('PASS invitation link auto-join');
   }
 } finally {
   await browser.close();
