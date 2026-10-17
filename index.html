@@ -226,6 +226,13 @@ body.theater-open{overflow:hidden}
 }
 @media(pointer:coarse){.theater-controls .icon-btn{min-height:29px;height:29px}.theater-top .theater-pill{min-height:28px}}
 
+
+/* Guest-only verified local file option; does not alter streaming controls. */
+.compact-room .guest-local-copy{margin:5px 0 0;padding:9px;background:#151519;border-color:#ffffff22;gap:6px}
+.compact-room .guest-local-copy button{width:100%;padding:8px 10px;background:#2c292e;color:#ffd5a5;border-color:#6b574c}
+.compact-room .guest-local-copy button:disabled{opacity:.45;cursor:not-allowed}
+.compact-room .guest-local-copy small{overflow-wrap:anywhere;font-size:10px;line-height:1.35}
+.stage-overlay-play{display:none!important}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
 
@@ -259,7 +266,6 @@ body.theater-open{overflow:hidden}
             </div>
           </div>
           <div class="subtitle-overlay" id="subtitleOverlay" hidden></div>
-          <button class="stage-overlay-play" id="overlayPlay" title="Play / pause" aria-label="Play or pause" hidden><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
           <button class="exit-theater" id="exitTheater" type="button" aria-label="Exit theater mode" title="Exit theater mode">✕</button>
           <div class="theater-controls" id="theaterControls" aria-label="Video controls">
             <div class="theater-title"><strong id="fileName">Nothing selected</strong><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 watching</span></span></div>
@@ -298,11 +304,6 @@ body.theater-open{overflow:hidden}
             <div class="stability-info" id="stabilityInfo" hidden role="status" aria-live="off">Waiting for playback statistics.</div>
             <div class="settings-tools">
               <button type="button" id="screenShareBtn" class="settings-utility">Share a video-player window</button>
-              <div class="local-copy" id="localCopyPanel" hidden><small>Already have the same movie? Verify your local copy for bandwidth-free playback.</small>
-                <button type="button" id="localCopyButton">Use my local copy</button>
-                <input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4v" hidden>
-                <small id="localCopyStatus">Optional · your file stays on your device.</small>
-              </div>
             </div>
           </div>
         </div>
@@ -324,6 +325,11 @@ body.theater-open{overflow:hidden}
         <section id="joinActive" class="compact-room" hidden>
           <div class="compact-heading"><span class="room-indicator"></span><strong>Watching together</strong><button id="leaveRoom" type="button" class="compact-text-btn">Leave</button></div>
           <span id="joinedCode" class="compact-room-code">—</span>
+          <div class="local-copy guest-local-copy" id="localCopyPanel" hidden>
+            <button type="button" id="localCopyButton" disabled>Use my copy of the movie</button>
+            <input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg" hidden>
+            <small id="localCopyStatus" role="status" aria-live="polite">Waiting for the host's movie…</small>
+          </div>
         </section>
         <div class="compact-separator"></div>
         <section class="hosted-link compact-cdn" aria-label="Buffer-first CDN video">
@@ -357,7 +363,7 @@ body.theater-open{overflow:hidden}
   const el = {
     player: $('player'), stage: $('dropZone'), empty: $('stageEmpty'), stageTitle: $('stageTitle'),
     stageSubtitle: $('stageSubtitle'), stageEyebrow: $('stageEyebrow'), badge: $('stageBadge'),
-    badgeText: $('stageBadgeText'), overlayPlay: $('overlayPlay'), fileName: $('fileName'),
+    badgeText: $('stageBadgeText'), fileName: $('fileName'),
     viewers: $('viewerCountText'), seek: $('seek'), current: $('currentTime'), duration: $('duration'),
     play: $('playPause'), playIcon: $('playIcon'), back: $('skipBack'), forward: $('skipForward'),
     volume: $('volume'), volumeMark: $('volumeMark'), mute: $('muteBtn'), fullscreen: $('fullscreenBtn'), network: $('networkLabel'),
@@ -404,7 +410,7 @@ body.theater-open{overflow:hidden}
   }
   function needsTapToPlay(required) {
     el.stage.classList.toggle('needs-gesture', required);
-    if (required) el.overlayPlay.hidden = false;
+    if (required) revealControls(); // Existing bottom Play is the sole playback gesture.
   }
 
   const PEER_OPTIONS = { debug: 0, config: { iceServers: [
@@ -448,7 +454,7 @@ body.theater-open{overflow:hidden}
     bitrateEstimate: 0, videoFrameHandle: null, fpsFrames: 0, fpsAt: 0,
     stabilityMode: 'smooth', strictSync: true, diagnostics: false, jitterTarget: 600,
     bufferTarget: 30, mediaStallAt: 0, mediaRetryCount: 0, lastRecoverAt: 0,
-    statsReport: null, localFingerprint: null, remoteFingerprint: null, localFileUrl: null,
+    statsReport: null, localFingerprint: null, remoteFingerprint: null, remoteFileName: '', localFileUrl: null,
     localVerified: false, hostedUrl: '', backupUrl: '', hostedAttempt: 0, hls: null,
     bufferedMode: false, waitingForBuffer: false, hostSyncVersion: 0, pendingHostedLoad: '', hostedFallbackOf: '',
     localLastSync: 0, hostedLastSync: 0, statsPrev: null, observedRtt: 0, statsSamples: [],
@@ -597,8 +603,6 @@ body.theater-open{overflow:hidden}
     el.playIcon.innerHTML = (state.role === 'guest' ? !state.hostPlaying : media.paused) ? PLAY_PATH : PAUSE_PATH;
     updateStatusDisplay();
     updateBufferDisplay();
-    if (state.role === 'host') el.overlayPlay.hidden = !canControl;
-    else if (media.srcObject && !media.paused) el.overlayPlay.hidden = true;
   }
 
   function updateStatusDisplay() {
@@ -686,7 +690,7 @@ body.theater-open{overflow:hidden}
   function showStage(show) {
     el.stage.classList.toggle('has-video', show);
     el.empty.hidden = show;
-    if (!show) { el.overlayPlay.hidden = true; needsTapToPlay(false);
+    if (!show) { needsTapToPlay(false);
       el.settingsPanel.hidden = true; el.subtitlePanel.hidden = true; }
   }
   function setStage(title, subtitle, eyebrow) {
@@ -1146,7 +1150,10 @@ body.theater-open{overflow:hidden}
     catch { /* already closed */ }
     state.guestConn = state.guestCall = state.peer = null;
     state.guestQualitySample = null;
-    state.remoteFingerprint = null;state.localVerified=false;
+    state.remoteFingerprint = null;state.remoteFileName = '';state.localVerified=false;
+    el.localCopyPanel.hidden = true;
+    el.localCopyButton.disabled = true;
+    el.localCopyStatus.textContent = 'Waiting for the host\'s movie…';
     state.hostPlaying = false; state.sharedDuration = 0; state.sharedTime = 0; state.sharedAt = 0;
     state.pendingTransport = null; state.lastAcceptedRevision = -1; state.lastTransportAck = null;
     state.sourceHeight = 0; state.sourceWidth = 0;
@@ -1257,7 +1264,7 @@ body.theater-open{overflow:hidden}
     closeConnections();
     removeMedia();
     state.role = role;
-    if(el.localCopyPanel)el.localCopyPanel.hidden=role!=='guest';
+    el.localCopyPanel.hidden = true;
     const host = role === 'host';
     el.hostTab.classList.toggle('active', host);
     el.joinTab.classList.toggle('active', !host);
@@ -1602,8 +1609,8 @@ body.theater-open{overflow:hidden}
         badge('LIVE WITH HOST');
         el.network.textContent = 'P2P LIVE';
         connection('Watching live', 'online');
-        try { await ensureAudioPlayback(); await media.play(); needsTapToPlay(false); el.overlayPlay.hidden = true; }
-        catch { needsTapToPlay(true); notify('Tap the play button in the video to enable playback with sound.'); }
+        try { await ensureAudioPlayback(); await media.play(); needsTapToPlay(false); }
+        catch { needsTapToPlay(true); notify('Use Play in the bottom controls to enable playback with sound.'); }
       });
       call.on('error', (error) => {
         console.error('Guest media call error', error);
@@ -1628,9 +1635,16 @@ body.theater-open{overflow:hidden}
     });
   }
   function receiveState(data) {
-    if(typeof data.fingerprint==='string' && data.fingerprint.length<120){
-      state.remoteFingerprint=data.fingerprint;
-      if(el.localCopyPanel)el.localCopyPanel.hidden=false;
+    if (data.mediaKind === 'file' && typeof data.fingerprint === 'string' &&
+        data.fingerprint.length < 120 && typeof data.name === 'string' &&
+        data.name.length > 0 && data.name.length <= 250) {
+      state.remoteFingerprint = data.fingerprint || null;
+      state.remoteFileName = data.name;
+      el.localCopyButton.disabled = !state.remoteFingerprint || state.localVerified;
+      el.localCopyPanel.hidden = state.role !== 'guest' || !state.guestConn?.open;
+      if (!state.localVerified) el.localCopyStatus.textContent = state.remoteFingerprint
+        ? `Host movie: ${data.name} · Choose the same filename to verify.`
+        : 'Waiting for the host to finish preparing the movie…';
     }
     if(data.mediaKind==='hosted' && typeof data.hostedUrl==='string'){
       const url=validMediaUrl(data.hostedUrl);
@@ -1726,6 +1740,10 @@ body.theater-open{overflow:hidden}
         renderCount();
         setStage('Waiting for the host…', 'They’ll start the movie when they’re ready.', 'ROOM CONNECTED');
         el.localCopyPanel.hidden=false;
+        el.localCopyButton.disabled = !state.remoteFingerprint || !state.remoteFileName;
+        el.localCopyStatus.textContent = state.remoteFileName
+          ? `Host movie: ${state.remoteFileName} · Choose the identically named file.`
+          : 'Waiting for the host\'s movie…';
         send(conn, { type: 'hello' });
         sendQualityPreference();
       });
@@ -2051,12 +2069,15 @@ body.theater-open{overflow:hidden}
     syncState();
   }
   async function togglePlay() {
-    if (state.role === 'guest') { guestCommand('toggle'); return; }
+    if (state.role === 'guest') {
+      if (el.stage.classList.contains('needs-gesture')) { await enableRemotePlayback(); return; }
+      guestCommand('toggle'); return;
+    }
     applyTransport('toggle');
   }
   async function enableRemotePlayback() {
-    try { await ensureAudioPlayback(); await media.play(); needsTapToPlay(false); el.overlayPlay.hidden = true; }
-    catch { needsTapToPlay(true); notify('Tap again to enable video and audio playback.'); }
+    try { await ensureAudioPlayback(); await media.play(); needsTapToPlay(false); }
+    catch { needsTapToPlay(true); notify('Use Play in the bottom controls to enable video and sound.'); }
   }
   async function copyInvite() {
     try { await navigator.clipboard.writeText(el.inviteLink.value); notify('Invite link copied!'); }
@@ -2213,10 +2234,6 @@ body.theater-open{overflow:hidden}
   el.joinInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') joinRoom(); });
   el.leave.addEventListener('click', leaveRoom);
   el.play.addEventListener('click', togglePlay);
-  el.overlayPlay.addEventListener('click', () => {
-    if (state.role === 'guest' && el.stage.classList.contains('needs-gesture')) void enableRemotePlayback();
-    else void togglePlay();
-  });
   el.back.addEventListener('click', () => { if (state.role === 'guest') guestCommand('skip', -10); else applyTransport('skip', -10); });
   el.forward.addEventListener('click', () => { if (state.role === 'guest') guestCommand('skip', 10); else applyTransport('skip', 10); });
   const seekTime = () => (state.role === 'guest' ? state.sharedDuration : media.duration) * Number(el.seek.value) / 1000;
