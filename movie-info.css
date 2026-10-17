@@ -10,6 +10,7 @@
 .mi-search-row{display:flex;gap:7px;margin:0 0 11px}
 .mi-search-row input,.mi-settings-row input{flex:1;min-width:0;border:1px solid #50454b;border-radius:8px;color:#f5ebe1;background:#101014;padding:9px 11px;font-size:12px}
 .mi-search-row button{min-width:65px}
+.mi-search-row select{border:1px solid #50454b;background:#101014;color:#f5ebe1;border-radius:8px;font-size:11px;padding:8px 6px}
 .mi-credentials{margin:5px 0 14px;border:1px solid #ffffff19;border-radius:9px;background:#16151b;padding:10px 12px}
 .mi-credentials summary{font-size:11px;color:#edc59e;cursor:pointer;font-weight:750}
 .mi-settings-row{display:grid;grid-template-columns:minmax(130px,1fr) minmax(150px,2fr);align-items:center;gap:8px 11px;margin:11px 0}
