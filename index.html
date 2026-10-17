@@ -56,6 +56,17 @@ body.theater-open{overflow:hidden}
 .quality-hint strong{color:#e9c69c;font-weight:700}
 @media(max-width:650px){.buttonrow{flex-wrap:wrap;gap:6px}.controls-right{flex-wrap:wrap;justify-content:flex-end}.quality-control select{max-width:110px}}
 @media(max-width:370px){.quality-control{font-size:9px}.quality-control select{min-width:66px}.controls-right{width:100%}}
+/* Stability Engine: opt-in buffer-first delivery, diagnostics and shared timeline. */
+.stability-strip{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:11px 0 0;color:#b2a6aa;font-size:11px}
+.stability-strip label{display:flex;align-items:center;gap:5px}
+.stability-strip select{background:#252329;color:#ffe2b9;border:1px solid #51464b;border-radius:6px;padding:5px;font-size:11px}
+.stability-strip button{background:#29242a;color:#efbe81;border:1px solid #53433b;border-radius:7px;font-size:11px;padding:6px 9px}
+.stability-info{margin:6px 0 0;color:#92949f;font:10px/1.5 ui-monospace,Consolas,monospace}
+.local-copy,.hosted-link{display:flex;flex-direction:column;gap:7px;border:1px solid #50443e;border-radius:9px;padding:11px;margin:10px 0;background:#211d21}
+.local-copy[hidden],.hosted-link[hidden],.stability-info[hidden]{display:none!important}
+.local-copy button,.hosted-link button{background:#30282c;color:#ffca90;border:1px solid #7c6046;border-radius:7px;padding:8px;font-size:11px;cursor:pointer}
+.hosted-link input{background:#17151b;border:1px solid #594c4b;color:#ffead8;border-radius:7px;padding:10px;width:100%;font-size:11px}
+.local-copy small,.hosted-link small{font-size:10px;color:#b7a7a8;line-height:1.5}
 /* Personal volume and shared transport remain accessible on narrow displays. */
 .vol-mark{font-size:10px;color:#d2a574;font-weight:750;min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
 .controls-left input#volume{width:95px;min-width:64px}
@@ -102,6 +113,12 @@ body.theater-open{overflow:hidden}
           </div>
         </div>
         <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
+        <div class="stability-strip"><label>Playback <select id="stabilityMode" aria-label="Stream stability">
+          <option value="smooth">Smooth (recommended)</option><option value="balanced">Balanced</option><option value="fast">Lowest delay</option>
+        </select></label><label><input type="checkbox" id="strictSync" checked> Keep everyone together</label>
+        <label title="When CDN segment downloads fail, optionally ask your host for cached fragments"><input type="checkbox" id="peerAssist" checked> Peer rescue</label>
+        <button id="diagnosticsToggle" type="button" aria-expanded="false">Diagnostics</button></div>
+        <div class="stability-info" id="stabilityInfo" hidden role="status" aria-live="off">Waiting for playback statistics.</div>
         <div class="below-stage"><span><span class="small-shield">✳</span> Video streams peer-to-peer. No video file upload.</span><span id="mediaHint">Optimized for low latency, not zero latency.</span></div>
       </section>
 
@@ -112,12 +129,19 @@ body.theater-open{overflow:hidden}
           <div class="step-heading"><span class="step-num">01</span><div><strong>Pick what to watch</strong><small>Plays straight from your device</small></div></div>
           <div class="file-picker"><button class="file-btn" id="chooseFile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4v16m-8-8h16"/></svg> Choose a video file</button><input id="fileInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg" hidden><p id="fileInfo">MP4, WebM, and browser-supported media. Or drop a file on the player.</p></div>
           <button class="fallback-link" id="screenShareBtn">File won't play? Share a video-player window <span>↗</span></button>
+          <div class="hosted-link"><small><strong>Buffer-first / CDN option:</strong> enter your own public HLS (.m3u8) or MP4 URL. This distributes video directly from its host instead of your upload connection. Requires CORS-enabled hosting.</small>
+            <input type="url" id="hostedUrl" placeholder="https://your-media-host/movie.m3u8" aria-label="Hosted video URL" autocomplete="off">
+            <input type="url" id="fallbackUrl" placeholder="Optional backup URL (failover)" aria-label="Fallback video URL" autocomplete="off">
+            <button type="button" id="hostedStart">Use hosted video + create room</button>
+          </div>
           <div class="panel-line"></div>
           <div class="step-heading"><span class="step-num">02</span><div><strong>Your watch room</strong><small>Automatically created when you choose a file</small></div></div>
           <button id="createRoom" class="primary-btn" hidden>Create watch room <span>→</span></button>
           <div id="hostActive" class="active-room" hidden><div class="room-label"><span>YOUR ROOM LINK</span><span class="room-live">● OPEN</span></div><div class="copy-row"><input id="inviteLink" readonly aria-label="Invite link"><button id="copyLink" aria-label="Copy invite link" title="Copy link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg></button></div><p>Send this link to your guest. Keep this tab open.</p><button id="startBroadcast" class="primary-btn stream-btn" disabled>Start watching <span>▶</span></button><button id="endRoom" class="soft-btn">End room</button></div>
         </div>
-        <div id="joinPanel" class="role-panel" hidden><div class="step-heading"><span class="step-num">01</span><div><strong>Enter your invite</strong><small>Paste a link or a room code</small></div></div><label class="field-label" for="roomInput">ROOM CODE OR LINK</label><input id="roomInput" class="text-input" type="text" placeholder="Paste the host’s room link" autocomplete="off" spellcheck="false"><button id="joinRoom" class="primary-btn">Join the watch party <span>→</span></button><div id="joinActive" class="active-room" hidden><div class="room-label"><span>CONNECTED ROOM</span><span class="room-live">● JOINED</span></div><strong id="joinedCode" class="joined-code">—</strong><p>Anyone can play, pause, skip or seek for the whole room. Your volume and quality are yours.</p><button id="leaveRoom" class="soft-btn">Leave room</button></div><p class="joining-tip">Only your host needs the video file. You don't.</p></div>
+        <div id="joinPanel" class="role-panel" hidden><div class="step-heading"><span class="step-num">01</span><div><strong>Enter your invite</strong><small>Paste a link or a room code</small></div></div><label class="field-label" for="roomInput">ROOM CODE OR LINK</label><input id="roomInput" class="text-input" type="text" placeholder="Paste the host’s room link" autocomplete="off" spellcheck="false"><button id="joinRoom" class="primary-btn">Join the watch party <span>→</span></button><div class="local-copy" id="localCopyPanel" hidden><small><strong>Already have the same movie?</strong> Select your local copy. Marmalade verifies a fingerprint and syncs directly with the host—no video bandwidth needed.</small>
+            <button type="button" id="localCopyButton">Use my local copy</button><input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.m4v" hidden>
+            <small id="localCopyStatus">Optional. Otherwise you receive the stream as usual.</small></div><div id="joinActive" class="active-room" hidden><div class="room-label"><span>CONNECTED ROOM</span><span class="room-live">● JOINED</span></div><strong id="joinedCode" class="joined-code">—</strong><p>Anyone can play, pause, skip or seek for the whole room. Your volume and quality are yours.</p><button id="leaveRoom" class="soft-btn">Leave room</button></div><p class="joining-tip">Only your host needs the video file. You don't.</p></div>
         <div class="panel-footer"><div class="footer-mark">✴</div><div><strong>Made to feel like you're there.</strong><span>Lightweight. Private-by-design. Almost instant.</span></div></div>
       </aside>
     </main>
@@ -147,6 +171,10 @@ body.theater-open{overflow:hidden}
     joinedCode: $('joinedCode'), leave: $('leaveRoom'), toast: $('toast'), hint: $('mediaHint'),
     exitTheater: $('exitTheater'), qualitySelect: $('qualitySelect'), qualityHint: $('qualityHint'),
     fpsToggle: $('fpsToggle'), fpsOverlay: $('fpsOverlay'),
+    stabilityMode: $('stabilityMode'), strictSync: $('strictSync'), diagnosticsToggle: $('diagnosticsToggle'),
+    peerAssist: $('peerAssist'), stabilityInfo: $('stabilityInfo'), localCopyPanel: $('localCopyPanel'), localCopyButton: $('localCopyButton'),
+    localCopyInput: $('localCopyInput'), localCopyStatus: $('localCopyStatus'),
+    hostedUrl: $('hostedUrl'), fallbackUrl: $('fallbackUrl'), hostedStart: $('hostedStart'),
   };
   const media = el.player;
   const PEER_PREFIX = 'marmalade-';
@@ -211,6 +239,14 @@ body.theater-open{overflow:hidden}
     recommendation: DEFAULT_LEVEL, stableReports: 0, unhealthyReports: 0,
     highStream: null, highTrack: null, highTimer: null, highCanvas: null,
     bitrateEstimate: 0, videoFrameHandle: null, fpsFrames: 0, fpsAt: 0,
+    stabilityMode: 'smooth', strictSync: true, diagnostics: false, jitterTarget: 600,
+    bufferTarget: 30, mediaStallAt: 0, mediaRetryCount: 0, lastRecoverAt: 0,
+    statsReport: null, localFingerprint: null, remoteFingerprint: null, localFileUrl: null,
+    localVerified: false, hostedUrl: '', backupUrl: '', hostedAttempt: 0, hls: null,
+    bufferedMode: false, waitingForBuffer: false, hostSyncVersion: 0, pendingHostedLoad: '', hostedFallbackOf: '',
+    localLastSync: 0, hostedLastSync: 0, statsPrev: null, observedRtt: 0, statsSamples: [],
+    peerCache: new Map(), peerCacheBytes: 0, peerTransfer: new Map(),
+    peerAssistance: true, heldForBuffer:false,
   };
 
   function notify(message) {
@@ -383,8 +419,12 @@ body.theater-open{overflow:hidden}
     return { type: 'state', name: state.file ? state.file.name : state.source === 'screen' ? 'Shared player window' : 'Waiting for video',
       playing: !media.paused, time: state.source === 'file' ? media.currentTime : 0,
       duration: state.source === 'file' && Number.isFinite(media.duration) ? media.duration : 0,
-      live: state.broadcasting, sourceHeight: sourceHeight(), sourceWidth: media.videoWidth || 0,
-      revision: state.transportRevision };
+      live: state.broadcasting || state.source === 'hosted', sourceHeight: sourceHeight(), sourceWidth: media.videoWidth || 0,
+      revision: state.transportRevision, fingerprint: state.localFingerprint,
+      mediaKind: state.source === 'hosted' ? 'hosted' : state.source,
+      hostedUrl: state.source === 'hosted' ? state.hostedUrl : '',
+      backupUrl: state.source === 'hosted' ? state.backupUrl : '',
+      strictSync: state.strictSync, heldForBuffer: !!state.heldForBuffer };
   }
   function syncState() { if (state.role === 'host' && state.peer) broadcast(hostStatus()); }
   function issueKeyframe() {
@@ -399,7 +439,7 @@ body.theater-open{overflow:hidden}
   // Everyone controls ONE authoritative media clock: the host's local file.
   // Guests never seek their live MediaStream (which has no seekable timeline).
   function applyTransport(action, value) {
-    if (state.role !== 'host' || state.source !== 'file' || !state.fileReady) return;
+    if (state.role !== 'host' || !['file','hosted'].includes(state.source) || !state.fileReady) return;
     if (action === 'toggle') action = media.paused ? 'play' : 'pause';
     if (action === 'play') void media.play().catch(() => notify('Playback blocked. Tap play again.'));
     if (action === 'pause') media.pause();
@@ -459,6 +499,316 @@ body.theater-open{overflow:hidden}
     address.searchParams.set('room', code);
     return address.toString();
   }
+
+  /* STABILITY ENGINE — independent delivery, common versioned movie timeline.
+     WebRTC is still the fast fallback. Seekable sources allow deep forward buffers. */
+  const STABILITY = {
+    fast: { rtcMs: 160, initial: 10 },
+    balanced: { rtcMs: 450, initial: 20 },
+    smooth: { rtcMs: 950, initial: 30 },
+  };
+  const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+  function selectedMode() { return STABILITY[state.stabilityMode] || STABILITY.smooth; }
+  function bufferAhead() {
+    if (!media.buffered?.length || !Number.isFinite(media.currentTime)) return 0;
+    for (let i = 0; i < media.buffered.length; i++)
+      if (media.buffered.start(i) <= media.currentTime + .05 && media.buffered.end(i) >= media.currentTime)
+        return Math.max(0, media.buffered.end(i) - media.currentTime);
+    return 0;
+  }
+  function updateDiagnostics() {
+    if (!state.diagnostics) return;
+    const r = state.statsReport || {};
+    const label = state.localVerified ? 'Verified local file' : state.bufferedMode ? 'Buffered HTTP/HLS' : 'Live P2P';
+    el.stabilityInfo.textContent = `${label} | ${state.stabilityMode} | FPS ${Math.round(r.fps || 0)} ` +
+      `| loss ${((r.loss || 0) * 100).toFixed(1)}% | jitter ${Math.round(r.jitter || 0)}ms ` +
+      `| RTT ${Math.round(state.observedRtt || 0)}ms | ahead ${bufferAhead().toFixed(1)}s ` +
+      `| target ${state.bufferedMode || state.localVerified ? state.bufferTarget + 's' : state.jitterTarget + 'ms'}` +
+      ((state.bufferedMode || state.localVerified) && media.duration ? ` | drift ${Math.round((expectedHostTime()-media.currentTime)*1000)}ms` : '');
+  }
+  function recomputeBufferTarget(report = {}) {
+    const quality = Number.isFinite(report.loss) ? report.loss : 0;
+    const freezes = Number(report.freezes || 0) + Number(report.stalls || 0);
+    const prev = state.bufferTarget;
+    const target = quality > .08 || freezes >= 2 ? 120 : quality > .035 || freezes ? 90 :
+      quality > .012 || (report.jitter || 0) > 120 ? 40 : selectedMode().initial;
+    // Ramp gently; never surprise viewers by changing their resolution.
+    state.bufferTarget = Math.round(prev * .7 + target * .3);
+    if (state.hls) {
+      state.hls.config.maxBufferLength = clamp(state.bufferTarget, 10, 120);
+      state.hls.config.maxMaxBufferLength = 120;
+    }
+    state.jitterTarget = clamp(Math.round((state.jitterTarget * .6) +
+      ((freezes || quality > .025 ? 2100 : selectedMode().rtcMs) * .4)), 130, 3000);
+    applyReceiverPlayout();
+    updateDiagnostics();
+  }
+  function applyReceiverPlayout() {
+    const pc = state.guestCall?.peerConnection;
+    const receivers = pc?.getReceivers?.() || [];
+    for (const receiver of receivers) if (receiver.track?.kind === 'video') {
+      // Optional standards/browser APIs: remain fully functional when unavailable.
+      if ('playoutDelayHint' in receiver) try { receiver.playoutDelayHint = state.jitterTarget / 1000; } catch {}
+      if ('jitterBufferTarget' in receiver) try { receiver.jitterBufferTarget = state.jitterTarget; } catch {}
+    }
+  }
+  async function fileFingerprint(file) {
+    // Verifies size + three separated SHA-256 sampled regions; never uploads bytes.
+    const n = Math.min(131072, file.size);
+    const positions = [0, Math.max(0, Math.floor((file.size - n)/2)), Math.max(0, file.size - n)];
+    const parts = await Promise.all(positions.map(pos => file.slice(pos, pos + n).arrayBuffer()));
+    const merged = new Uint8Array(24 + n*parts.length);
+    const meta = new DataView(merged.buffer);
+    meta.setFloat64(0, file.size); meta.setFloat64(8, file.lastModified || 0); meta.setFloat64(16, n);
+    // Last-modified is intentionally NOT used for equality: copies have different timestamps.
+    meta.setFloat64(8, 0);
+    parts.forEach((part,i) => merged.set(new Uint8Array(part),24 + i*n));
+    const hash = await crypto.subtle.digest('SHA-256', merged);
+    return file.size + '-' + Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  async function chooseLocalCopy(file) {
+    if (state.role !== 'guest' || !file || !state.guestConn?.open) return;
+    el.localCopyStatus.textContent = 'Verifying your copy locally…';
+    const expected = state.remoteFingerprint;
+    try {
+      const hash = await fileFingerprint(file);
+      if (!expected || expected !== hash) {
+        el.localCopyStatus.textContent = 'File does not match the host. Streaming remains available.';
+        return;
+      }
+      const url = URL.createObjectURL(file);
+      if (state.localFileUrl) URL.revokeObjectURL(state.localFileUrl);
+      state.localFileUrl = url;
+      state.localVerified = true;
+      if (state.guestCall) { try { state.guestCall.close(); } catch {} state.guestCall = null; }
+      media.pause(); media.srcObject = null; media.src = url; media.preload = 'auto'; media.load();
+      state.source = 'local-guest'; state.bufferedMode = true;
+      send(state.guestConn,{type:'local-verified',verified:true});
+      el.localCopyStatus.textContent = 'Verified ✓ Playing from your device. No movie bandwidth.';
+      showStage(true); badge('LOCAL SYNC');
+      void syncSeekablePlayback(true);
+      updateDiagnostics();
+    } catch(e) { el.localCopyStatus.textContent = 'Could not verify this file: ' + (e.message || 'try again'); }
+  }
+  function expectedHostTime() {
+    const transit = clamp(state.observedRtt / 2000, 0, .5);
+    return clamp(state.sharedTime + (state.hostPlaying ? (performance.now()-state.sharedAt)/1000 + transit : 0),
+      0, state.sharedDuration || Number.MAX_SAFE_INTEGER);
+  }
+  async function syncSeekablePlayback(force=false) {
+    if (state.role !== 'guest' || !(state.localVerified || state.bufferedMode) || !Number.isFinite(media.duration) || !media.duration) return;
+    const expected = expectedHostTime();
+    const drift = expected - media.currentTime;
+    const revisionChanged = state.hostSyncVersion !== state.localLastSync;
+    if (force || revisionChanged || Math.abs(drift) > 1) {
+      if (Math.abs(drift) > .12 || force) try { media.currentTime = clamp(expected,0,media.duration); } catch {}
+      state.localLastSync = state.hostSyncVersion;
+      media.playbackRate = 1;
+    } else if (Math.abs(drift) >= .10) {
+      media.playbackRate = drift > 0 ? 1.02 : .98;
+    } else media.playbackRate = 1;
+    if (state.hostPlaying && media.paused && !state.waitingForBuffer) {
+      try { await media.play(); needsTapToPlay(false); } catch { needsTapToPlay(true); }
+    } else if (!state.hostPlaying && !media.paused) media.pause();
+    updateDiagnostics();
+  }
+  function retireHosted() {
+    state.hls?.destroy(); state.hls = null;
+    state.hostedAttempt = 0; state.pendingHostedLoad = '';
+    state.bufferedMode = false; state.waitingForBuffer = false;
+  }
+  function validMediaUrl(raw) {
+    try { const u = new URL(String(raw||'').trim()); return u.protocol === 'https:' ? u.href : ''; }
+    catch { return ''; }
+  }
+  function hlsUrl(url) { return /\.m3u8(?:[?#]|$)/i.test(url); }
+
+  const MAX_SEGMENT_CACHE = 20 * 1024 * 1024;
+  const MAX_RESCUE_FRAGMENT = 1536 * 1024;
+  function cacheSegment(url, bytes) {
+    if(!url || !bytes || bytes.byteLength>MAX_RESCUE_FRAGMENT || bytes.byteLength<128)return;
+    const copied=new Uint8Array(bytes).slice();
+    if(state.peerCache.has(url)){state.peerCacheBytes-=state.peerCache.get(url).byteLength;state.peerCache.delete(url);}
+    state.peerCache.set(url,copied);state.peerCacheBytes+=copied.byteLength;
+    while(state.peerCacheBytes>MAX_SEGMENT_CACHE){
+      const key=state.peerCache.keys().next().value;
+      state.peerCacheBytes-=state.peerCache.get(key).byteLength;state.peerCache.delete(key);
+    }
+  }
+  async function shareCachedSegment(conn,id,url) {
+    if(!state.peerAssistance || typeof id!=='string' || id.length>100 ||
+       typeof url!=='string' || url.length>4096 || !state.peerCache.has(url)){
+      send(conn,{type:'segment-missing',id});return;
+    }
+    const bytes=state.peerCache.get(url), chunkSize=12000;
+    const count=Math.ceil(bytes.length/chunkSize);
+    if(bytes.byteLength>MAX_RESCUE_FRAGMENT || count>150){send(conn,{type:'segment-missing',id});return;}
+    for(let i=0;i<count && conn.open;i++){
+      // Yield frequently so control and sync messages don't get starved.
+      if(i%6===0)await new Promise(resolve=>setTimeout(resolve,12));
+      send(conn,{type:'segment-part',id,i,n:count,bytes:bytes.slice(i*chunkSize,(i+1)*chunkSize)});
+    }
+  }
+  function receiveRescueChunk(data) {
+    const item=state.peerTransfer.get(data.id);
+    if(!item || !Number.isInteger(data.i)||!Number.isInteger(data.n)||data.n>150 || data.n<1||
+       data.i<0||data.i>=data.n || !(data.bytes instanceof Uint8Array))return;
+    if(item.count && item.count!==data.n)return;
+    item.count=data.n;item.chunks[data.i]=data.bytes;
+    if(item.chunks.filter(Boolean).length!==item.count)return;
+    const total=item.chunks.reduce((a,b)=>a+b.length,0);
+    if(total>MAX_RESCUE_FRAGMENT){item.fail();return;}
+    const bytes=new Uint8Array(total);let offset=0;
+    for(const chunk of item.chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+    clearTimeout(item.timer);state.peerTransfer.delete(data.id);
+    cacheSegment(item.url,bytes);
+    item.success(bytes.buffer);
+  }
+  function requestPeerRescue(url,context,callbacks,networkError) {
+    if(!state.peerAssistance || state.role!=='guest' || !state.guestConn?.open){
+      callbacks.onError(...networkError);return;
+    }
+    const id=crypto.randomUUID?.() || String(performance.now())+'-'+Math.random();
+    const transfer={url, chunks:[],count:0, success:bytes=>{
+      const at=performance.now();
+      callbacks.onSuccess({url,data:bytes},
+        {trequest:at-1,tfirst:at,tload:at,loaded:bytes.byteLength,total:bytes.byteLength,aborted:false,retry:0},context,null);
+    },fail:()=>callbacks.onError(...networkError)};
+    transfer.timer=setTimeout(()=>{
+      if(state.peerTransfer.get(id)!==transfer)return;
+      state.peerTransfer.delete(id);transfer.fail();
+    },4500);
+    state.peerTransfer.set(id,transfer);
+    send(state.guestConn,{type:'segment-request',id,url});
+  }
+  function makeSegmentRescueLoader(Hls) {
+    const Base=Hls.DefaultConfig.loader;
+    return class RescuableLoader extends Base {
+      load(context,config,callbacks){
+        const url=context.url;
+        super.load(context,config,{
+          ...callbacks,
+          onSuccess:(response,stats,ctx,details)=>{
+            if(response?.data instanceof ArrayBuffer)cacheSegment(url,response.data);
+            callbacks.onSuccess(response,stats,ctx,details);
+          },
+          onError:(...args)=>requestPeerRescue(url,context,callbacks,args),
+        });
+      }
+    };
+  }
+  function loadHlsScript() {
+    if (window.Hls) return Promise.resolve(window.Hls);
+    if (window.__marmaladeHlsPromise) return window.__marmaladeHlsPromise;
+    window.__marmaladeHlsPromise = new Promise((resolve,reject)=>{
+      const script=document.createElement('script');
+      script.src='https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.min.js';
+      script.onload=()=>window.Hls?resolve(window.Hls):reject(new Error('HLS unavailable'));
+      script.onerror=()=>reject(new Error('Could not load HLS.js'));
+      document.head.appendChild(script);
+    });
+    return window.__marmaladeHlsPromise;
+  }
+  function lockHlsLevel() {
+    const hls=state.hls;
+    if (!hls || !hls.levels?.length) return;
+    const height=state.role==='host' ? 1080 : (Number(state.requestedQuality) || 480);
+    // Do not enable ABR: explicit manually locked resolution at every moment.
+    const candidates=hls.levels.map((l,i)=>({height:l.height||0,index:i})).filter(l=>l.height<=height);
+    const chosen=(candidates.sort((a,b)=>b.height-a.height)[0] ||
+      hls.levels.map((l,i)=>({height:l.height||0,index:i})).sort((a,b)=>a.height-b.height)[0]);
+    if (chosen) { hls.currentLevel=chosen.index; hls.nextLevel=chosen.index; hls.loadLevel=chosen.index; }
+  }
+  async function loadHostedPlayback(url, alternate=false) {
+    if (!url || state.pendingHostedLoad === url) return;
+    const oldUrl=state.pendingHostedLoad;
+    retireHosted(); state.pendingHostedLoad=url; state.bufferedMode=true;
+    if(alternate)state.hostedFallbackOf=oldUrl;
+    else state.hostedFallbackOf='';
+    if(state.role==='host') {state.hostedUrl=url;syncState();}
+    media.pause(); media.removeAttribute('src'); media.srcObject=null; media.load();
+    state.source = state.role === 'host' ? 'hosted' : 'hosted-guest';
+    if(state.role==='guest' && state.strictSync){
+      state.waitingForBuffer=true;
+      notifyWaiting(false);
+    }
+    showStage(true); badge('BUFFERED STREAM');
+    if (hlsUrl(url) && !media.canPlayType('application/vnd.apple.mpegurl')) {
+      try {
+        const Hls=await loadHlsScript();
+        if (state.pendingHostedLoad!==url) return;
+        if (!Hls.isSupported()) throw new Error('HLS is not supported by this device');
+        const hls=new Hls({autoStartLoad:false,maxBufferLength:60,maxMaxBufferLength:120,
+          fLoader: makeSegmentRescueLoader(Hls),
+          backBufferLength:30,enableWorker:true,nudgeOnVideoHole:true,nudgeMaxRetry:3,
+          maxFragLookUpTolerance: .3, fragLoadingMaxRetry: 6,manifestLoadingMaxRetry:5,
+          levelLoadingMaxRetry:5, startFragPrefetch:true});
+        state.hls=hls;
+        hls.on(Hls.Events.FRAG_LOADED,(_event,data)=>{
+          if(data.frag?.url && data.payload instanceof ArrayBuffer)cacheSegment(data.frag.url,data.payload);
+          if(state.hostedAttempt>0)state.hostedAttempt=0;
+        });
+        hls.on(Hls.Events.MANIFEST_PARSED,()=>{
+          lockHlsLevel(); hls.startLoad(Math.max(0,expectedHostTime()));
+          updateQualityHint('Buffered HLS · manual quality locked');
+        });
+        hls.on(Hls.Events.ERROR,(_event,data)=>{
+          if (!data.fatal) return;
+          if (data.type===Hls.ErrorTypes.MEDIA_ERROR && state.hostedAttempt++<3) {
+            hls.recoverMediaError(); return;
+          }
+          if (data.type===Hls.ErrorTypes.NETWORK_ERROR && state.hostedAttempt++<5) {
+            setTimeout(()=>{if(state.hls===hls)hls.startLoad();},Math.min(15000,1000*2**state.hostedAttempt));return;
+          }
+          const fallback=state.backupUrl;
+          if (!alternate && fallback && fallback!==url) {notify('Primary media unavailable; using backup source.');void loadHostedPlayback(fallback,true);}
+          else {notify('The hosted stream stopped. Check the media URL and server availability.');connection('Media source unavailable','error');}
+        });
+        hls.attachMedia(media); hls.loadSource(url);
+      } catch(error) { notify(error.message || 'Could not start HLS'); }
+    } else {
+      media.src=url; media.load();
+      if(hlsUrl(url))updateQualityHint('Native HLS: this browser manages rendition selection');
+    }
+    if(state.role==='guest')void syncSeekablePlayback(true);
+    updateDiagnostics();
+  }
+  function beginHostedStream() {
+    if(state.role!=='host')return;
+    const url=validMediaUrl(el.hostedUrl.value), backup=validMediaUrl(el.fallbackUrl.value);
+    if(!url){notify('Enter a public HTTPS media URL.');return;}
+    closeConnections();removeMedia();
+    state.hostedUrl=url;state.backupUrl=backup; state.hostedFallbackOf=''; state.source='hosted';state.fileReady=true;
+    state.bufferTarget=60;
+    el.fileName.textContent='Hosted stream';
+    el.fileInfo.textContent='Independent CDN playback; 10–120s of forward buffer when available.';
+    void loadHostedPlayback(url);
+    void createRoom();
+  }
+  function recoveryCheck() {
+    if(state.role!=='guest'||!state.guestConn?.open)return;
+    const now=performance.now();
+    if(state.localVerified||state.bufferedMode){
+      const ahead=bufferAhead();
+      const blocked=state.hostPlaying&&(media.readyState<3||ahead<.15||media.paused&&!el.stage.classList.contains('needs-gesture'));
+      if(blocked && !state.waitingForBuffer){state.waitingForBuffer=true;send(state.guestConn,{type:'buffer-status',ready:false});}
+      if(state.waitingForBuffer && (ahead>=Math.min(12,Math.max(2,state.bufferTarget/3)) || (state.localVerified && ahead>=2) || (media.ended && media.readyState>=3))){
+        state.waitingForBuffer=false; send(state.guestConn,{type:'buffer-status',ready:true}); void syncSeekablePlayback(true);
+      }
+    } else if(state.guestCall && media.readyState<2 && state.hostPlaying){
+      if(!state.mediaStallAt)state.mediaStallAt=now;
+      if(now-state.mediaStallAt>8000 && now-state.lastRecoverAt>Math.min(60000,7000*2**state.mediaRetryCount)){
+        state.lastRecoverAt=now;state.mediaRetryCount=Math.min(state.mediaRetryCount+1,4);
+        send(state.guestConn,{type:'requestmedia'});
+        notify('Refreshing the stalled video connection…');
+      }
+    } else if(media.readyState>=2){state.mediaStallAt=0;state.mediaRetryCount=0;}
+    updateDiagnostics();
+  }
+  function notifyWaiting(ready) {
+    if(state.role!=='guest'||!state.guestConn?.open||(state.localVerified===false&&!state.bufferedMode))return;
+    send(state.guestConn,{type:'buffer-status',ready});
+  }
   function closeConnections() {
     clearTimeout(state.streamWaitTimer);
     state.streamWaitTimer = null;
@@ -470,6 +820,7 @@ body.theater-open{overflow:hidden}
     catch { /* already closed */ }
     state.guestConn = state.guestCall = state.peer = null;
     state.guestQualitySample = null;
+    state.remoteFingerprint = null;state.localVerified=false;
     state.hostPlaying = false; state.sharedDuration = 0; state.sharedTime = 0; state.sharedAt = 0;
     state.sourceHeight = 0; state.sourceWidth = 0;
     state.code = '';
@@ -518,9 +869,15 @@ body.theater-open{overflow:hidden}
     media.load();
     if (state.fileUrl) URL.revokeObjectURL(state.fileUrl);
     state.fileUrl = null;
+    if(state.localFileUrl){URL.revokeObjectURL(state.localFileUrl);state.localFileUrl=null;}
+    state.localVerified=false;state.localFingerprint=null;
+    retireHosted();state.hostedUrl='';state.backupUrl='';
     state.source = null;
     state.file = null;
     state.fileReady = false;
+    state.peerCache.clear();state.peerCacheBytes=0;
+    for(const transfer of state.peerTransfer.values()) {clearTimeout(transfer.timer);transfer.fail?.();}
+    state.peerTransfer.clear();
     el.fileName.textContent = 'Nothing selected';
     el.fileInfo.textContent = 'MP4, WebM, and browser-supported media. Or drop a file on the player.';
     showStage(false);
@@ -532,6 +889,7 @@ body.theater-open{overflow:hidden}
     closeConnections();
     removeMedia();
     state.role = role;
+    if(el.localCopyPanel)el.localCopyPanel.hidden=role!=='guest';
     const host = role === 'host';
     el.hostTab.classList.toggle('active', host);
     el.joinTab.classList.toggle('active', !host);
@@ -554,6 +912,8 @@ body.theater-open{overflow:hidden}
     removeMedia();
     state.source = 'file';
     state.file = file;
+    state.localFingerprint = null;
+    void fileFingerprint(file).then(hash=>{if(state.file===file){state.localFingerprint=hash;syncState();}}).catch(()=>{ /* Fingerprint unavailable in insecure browser context. */ });
     state.fileUrl = URL.createObjectURL(file);
     media.muted = false;
     media.autoplay = false;
@@ -581,13 +941,16 @@ body.theater-open{overflow:hidden}
         if (state.peer !== peer) return;
         renderCount();
         send(conn, hostStatus());
-        if (state.outgoing) callGuest(conn.peer);
+        if (state.outgoing && !entry.localMirror && state.source!=='hosted') callGuest(conn.peer);
         else autoStartIfPlaying();
         notify('A guest joined your room.');
       });
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
         if (data.type === 'ping') send(conn, { type: 'pong', at: data.at });
+        if(data.type==='segment-request' && state.source==='hosted' && state.peerAssistance){
+          void shareCachedSegment(conn,data.id,data.url);
+        }
         if (data.type === 'quality-preference' && typeof data.quality === 'string') {
           const allowed = LEVELS.some(l => l.id === data.quality);
           if (allowed) {
@@ -597,7 +960,22 @@ body.theater-open{overflow:hidden}
           }
         }
         if (data.type === 'hello' || data.type === 'requeststate') send(conn, hostStatus());
-        if (data.type === 'requestmedia' && state.outgoing) {
+        if (data.type === 'local-verified' && data.verified === true) {
+          entry.localMirror=true;
+          try{entry.call?.close();}catch{} entry.call=null;
+          void tuneAllGuests();
+        }
+        if (data.type === 'buffer-status' && typeof data.ready==='boolean') {
+          entry.bufferReady=data.ready;entry.lastBufferReport=performance.now();
+          // Optional coordinated pause, only for seekable buffered sources.
+          if(state.source==='hosted'&&state.strictSync){
+            const active=[...state.connections.values()].filter(e=>e.conn.open&&!e.localMirror);
+            const wait=active.some(e=>e.bufferReady===false && performance.now()-(e.lastBufferReport||0)<15000);
+            if(wait&&!state.heldForBuffer&&!media.paused){state.heldForBuffer=true;media.pause();syncState();}
+            if(!wait&&state.heldForBuffer){state.heldForBuffer=false;void media.play();syncState();}
+          }
+        }
+        if (data.type === 'requestmedia' && state.outgoing && !entry.localMirror) {
           const now = Date.now();
           if (!entry.call || now - (entry.lastMediaRetry || 0) > 15000) {
             entry.lastMediaRetry = now; callGuest(conn.peer);
@@ -608,12 +986,16 @@ body.theater-open{overflow:hidden}
           applyTransport(data.action, data.value);
         }
         if (data.type === 'quality' && entry.call && Number.isFinite(data.loss)) {
+          entry.lastHealth={loss:data.loss,freezes:data.freezes||0,stalls:data.stalls||0,jitter:data.jitter||0};
+          if((entry.lastHealth.freezes||entry.lastHealth.stalls) && performance.now()-(entry.lastKeyframe||0)>6000){
+            entry.lastKeyframe=performance.now(); issueKeyframe();
+          }
           // Monitoring never selects a different resolution on the viewer's behalf.
           entry.lastLoss = Math.max(0, Math.min(1, data.loss));
           entry.lastFps = Math.max(0, Math.min(120, Number(data.decodeFps) || 0));
           send(conn, { type: 'health', loss: entry.lastLoss, fps: entry.lastFps });
         }
-        if (data.type === 'hello' && state.outgoing && !entry.call) callGuest(conn.peer);
+        if (data.type === 'hello' && state.outgoing && !entry.call && !entry.localMirror && state.source!=='hosted') callGuest(conn.peer);
       });
       conn.on('close', () => {
         const current = state.connections.get(conn.peer);
@@ -662,6 +1044,7 @@ body.theater-open{overflow:hidden}
     state.highCanvas = canvas;
     state.highStream = canvas.captureStream(STREAM_FPS);
     state.highTrack = state.highStream.getVideoTracks()[0] || null;
+    if(state.highTrack && 'contentHint' in state.highTrack)try{state.highTrack.contentHint='motion';}catch{}
     return state.highTrack;
   }
   function budgetForGuest(entry, desired) {
@@ -730,9 +1113,9 @@ body.theater-open{overflow:hidden}
     await Promise.all([...state.connections.values()].map(entry => tuneGuest(entry)));
   }
   function callGuest(peerId) {
-    if (!state.peer || !state.outgoing) return;
+    if (!state.peer || !state.outgoing || state.source==='hosted') return;
     const entry = state.connections.get(peerId);
-    if (!entry?.conn.open) return;
+    if (!entry?.conn.open || entry.localMirror) return;
     try {
       entry.call?.close();
       const call = state.peer.call(peerId, state.outgoing);
@@ -791,7 +1174,7 @@ body.theater-open{overflow:hidden}
   }
   function setupGuestCallHandler(peer) {
     peer.on('call', (call) => {
-      if (state.peer !== peer || state.role !== 'guest' || call.peer !== PEER_PREFIX + state.code) { call.close(); return; }
+      if (state.peer !== peer || state.role !== 'guest' || state.localVerified || state.bufferedMode || call.peer !== PEER_PREFIX + state.code) { call.close(); return; }
       try { state.guestCall?.close(); } catch { /* no-op */ }
       state.guestCall = call;
       call.on('stream', async (stream) => {
@@ -800,12 +1183,7 @@ body.theater-open{overflow:hidden}
         sendQualityPreference();
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
-        const receivers = call.peerConnection?.getReceivers?.() || [];
-        for (const receiver of receivers) {
-          if (receiver.track?.kind === 'video' && 'playoutDelayHint' in receiver) {
-            try { receiver.playoutDelayHint = 0.24; } catch { /* Optional browser extension */ }
-          }
-        }
+        applyReceiverPlayout();
         media.srcObject = stream;
         media.autoplay = true;
         media.muted = false;
@@ -826,6 +1204,7 @@ body.theater-open{overflow:hidden}
         if (state.guestCall !== call) return;
         state.guestQualitySample = null;
         state.guestCall = null;
+        if(state.localVerified || state.bufferedMode) return;
         state.source = null;
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
@@ -840,10 +1219,23 @@ body.theater-open{overflow:hidden}
     });
   }
   function receiveState(data) {
+    if(typeof data.fingerprint==='string' && data.fingerprint.length<120){
+      state.remoteFingerprint=data.fingerprint;
+      if(el.localCopyPanel)el.localCopyPanel.hidden=false;
+    }
+    if(data.mediaKind==='hosted' && typeof data.hostedUrl==='string'){
+      const url=validMediaUrl(data.hostedUrl);
+      if(url && (!state.bufferedMode || (state.pendingHostedLoad!==url && state.hostedFallbackOf!==url))){
+        state.hostedUrl=url;state.backupUrl=validMediaUrl(data.backupUrl);
+        void loadHostedPlayback(url);
+      }
+    }
+    if(Number.isInteger(data.revision) && data.revision>state.hostSyncVersion)state.hostSyncVersion=data.revision;
     if (typeof data.playing === 'boolean') state.hostPlaying = data.playing;
     if (Number.isFinite(data.duration) && data.duration > 0) state.sharedDuration = data.duration;
     if (Number.isFinite(data.time) && data.time >= 0) {
       state.sharedTime = data.time; state.sharedAt = performance.now();
+      if(state.localVerified || state.bufferedMode)void syncSeekablePlayback();
     }
     if (Number.isFinite(data.sourceHeight) && data.sourceHeight >= 0 && data.sourceHeight <= 16384 &&
         Number.isFinite(data.sourceWidth) && data.sourceWidth >= 0 && data.sourceWidth <= 16384 &&
@@ -863,10 +1255,10 @@ body.theater-open{overflow:hidden}
       }
     }
     updateTransport();
-    if (!data.live && state.source !== 'remote') {
+    if (!data.live && state.source !== 'remote' && !state.localVerified && !state.bufferedMode) {
       setStage('Waiting for the host…', 'They’ll start the movie when they’re ready.', 'ROOM CONNECTED');
     }
-    if (data.live && state.source !== 'remote') {
+    if (data.live && state.source !== 'remote' && !state.localVerified && !state.bufferedMode) {
       if (!state.streamWaitTimer) {
         setStage('Connecting your stream…', 'Your host has started playback.', 'ALMOST THERE');
         state.streamWaitTimer = setTimeout(() => {
@@ -910,17 +1302,23 @@ body.theater-open{overflow:hidden}
         connection('Watching with host', 'online');
         renderCount();
         setStage('Waiting for the host…', 'They’ll start the movie when they’re ready.', 'ROOM CONNECTED');
+        el.localCopyPanel.hidden=false;
         send(conn, { type: 'hello' });
         sendQualityPreference();
       });
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
         if (data.type === 'state') receiveState(data);
+        if(data.type==='segment-part' && typeof data.id==='string')receiveRescueChunk(data);
+        if(data.type==='segment-missing' && state.peerTransfer.has(data.id)){
+          const t=state.peerTransfer.get(data.id);clearTimeout(t.timer);state.peerTransfer.delete(data.id);t.fail();
+        }
         if (data.type === 'quality-applied') {
           state.appliedQuality = data.level;
           updateQualityHint(data.limited ? 'Host bandwidth safety limit' : data.message || `Receiving ${data.height || '?'}p`);
         }
         if (data.type === 'pong' && typeof data.at === 'number') {
+          state.observedRtt=clamp(performance.now()-data.at,0,5000);
           el.network.textContent = `${Math.max(0, Math.round(performance.now() - data.at))} MS RTT`;
         }
       });
@@ -1027,6 +1425,9 @@ body.theater-open{overflow:hidden}
        state.recommendation = recommendedLevel(state.recommendation);
        if (before !== state.recommendation) buildQualitySelect();
        updateQualityHint();
+      state.statsReport={fps:decodeFps,loss:lost/Math.max(1,lost+received),
+        jitter:jitterMs,freezes:frozen,stalls:stall};
+      recomputeBufferTarget(state.statsReport);
       send(state.guestConn, {
         type: 'quality', loss: lost / Math.max(1, lost + received),
         jitter: Math.min(1000, jitterMs), freezes: frozen, stalls: stall, decodeFps,
@@ -1105,7 +1506,9 @@ body.theater-open{overflow:hidden}
     // 24fps/540p reduces host load significantly without reducing local playback.
     state.interval = window.setInterval(paint, Math.round(1000 / STREAM_FPS));
     state.canvasStream = canvas.captureStream(STREAM_FPS);
-    return state.canvasStream.getVideoTracks()[0];
+    const v=state.canvasStream.getVideoTracks()[0];
+    if(v && 'contentHint' in v)try{v.contentHint='motion';}catch{}
+    return v;
   }
   async function captureLocalMedia() {
     let track = null;
@@ -1144,6 +1547,11 @@ body.theater-open{overflow:hidden}
     }
   }
   async function startBroadcast() {
+    if(state.role==='host' && state.source==='hosted') {
+      try {await media.play();state.broadcasting=false;syncState();}
+      catch {notify('Tap Play to begin the hosted movie.');}
+      return;
+    }
     if (state.role !== 'host' || !state.peer?.open) { notify('Create your watch room first.'); return; }
     if (!state.fileReady && state.source !== 'screen') { notify('Choose a playable video first, or share a player window.'); return; }
     if (state.broadcasting || state.broadcastStarting) return;
@@ -1257,6 +1665,31 @@ body.theater-open{overflow:hidden}
   el.stage.addEventListener('dragleave', () => el.stage.classList.remove('dragover'));
   el.stage.addEventListener('drop', (event) => { if (state.role === 'host') { event.preventDefault(); el.stage.classList.remove('dragover'); chooseVideo(event.dataTransfer.files?.[0]); } });
   el.screenShare.addEventListener('click', shareScreen);
+  el.hostedStart.addEventListener('click',beginHostedStream);
+  el.localCopyButton.addEventListener('click',()=>el.localCopyInput.click());
+  el.localCopyInput.addEventListener('change',(event)=>{if(event.target.files?.[0])void chooseLocalCopy(event.target.files[0]);event.target.value='';});
+  el.stabilityMode.addEventListener('change',()=>{
+    state.stabilityMode=el.stabilityMode.value;
+    recomputeBufferTarget();
+    updateDiagnostics();
+  });
+  el.strictSync.addEventListener('change',()=>{state.strictSync=el.strictSync.checked;syncState();});
+  el.peerAssist.addEventListener('change',()=>{state.peerAssistance=el.peerAssist.checked;});
+  el.diagnosticsToggle.addEventListener('click',()=>{
+    state.diagnostics=!state.diagnostics;
+    el.stabilityInfo.hidden=!state.diagnostics;
+    el.diagnosticsToggle.setAttribute('aria-expanded',String(state.diagnostics));
+    updateDiagnostics();
+  });
+  for(const event of ['waiting','stalled'])media.addEventListener(event,()=>{
+    state.mediaStallAt=performance.now();
+    if(state.bufferedMode){recomputeBufferTarget({freezes:2});}
+    notifyWaiting(false);
+  });
+  for(const event of ['canplay','playing'])media.addEventListener(event,()=>{
+    state.mediaStallAt=0;
+    if(bufferAhead()>1 || media.readyState>=3)notifyWaiting(true);
+  });
   el.createRoom.addEventListener('click', createRoom);
   el.copy.addEventListener('click', copyInvite);
   el.startBroadcast.addEventListener('click', startBroadcast);
@@ -1292,6 +1725,7 @@ body.theater-open{overflow:hidden}
     if (state.role !== 'guest') return;
     state.requestedQuality = el.qualitySelect.value;
     state.userChoseQuality = true;
+    if(state.hls)lockHlsLevel();
     sendQualityPreference();
     updateQualityHint();
   });
@@ -1304,7 +1738,8 @@ body.theater-open{overflow:hidden}
   el.exitTheater.addEventListener('click', leaveTheater);
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') leaveTheater(); });
   media.addEventListener('loadedmetadata', () => {
-    if (state.role !== 'host' || state.source !== 'file') return;
+    if(state.role==='guest' && (state.localVerified || state.bufferedMode)){void syncSeekablePlayback(true);return;}
+    if (state.role !== 'host' || !['file','hosted'].includes(state.source)) return;
     state.fileReady = true;
     showStage(true);
     el.startBroadcast.disabled = !state.peer?.open;
@@ -1314,6 +1749,12 @@ body.theater-open{overflow:hidden}
     autoStartIfPlaying();
   });
   media.addEventListener('error', () => {
+    if((state.source==='hosted' || state.source==='hosted-guest') && state.backupUrl &&
+       state.pendingHostedLoad!==state.backupUrl){
+      notify('Switching to backup hosted media.');
+      void loadHostedPlayback(state.backupUrl,true);
+      return;
+    }
     if (state.role !== 'host' || state.source !== 'file') return;
     state.fileReady = false;
     el.startBroadcast.disabled = true;
@@ -1322,15 +1763,24 @@ body.theater-open{overflow:hidden}
   });
   for (const event of ['play', 'pause', 'seeked', 'ended']) media.addEventListener(event, () => { updateTransport(); syncState(); if (event === 'play') autoStartIfPlaying(); });
   media.addEventListener('timeupdate', () => {
-    if (state.role === 'host' && state.source === 'file') { updateTransport(); syncState(); }
+    if (state.role === 'host' && ['file','hosted'].includes(state.source)) { updateTransport(); syncState(); }
   });
   window.setInterval(() => { if (state.role === 'guest' && state.guestConn?.open && !state.seeking) updateTransport(); }, 250);
   window.setInterval(() => {
     if (state.role === 'guest' && state.guestConn?.open) {
       send(state.guestConn, { type: 'ping', at: performance.now() });
       void reportGuestQuality();
+      recoveryCheck();
+      if(state.localVerified || state.bufferedMode)void syncSeekablePlayback();
     }
   }, 5000);
+  window.setInterval(()=>{
+    if(state.role==='host'&&state.peer?.open && state.source && state.fileReady)syncState();
+    if(state.role==='guest'&&state.guestConn?.open){
+      recoveryCheck();
+      if(state.bufferedMode || state.localVerified)void syncSeekablePlayback();
+    }
+  },1200);
   document.addEventListener('visibilitychange', () => {
     if (state.broadcasting && document.visibilityState === 'visible') requestWakeLock();
     if (state.broadcasting && document.visibilityState === 'hidden' && isMobile) {
@@ -1339,6 +1789,7 @@ body.theater-open{overflow:hidden}
   });
   window.addEventListener('pagehide', () => {
     releaseWakeLock();
+    retireHosted();
     try { state.peer?.destroy(); } catch { /* no-op */ }
   });
   const queryCode = parseCode(new URLSearchParams(window.location.search).get('room'));
@@ -1361,6 +1812,7 @@ body.theater-open{overflow:hidden}
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
   }
   state.recommendation = estimatedStartingLevel();
+  recomputeBufferTarget();
   buildQualitySelect();
   startFpsMeasurement();
   updateTransport();
