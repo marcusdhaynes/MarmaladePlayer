@@ -1162,7 +1162,7 @@ body.theater-open{overflow:hidden}
 
   function updateRoomPanel() {
     el.joinSection.hidden = !el.hostActive.hidden || !el.joinActive.hidden || state.connecting;
-    const canPick = !state.source && !state.connecting && !state.peer && !state.guestConn;
+    const canPick = !state.source && !state.connecting;
     el.stage.classList.toggle('is-pickable', canPick);
     el.stage.setAttribute('aria-label', canPick ?
       'Click to choose a movie and host' : 'Watch-together video player');
@@ -1181,7 +1181,7 @@ body.theater-open{overflow:hidden}
     updateRoomPanel();
   }
   function openMoviePicker() {
-    if (state.source || state.connecting || state.peer || state.guestConn) return;
+    if (state.source || state.connecting) return;
     if (state.role !== 'host') selectRole('host');
     el.fileInput.click();
   }
@@ -1639,6 +1639,7 @@ body.theater-open{overflow:hidden}
     closeConnections();
     removeMedia();
     state.role = 'guest';
+    buildQualitySelect();
     state.requestedQuality = recommendedLevel(state.recommendation);
     state.userChoseQuality = false;
     state.code = code;
