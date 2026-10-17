@@ -8,6 +8,18 @@ import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const infoJs = readFileSync(new URL('../movie-info.js', import.meta.url), 'utf8');
+const parserBody = infoJs.match(/function parseFilename\\(name\\) \\{[\\s\\S]*?\\n  \\}/)?.[0];
+assert(parserBody, 'The filename parser must remain available');
+const parseMovieFilename = new Function('name', 'return ('+parserBody+')(name)');
+assert.deepEqual(parseMovieFilename('The.Matrix.1999.1080p.BluRay.x264.mkv'),
+  {title:'The Matrix',year:1999,kind:'movie',season:null,episode:null});
+assert.deepEqual(parseMovieFilename('Interstellar (2014) [1080p].mp4'),
+  {title:'Interstellar',year:2014,kind:'movie',season:null,episode:null});
+assert.deepEqual(parseMovieFilename('Oz.S02E02.WEBRip.mkv'),
+  {title:'Oz',year:null,kind:'tv',season:2,episode:2});
+assert.deepEqual(parseMovieFilename('The.Last.of.Us.1x03.720p.mp4'),
+  {title:'The Last of Us',year:null,kind:'tv',season:1,episode:3});
 const port = 38817;
 const server = createServer((req,res) => {
   if (req.url?.startsWith('/manifest.webmanifest')) {
