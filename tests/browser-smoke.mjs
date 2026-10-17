@@ -127,7 +127,16 @@ try {
   {
     const {page,errors}=await launchRoomPage();
     await page.locator('#roomInput').fill('ABCDEFGH');
-    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
+    await page.waitForTimeout(800);
+    console.log('AUTOJOIN TRACE', JSON.stringify(await page.evaluate(()=>({
+      role:document.querySelector('#hostTab')?.getAttribute('aria-selected'),
+      code:document.querySelector('#roomInput')?.value,
+      connected:!document.querySelector('#joinActive')?.hidden,
+      label:document.querySelector('#connectionText')?.textContent,
+      peerType:typeof window.Peer,
+      joinSectionHidden:document.querySelector('#joinSection')?.hidden
+    }))),errors.join(' | '));
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,null,{timeout:5500});
     assert.equal(await page.locator('#joinedCode').textContent(),'ABCDEFGH');
     assert.equal(await page.locator('#joinSection').isVisible(),false);
     assert.deepEqual(errors,[],'Pasted room must join cleanly');
