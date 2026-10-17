@@ -87,7 +87,7 @@ body.theater-open{overflow:hidden}
 .stage-fps .fps-overlay[hidden]{display:none}
 .theater-controls{position:absolute;z-index:8;bottom:0;left:0;right:0;padding:40px 16px 10px;background:linear-gradient(transparent,#050509d9 37%,#07070be8);opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .23s ease,transform .23s ease}
 .theater-top .theater-pill{opacity:0;transition:opacity .23s ease}
-.stage:hover .theater-controls,.stage:focus-within .theater-controls,.stage.controls-visible .theater-controls,.stage:fullscreen .theater-controls{opacity:1;transform:translateY(0);pointer-events:auto}
+.stage:hover .theater-controls,.stage:focus-within .theater-controls,.stage.controls-visible .theater-controls{opacity:1;transform:translateY(0);pointer-events:auto}
 .stage:hover .theater-top .theater-pill,.stage:focus-within .theater-top .theater-pill,.stage.controls-visible .theater-top .theater-pill{opacity:1}
 .stage:not(.has-video) .theater-controls{opacity:0;pointer-events:none}
 .theater-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:5px;color:#faf5ed;font-size:11px}
@@ -490,10 +490,10 @@ body.theater-open{overflow:hidden}
   function revealControls() {
     el.stage.classList.add('controls-visible');
     clearTimeout(state.controlHideTimer);
-    if (!el.settingsPanel.hidden || !el.subtitlePanel.hidden || el.stage.matches(':focus-within')) return;
+    if (!el.settingsPanel.hidden || !el.subtitlePanel.hidden || (el.stage.contains(document.activeElement) && document.activeElement !== el.stage)) return;
     state.controlHideTimer = setTimeout(() => {
       if (el.settingsPanel.hidden && el.subtitlePanel.hidden &&
-          !el.stage.matches(':focus-within')) el.stage.classList.remove('controls-visible');
+          !(el.stage.contains(document.activeElement) && document.activeElement !== el.stage)) el.stage.classList.remove('controls-visible');
     }, 3600);
   }
   function updateBufferDisplay() {
@@ -501,22 +501,24 @@ body.theater-open{overflow:hidden}
     let buffered = 0, percent = 0, text = 'Buffer: checking…';
     if ((state.bufferedMode || state.localVerified || state.source === 'file' || state.source === 'hosted') &&
         Number.isFinite(media.duration) && media.duration > 0) {
-      let end = 0;
+      let end = 0, start = 0;
       for(let i=0;i<media.buffered.length;i++){
-        if(media.buffered.start(i) <= media.currentTime + .1 && media.buffered.end(i) >= media.currentTime)
-          end = Math.max(end,media.buffered.end(i));
+        if(media.buffered.start(i) <= media.currentTime + .1 && media.buffered.end(i) >= media.currentTime) {
+          start = media.buffered.start(i); end = media.buffered.end(i); break;
+        }
       }
       buffered = Math.max(0,end-media.currentTime);
       percent = Math.min(100,buffered/(state.bufferTarget || 30)*100);
-      el.bufferedFill.style.width = `${Math.min(100,end/media.duration*100)}%`;
+      el.bufferedFill.style.left = `${Math.max(0,start/media.duration*100)}%`;
+      el.bufferedFill.style.width = `${Math.max(0,Math.min(100,(end-start)/media.duration*100))}%`;
       text = `Buffered ${buffered.toFixed(1)}s ahead`;
     } else if (state.role === 'guest' && state.source === 'remote') {
       const ms = Math.max(0,Math.round(state.jitterTarget || 0));
       percent = Math.min(100,ms / 2000 * 100);
       text = `Live jitter target ${ms}ms · no future buffer`;
-      el.bufferedFill.style.width = '0%';
+      el.bufferedFill.style.left = '0%'; el.bufferedFill.style.width = '0%';
     } else {
-      el.bufferedFill.style.width = '0%';
+      el.bufferedFill.style.left = '0%'; el.bufferedFill.style.width = '0%';
       text = 'Waiting for media';
     }
     el.bufferMeterFill.style.width = `${percent.toFixed(1)}%`;
@@ -1255,7 +1257,7 @@ body.theater-open{overflow:hidden}
       }
       let lastPaint=0;
       const paint=now=>{
-        if (media.readyState<2 || now-lastPaint < 1000/24-6) return;
+        if (media.readyState<2 || now-lastPaint < 1000/30-4) return;
         lastPaint=now;
         try { ctx.drawImage(media,0,0,canvas.width,canvas.height); } catch {}
       };
@@ -1719,7 +1721,10 @@ body.theater-open{overflow:hidden}
     }
     el.volumeMark.textContent = `${state.volumePercent}%`;
     el.volume.value = String(state.volumePercent);
-    el.mute.title = state.soundMuted ? 'Unmute' : 'Mute';
+    const silent = state.soundMuted || level === 0;
+    el.mute.textContent = silent ? '◖×' : '◖))';
+    el.mute.setAttribute('aria-label',silent ? 'Unmute' : 'Mute');
+    el.mute.title = silent ? 'Unmute' : 'Mute';
   }
   function setVolume(raw) {
     let next = Math.max(0, Math.min(200, Math.round(Number(raw) || 0)));
@@ -1924,7 +1929,7 @@ body.theater-open{overflow:hidden}
     if (el.settingsPanel.hidden && el.subtitlePanel.hidden) {
       clearTimeout(state.controlHideTimer);
       state.controlHideTimer = setTimeout(() => {
-        if (!el.stage.matches(':focus-within')) el.stage.classList.remove('controls-visible');
+        if (!(el.stage.contains(document.activeElement) && document.activeElement !== el.stage)) el.stage.classList.remove('controls-visible');
       }, 450);
     }
   });
