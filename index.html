@@ -298,8 +298,8 @@ body.theater-open{overflow:hidden}
     { id: '360', height: 360, bitrate: 520000, fps: 24 },
     { id: '480', height: 480, bitrate: 760000, fps: 24 },
     { id: '540', height: 540, bitrate: 1000000, fps: 24 },
-    { id: '720', height: 720, bitrate: 1900000, fps: 24 },
-    { id: '1080', height: 1080, bitrate: 3600000, fps: 24 },
+    { id: '720', height: 720, bitrate: 1350000, fps: 24 },
+    { id: '1080', height: 1080, bitrate: 2450000, fps: 24 },
   ];
   const MAX_TOTAL_VIDEO_BPS = isMobile ? 2500000 : 7200000;
   const DEFAULT_LEVEL = isMobile ? '360' : '480';
@@ -731,11 +731,23 @@ body.theater-open{overflow:hidden}
   }
   function applyReceiverPlayout() {
     const pc = state.guestCall?.peerConnection;
-    const receivers = pc?.getReceivers?.() || [];
-    for (const receiver of receivers) if (receiver.track?.kind === 'video') {
-      // Optional standards/browser APIs: remain fully functional when unavailable.
-      if ('playoutDelayHint' in receiver) try { receiver.playoutDelayHint = state.jitterTarget / 1000; } catch {}
-      if ('jitterBufferTarget' in receiver) try { receiver.jitterBufferTarget = state.jitterTarget; } catch {}
+    if (!pc?.getReceivers) return;
+    const wanted=Number(state.requestedQuality)||0;
+    // More decode/network headroom only for 720p and 1080p; do not change 540p
+    // or below, whose field-tested jitter settings are already performing well.
+    const extra = state.stabilityMode === 'smooth' ?
+      wanted >= 1080 ? 1700 : wanted >= 720 ? 1050 : 0 :
+      state.stabilityMode === 'balanced' ?
+      wanted >= 1080 ? 1000 : wanted >= 720 ? 700 : 0 : 0;
+    const target = Math.max(state.jitterTarget,extra);
+    for (const receiver of pc.getReceivers()) {
+      if (receiver.track?.kind !== 'video') continue;
+      if ('jitterBufferTarget' in receiver) {
+        try { receiver.jitterBufferTarget = target; } catch {}
+      }
+      if ('playoutDelayHint' in receiver) {
+        try { receiver.playoutDelayHint = target / 1000; } catch {}
+      }
     }
   }
   async function fileFingerprint(file) {
@@ -1035,6 +1047,13 @@ body.theater-open{overflow:hidden}
     if (state.outgoing && keepScreen && state.source !== 'screen') for (const track of state.outgoing.getVideoTracks()) track.stop();
     if (state.screenStream && !keepScreen) for (const track of state.screenStream.getTracks()) track.stop();
     if (state.highTimer) { clearInterval(state.highTimer); state.highTimer = null; }
+    if (state.highFrameHandle !== null && state.highFrameHandle !== undefined) {
+      try { media.cancelVideoFrameCallback?.(state.highFrameHandle); } catch {}
+      state.highFrameHandle = null;
+    }
+    for (const track of state.retiredHighTracks) { try { track.stop(); } catch {} }
+    state.retiredHighTracks = [];
+    state.highTierHeight = 0;
     if (state.highTrack && state.highTrack !== state.outgoing?.getVideoTracks()[0]) {
       try { state.highTrack.stop(); } catch { /* already stopped */ }
     }
@@ -1204,34 +1223,72 @@ body.theater-open{overflow:hidden}
   }
   // One 540p track is shared by low-bandwidth guests. A second original-size
   // track is captured ONLY on demand. This prevents 4K processing for everyone.
-  function getHighVideoTrack() {
+  // High-quality capture is created lazily at the highest actual requested tier.
+  // A 720p viewer never requires a 1080p canvas/encoder input. The proven 540p
+  // base stream (and all smaller quality selections) remains completely untouched.
+  function getHighVideoTrack(requestedHeight = 720) {
     if (state.source === 'screen') return state.outgoing?.getVideoTracks()[0] || null;
-    if (state.highTrack?.readyState === 'live') return state.highTrack;
+    const requested = [...state.connections.values()]
+      .filter(e => e.call && e.conn.open && !e.localMirror)
+      .map(e => levelForGuest(e).height).filter(h => h > STREAM_HEIGHT);
+    const height = Math.min(1080,sourceHeight(),Math.max(requestedHeight,...requested));
+    if (!Number.isFinite(height) || height <= STREAM_HEIGHT) return null;
+    if (state.highTrack?.readyState === 'live' && state.highTierHeight >= height) return state.highTrack;
     const nativeTrack = state.nativeCapture?.getVideoTracks()[0];
-    // Never push 4K raw pixels into an encoder when the highest offered quality
-    // is 1080p. For 720p sources keep the zero-copy native video track.
-    if (nativeTrack?.readyState === 'live' && sourceHeight() <= 1080) {
-      state.highTrack = nativeTrack;
-      return nativeTrack;
-    }
-    if (!media.videoWidth || !media.videoHeight) return null;
-    const canvas = document.createElement('canvas');
-    const factor = Math.min(1, 1920 / media.videoWidth, 1080 / media.videoHeight);
-    canvas.width = Math.max(2, Math.round(media.videoWidth * factor));
-    canvas.height = Math.max(2, Math.round(media.videoHeight * factor));
-    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-    if (!ctx || !canvas.captureStream) return null;
-    const paint = () => {
-      if (media.readyState >= 2) {
-        try { ctx.drawImage(media, 0, 0, canvas.width, canvas.height); } catch { /* next frame */ }
+    const prior = state.highTrack;
+    // Zero-copy when the actual movie already matches the desired tier.
+    if (nativeTrack?.readyState === 'live' && sourceHeight() <= height) {
+      state.highTrack = nativeTrack; state.highTierHeight = sourceHeight();
+    } else {
+      if (!media.videoWidth || !media.videoHeight) return null;
+      const factor = Math.min(1, (height * media.videoWidth / media.videoHeight) / media.videoWidth,
+        height / media.videoHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(2,Math.round(media.videoWidth * factor));
+      canvas.height = Math.max(2,Math.round(media.videoHeight * factor));
+      const ctx = canvas.getContext('2d',{alpha:false,desynchronized:true});
+      if (!ctx || !canvas.captureStream) return null;
+      if (state.highTimer) { clearInterval(state.highTimer); state.highTimer=null; }
+      if (state.highFrameHandle !== null && state.highFrameHandle !== undefined) {
+        try {media.cancelVideoFrameCallback?.(state.highFrameHandle);} catch {}
+        state.highFrameHandle=null;
       }
-    };
-    paint();
-    state.highTimer = setInterval(paint, Math.round(1000 / STREAM_FPS));
-    state.highCanvas = canvas;
-    state.highStream = canvas.captureStream(STREAM_FPS);
-    state.highTrack = state.highStream.getVideoTracks()[0] || null;
-    if(state.highTrack && 'contentHint' in state.highTrack)try{state.highTrack.contentHint='motion';}catch{}
+      let lastPaint=0;
+      const paint=now=>{
+        if (media.readyState<2 || now-lastPaint < 1000/24-6) return;
+        lastPaint=now;
+        try { ctx.drawImage(media,0,0,canvas.width,canvas.height); } catch {}
+      };
+      // Drive expensive redraws from decoded frames rather than wasteful timers.
+      paint(performance.now());
+      if (typeof media.requestVideoFrameCallback === 'function') {
+        const onFrame=now=>{
+          if(state.highCanvas !== canvas)return;
+          paint(now);
+          state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
+        };
+        state.highCanvas=canvas;
+        state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
+      } else {
+        state.highCanvas=canvas;
+        state.highTimer=setInterval(()=>paint(performance.now()),Math.round(1000/24));
+      }
+      state.highStream=canvas.captureStream(24);
+      state.highTrack=state.highStream.getVideoTracks()[0]||null;
+      state.highTierHeight=height;
+      if(state.highTrack && 'contentHint' in state.highTrack)
+        try{state.highTrack.contentHint='motion';}catch{}
+    }
+    // Wait for sender.replaceTrack() to complete before retiring the old canvas.
+    if(prior && prior!==state.highTrack && prior!==nativeTrack){
+      state.retiredHighTracks.push(prior);
+      setTimeout(()=>{
+        const index=state.retiredHighTracks.indexOf(prior);
+        if(index>=0)state.retiredHighTracks.splice(index,1);
+        const used=[...state.connections.values()].some(e=>e.call?.peerConnection?.getSenders?.().some(s=>s.track===prior));
+        if(!used)try{prior.stop();}catch{}
+      },3500);
+    }
     return state.highTrack;
   }
   function budgetForGuest(entry, desired) {
@@ -1255,7 +1312,7 @@ body.theater-open{overflow:hidden}
     if (!sender?.getParameters || !sender.setParameters) return;
     const current = levelForGuest(entry);
     const wantsHigh = current.height > STREAM_HEIGHT && sourceHeight() > STREAM_HEIGHT;
-    const newTrack = wantsHigh ? getHighVideoTrack() : state.outgoing?.getVideoTracks()[0];
+    const newTrack = wantsHigh ? getHighVideoTrack(current.height) : state.outgoing?.getVideoTracks()[0];
     if (!newTrack || newTrack.readyState !== 'live') return;
     const bitrate = budgetForGuest(entry, current.bitrate);
     const naturalHeight = newTrack.getSettings?.().height || (wantsHigh ? sourceHeight() : STREAM_HEIGHT);
@@ -1866,7 +1923,7 @@ body.theater-open{overflow:hidden}
   el.stage.addEventListener('pointerleave', () => {
     if (el.settingsPanel.hidden && el.subtitlePanel.hidden) {
       clearTimeout(state.controlHideTimer);
-      el.controlHideTimer = setTimeout(() => {
+      state.controlHideTimer = setTimeout(() => {
         if (!el.stage.matches(':focus-within')) el.stage.classList.remove('controls-visible');
       }, 450);
     }
@@ -1926,6 +1983,7 @@ body.theater-open{overflow:hidden}
   el.stabilityMode.addEventListener('change',()=>{
     state.stabilityMode=el.stabilityMode.value;
     recomputeBufferTarget();
+    applyReceiverPlayout();
     updateDiagnostics();
   });
   el.strictSync.addEventListener('change',()=>{state.strictSync=el.strictSync.checked;syncState();});
@@ -1982,6 +2040,7 @@ body.theater-open{overflow:hidden}
     state.userChoseQuality = true;
     if(state.hls)lockHlsLevel();
     sendQualityPreference();
+    applyReceiverPlayout();
     updateQualityHint();
   });
   el.fpsToggle.addEventListener('click', () => {
