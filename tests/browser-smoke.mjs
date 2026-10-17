@@ -85,17 +85,19 @@ try {
 
   // Simulated signaling: verify that the entry point determines Host or Guest.
   const fakePeer = `
+    window.__peerTrace=[];
     window.Peer = class MockPeer {
-      constructor(id) {this.id=typeof id==='string'?id:'guest-test';this.open=true;this.handlers={};}
+      constructor(id) {this.id=typeof id==='string'?id:'guest-test';this.open=true;this.handlers={};window.__peerTrace.push(['constructed',this.id]);}
       on(name,callback) {
-        this.handlers[name]=callback;
-        if(name==='open') setTimeout(()=>callback(this.id),0);
+        this.handlers[name]=callback;window.__peerTrace.push(['peer-on',name]);
+        if(name==='open') setTimeout(()=>{window.__peerTrace.push(['peer-open',this.id]);callback(this.id)},0);
       }
       connect(id) {
+        window.__peerTrace.push(['connect',id]);
         return {
           peer:id,open:false,callbacks:{},
-          on(name,callback){this.callbacks[name]=callback;
-            if(name==='open')setTimeout(()=>{this.open=true;callback();},0);},
+          on(name,callback){this.callbacks[name]=callback;window.__peerTrace.push(['connection-on',name]);
+            if(name==='open')setTimeout(()=>{this.open=true;window.__peerTrace.push(['connection-open']);callback();},0);},
           send(){},close(){this.open=false;}
         };
       }
@@ -134,7 +136,8 @@ try {
       connected:!document.querySelector('#joinActive')?.hidden,
       label:document.querySelector('#connectionText')?.textContent,
       peerType:typeof window.Peer,
-      joinSectionHidden:document.querySelector('#joinSection')?.hidden
+      joinSectionHidden:document.querySelector('#joinSection')?.hidden,
+      trace:window.__peerTrace
     }))),errors.join(' | '));
     await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,null,{timeout:5500});
     assert.equal(await page.locator('#joinedCode').textContent(),'ABCDEFGH');
