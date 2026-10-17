@@ -157,6 +157,18 @@ body.theater-open{overflow:hidden}
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ] } };
+  // Upload/encode-friendly base stream. Playback on the host remains at the original quality.
+  // Each guest has a separate WebRTC sender, so caps avoid multiplying 1080p encoders.
+  const STREAM_WIDTH = isMobile ? 640 : 960;
+  const STREAM_HEIGHT = isMobile ? 360 : 540;
+  const STREAM_FPS = isMobile ? 20 : 24;
+  const PROFILES = [
+    { name: 'Low', bitrate: 200000, scale: 2.0, fps: 12 },
+    { name: 'Saver', bitrate: 380000, scale: 1.5, fps: 16 },
+    { name: 'Balanced', bitrate: 700000, scale: 1.15, fps: 20 },
+    { name: 'Clear', bitrate: 1150000, scale: 1.0, fps: 24 },
+  ];
+  const MAX_TOTAL_VIDEO_BPS = isMobile ? 1450000 : 2400000;
   const PLAY_PATH = '<path d="M8 5v14l11-7z"/>';
   const PAUSE_PATH = '<path d="M7 5h4v14H7zM14 5h4v14h-4z"/>';
   const state = {
@@ -166,6 +178,7 @@ body.theater-open{overflow:hidden}
     canvasStream: null, interval: null, connections: new Map(), guestConn: null,
     guestCall: null, lastVolume: .8, pingAt: 0, connecting: false, toastTimeout: null,
     theaterMode: false, broadcastStarting: false, streamWaitTimer: null,
+    guestQualitySample: null, qualityTimer: null, hostPlaying: false,
   };
 
   function notify(message) {
@@ -281,6 +294,8 @@ body.theater-open{overflow:hidden}
     try { state.guestCall?.close(); state.guestConn?.close(); state.peer?.destroy(); }
     catch { /* already closed */ }
     state.guestConn = state.guestCall = state.peer = null;
+    state.guestQualitySample = null;
+    state.hostPlaying = false;
     state.code = '';
     state.connecting = false;
     state.hostActive = false;
@@ -298,6 +313,7 @@ body.theater-open{overflow:hidden}
     state.broadcasting = false;
     releaseWakeLock();
     if (state.interval) { window.clearInterval(state.interval); state.interval = null; }
+    if (state.qualityTimer) { window.clearInterval(state.qualityTimer); state.qualityTimer = null; }
     if (state.animationFrame) { cancelAnimationFrame(state.animationFrame); state.animationFrame = 0; }
     // AudioContext's destination is reused; never end its audio track.
     if (state.outgoing && !keepScreen) for (const track of state.outgoing.getVideoTracks()) track.stop();
@@ -372,7 +388,8 @@ body.theater-open{overflow:hidden}
       if (state.peer !== peer) { conn.close(); return; }
       const prior = state.connections.get(conn.peer);
       if (prior) { try { prior.call?.close(); prior.conn.close(); } catch { /* no-op */ } }
-      const entry = { conn, call: null };
+      const entry = { conn, call: null, tier: 2, healthy: 0, warning: 0, tuning: false,
+        applied: '', lastTuneAt: 0 };
       state.connections.set(conn.peer, entry);
       conn.on('open', () => {
         if (state.peer !== peer) return;
@@ -386,7 +403,29 @@ body.theater-open{overflow:hidden}
         if (!data || typeof data !== 'object') return;
         if (data.type === 'ping') send(conn, { type: 'pong', at: data.at });
         if (data.type === 'hello' || data.type === 'requeststate') send(conn, hostStatus());
-        if (data.type === 'requestmedia' && state.outgoing) callGuest(conn.peer);
+        if (data.type === 'requestmedia' && state.outgoing && !entry.call) callGuest(conn.peer);
+        if (data.type === 'quality' && entry.call && Number.isFinite(data.loss) && Number.isFinite(data.jitter)) {
+          // Reports belong to the specific guest's data channel; never punish other guests.
+          const loss = Math.max(0, Math.min(1, data.loss));
+          const jitter = Math.max(0, Math.min(1000, data.jitter));
+          const freezes = Math.max(0, Math.min(10, Number(data.freezes) || 0));
+          const stalls = Math.max(0, Math.min(10, Number(data.stalls) || 0));
+          const poor = freezes > 0 || stalls > 0 || loss > 0.06 || jitter > 600;
+          const fair = loss > 0.02 || jitter > 350;
+          if (state.source === 'file' && media.paused) return;
+          if (poor) { entry.warning++; entry.healthy = 0; }
+          else if (fair) { entry.warning = Math.min(2, entry.warning + 1); entry.healthy = 0; }
+          else { entry.healthy++; entry.warning = 0; }
+          if (entry.warning >= 2 || freezes > 0 || stalls > 0) {
+            entry.tier = Math.max(0, entry.tier - 1);
+            entry.warning = 0;
+            entry.healthy = 0;
+          } else if (entry.healthy >= 6) {
+            entry.tier = Math.min(PROFILES.length - 1, entry.tier + 1);
+            entry.healthy = 0;
+          }
+          void tuneGuest(entry);
+        }
         if (data.type === 'hello' && state.outgoing && !entry.call) callGuest(conn.peer);
       });
       conn.on('close', () => {
@@ -395,10 +434,58 @@ body.theater-open{overflow:hidden}
           try { current.call?.close(); } catch { /* no-op */ }
           state.connections.delete(conn.peer);
           renderCount();
+          void tuneAllGuests();
         }
       });
       conn.on('error', (error) => console.warn('Guest data connection error', error));
     });
+  }
+  // Bitrate and frame-rate are limited independently for each guest. If one guest has a
+  // poor connection, their sender drops quality without making everybody else's video stall.
+  async function tuneGuest(entry) {
+    if (!entry?.call || entry.tuning) return;
+    const pc = entry.call.peerConnection;
+    if (!pc || pc.signalingState === 'closed') return;
+    const sender = pc.getSenders?.().find(item => item.track?.kind === 'video');
+    if (!sender?.setParameters) return;
+    const params = sender.getParameters();
+    if (!params.encodings?.length) return; // Some browsers create encodings after negotiation.
+    const livePeers = [...state.connections.values()].filter(x => x.call && x.conn.open).length || 1;
+    const profile = PROFILES[entry.tier];
+    const bitrate = Math.max(160000, Math.min(profile.bitrate, Math.floor(MAX_TOTAL_VIDEO_BPS / livePeers)));
+    const settings = sender.track?.getSettings?.() || {};
+    // Window sharing may arrive in 1080p or 4K; scale it to the same lightweight
+    // baseline instead of encoding the full desktop for each remote participant.
+    const sourceScale = Math.max(1, (settings.width || STREAM_WIDTH) / STREAM_WIDTH,
+      (settings.height || STREAM_HEIGHT) / STREAM_HEIGHT);
+    const scale = Math.max(1, sourceScale * profile.scale);
+    const signature = `${bitrate}-${scale}-${Math.min(STREAM_FPS, profile.fps)}`;
+    if (signature === entry.applied) return;
+    const encoding = params.encodings[0];
+    encoding.maxBitrate = bitrate;
+    encoding.maxFramerate = Math.min(STREAM_FPS, profile.fps);
+    encoding.scaleResolutionDownBy = scale;
+    // Keep native congestion control active below these ceilings; never set minBitrate.
+    entry.tuning = true;
+    try {
+      await sender.setParameters(params);
+      if (entry.call?.peerConnection === pc) entry.applied = signature;
+    } catch (error) {
+      // Some browsers reject resolution scaling or maxFramerate but accept bitrate.
+      try {
+        const fallback = sender.getParameters();
+        if (fallback.encodings?.length) {
+          fallback.encodings[0].maxBitrate = bitrate;
+          await sender.setParameters(fallback);
+          if (entry.call?.peerConnection === pc) entry.applied = signature;
+        }
+      } catch (fallbackError) {
+        console.debug('Video quality control limited by browser', error, fallbackError);
+      }
+    } finally { entry.tuning = false; }
+  }
+  async function tuneAllGuests() {
+    await Promise.all([...state.connections.values()].map(entry => tuneGuest(entry)));
   }
   function callGuest(peerId) {
     if (!state.peer || !state.outgoing) return;
@@ -409,8 +496,20 @@ body.theater-open{overflow:hidden}
       const call = state.peer.call(peerId, state.outgoing);
       if (!call) { notify('Could not start the media call.'); return; }
       entry.call = call;
+      entry.applied = '';
+      entry.healthy = 0;
+      entry.warning = 0;
       call.on('error', (error) => { console.warn('Media call error', error); notify('Media connection failed. A TURN relay may be required.'); });
-      call.on('close', () => { if (entry.call === call) entry.call = null; });
+      call.on('close', () => {
+        if (entry.call === call) {
+          entry.call = null;
+          entry.applied = '';
+          void tuneAllGuests();
+        }
+      });
+      // PeerJS's RTCPeerConnection is created asynchronously; the periodic tuner
+      // also picks it up later if negotiation takes longer on a remote network.
+      setTimeout(() => { if (entry.call === call) void tuneAllGuests(); }, 650);
     } catch (error) { console.error(error); notify('Unable to establish the video call.'); }
   }
   async function createRoom() {
@@ -455,6 +554,7 @@ body.theater-open{overflow:hidden}
       state.guestCall = call;
       call.on('stream', async (stream) => {
         if (state.guestCall !== call) return;
+        state.guestQualitySample = null;
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
         media.srcObject = stream;
@@ -475,6 +575,7 @@ body.theater-open{overflow:hidden}
       });
       call.on('close', () => {
         if (state.guestCall !== call) return;
+        state.guestQualitySample = null;
         state.guestCall = null;
         state.source = null;
         clearTimeout(state.streamWaitTimer);
@@ -490,6 +591,7 @@ body.theater-open{overflow:hidden}
     });
   }
   function receiveState(data) {
+    if (typeof data.playing === 'boolean') state.hostPlaying = data.playing;
     if (typeof data.name === 'string' && data.name.length <= 250) el.fileName.textContent = data.name;
     if (typeof data.time === 'number' && Number.isFinite(data.time) && data.time >= 0) {
       el.current.textContent = timeString(data.time);
@@ -579,6 +681,46 @@ body.theater-open{overflow:hidden}
     removeMedia();
     if (state.role === 'guest') setStage('You’re invited.', 'Enter a room link and watch live with your host.', 'THE BEST SEAT IS YOURS');
   }
+  // Measures actual decoded media (not just ping). A struggling guest tells the host
+  // to lower only that guest's bitrate and resolution. No external analytics used.
+  async function reportGuestQuality() {
+    const call = state.guestCall;
+    const pc = call?.peerConnection;
+    if (state.role !== 'guest' || !state.hostPlaying || state.source !== 'remote' ||
+        !state.guestConn?.open || !pc?.getStats) return;
+    try {
+      const stats = await pc.getStats();
+      if (call !== state.guestCall) return;
+      let v = null;
+      stats.forEach(x => { if (x.type === 'inbound-rtp' && !x.isRemote &&
+        (x.kind === 'video' || x.mediaType === 'video')) v = x; });
+      if (!v) return;
+      const sample = {
+        at: performance.now(), lost: v.packetsLost || 0, received: v.packetsReceived || 0,
+        frames: v.framesDecoded ?? v.framesReceived ?? 0, freezes: v.freezeCount ?? 0,
+        jitterDelay: v.jitterBufferDelay || 0,
+        jitterFrames: v.jitterBufferEmittedCount || 0,
+      };
+      const prev = state.guestQualitySample;
+      state.guestQualitySample = sample;
+      if (!prev) return;
+      const lost = Math.max(0, sample.lost - prev.lost);
+      const received = Math.max(0, sample.received - prev.received);
+      const elapsed = Math.max(0.001, (sample.at - prev.at) / 1000);
+      const frozen = Math.max(0, sample.freezes - prev.freezes);
+      const decodeFps = Math.max(0, sample.frames - prev.frames) / elapsed;
+      const stall = sample.frames > 0 && received > 10 && decodeFps < 5 ? 1 : 0;
+      const jitterFrames = sample.jitterFrames - prev.jitterFrames;
+      const jitterMs = jitterFrames > 0 ?
+        Math.max(0, (sample.jitterDelay - prev.jitterDelay) / jitterFrames * 1000) : 0;
+      // Avoid judging packet loss from too few packets; packet counts reset on a new call.
+      if (received + lost < 15) return;
+      send(state.guestConn, {
+        type: 'quality', loss: lost / Math.max(1, lost + received),
+        jitter: Math.min(1000, jitterMs), freezes: frozen, stalls: stall,
+      });
+    } catch (error) { console.debug('Guest stream statistics unavailable', error); }
+  }
   function ensureAudioCapture() {
     if (!state.audioContext) {
       const Audio = window.AudioContext || window.webkitAudioContext;
@@ -593,42 +735,49 @@ body.theater-open{overflow:hidden}
   }
   function canvasCapture() {
     const canvas = document.createElement('canvas');
-    // Scale back on battery-constrained devices to reduce encoding cost and delay.
-    const maxWidth = isMobile ? 1280 : 1920, maxHeight = isMobile ? 720 : 1080;
-    const ratio = Math.min(1, maxWidth / Math.max(1, media.videoWidth), maxHeight / Math.max(1, media.videoHeight));
-    canvas.width = Math.max(2, Math.round((media.videoWidth || 1280) * ratio));
-    canvas.height = Math.max(2, Math.round((media.videoHeight || 720) * ratio));
+    const ratio = Math.min(1, STREAM_WIDTH / Math.max(1, media.videoWidth),
+      STREAM_HEIGHT / Math.max(1, media.videoHeight));
+    canvas.width = Math.max(2, Math.round((media.videoWidth || STREAM_WIDTH) * ratio));
+    canvas.height = Math.max(2, Math.round((media.videoHeight || STREAM_HEIGHT) * ratio));
     const context = canvas.getContext('2d', { alpha: false, desynchronized: true });
     if (!context || !canvas.captureStream) throw new Error('This browser cannot capture video frames.');
-    const paint = () => { if (!media.paused && media.readyState >= 2) { try { context.drawImage(media, 0, 0, canvas.width, canvas.height); } catch { /* next frame */ } } };
+    const paint = () => {
+      if (!media.paused && media.readyState >= 2) {
+        try { context.drawImage(media, 0, 0, canvas.width, canvas.height); }
+        catch { /* retry next frame */ }
+      }
+    };
     paint();
-    // Use periodic redraws for broad browser compatibility, including Safari.
-    const fps = isMobile ? 24 : 30;
-    state.interval = window.setInterval(paint, Math.round(1000 / fps));
-    state.canvasStream = canvas.captureStream(fps);
+    // Limit raw pixels before the multiple WebRTC encoders, not just afterward.
+    // 24fps/540p reduces host load significantly without reducing local playback.
+    state.interval = window.setInterval(paint, Math.round(1000 / STREAM_FPS));
+    state.canvasStream = canvas.captureStream(STREAM_FPS);
     return state.canvasStream.getVideoTracks()[0];
   }
   async function captureLocalMedia() {
     let track = null;
-    let nativeAudioTracks = []; 
+    let nativeAudioTracks = [];
     const nativeCapture = media.captureStream || media.mozCaptureStream;
-    if (nativeCapture && media.videoWidth && media.videoHeight) {
+    // Audio capture remains native when available, but the video is downscaled at
+    // source so adding a guest doesn't create another full-HD video encoder.
+    if (nativeCapture) {
       try {
         state.nativeCapture = nativeCapture.call(media);
-        track = state.nativeCapture.getVideoTracks()[0] || null;
         nativeAudioTracks = state.nativeCapture.getAudioTracks();
-      } catch (error) { console.warn('Using canvas video capture fallback', error); }
+      } catch (error) { console.warn('Using Web Audio capture fallback', error); }
     }
-    if (!track && media.videoWidth && media.videoHeight) track = canvasCapture();
-    // Prefer audio from captureStream where supported, avoiding an unnecessary Web Audio graph.
-    // Web Audio provides the audio-only and Safari/canvas fallback.
+    if (media.videoWidth && media.videoHeight) {
+      try { track = canvasCapture(); }
+      catch (error) {
+        console.warn('Canvas capture unavailable; trying native video capture', error);
+        track = state.nativeCapture?.getVideoTracks()[0] || null;
+      }
+    }
     if (!nativeAudioTracks.length) await ensureAudioCapture();
     const audioTracks = nativeAudioTracks.length ? nativeAudioTracks :
       (state.audioDestination?.stream.getAudioTracks() || []);
     if (!track && !audioTracks.length) throw new Error('No capturable audio or video tracks.');
-    const tracks = [track, ...audioTracks].filter(Boolean);
-    if (!tracks.length) throw new Error('The media contains no capturable tracks.');
-    return new MediaStream(tracks);
+    return new MediaStream([track, ...audioTracks].filter(Boolean));
   }
   function autoStartIfPlaying() {
     if (state.role === 'host' && state.peer?.open && state.source === 'file' && state.fileReady &&
@@ -658,6 +807,9 @@ body.theater-open{overflow:hidden}
       el.startBroadcast.textContent = 'Broadcasting  ●';
       el.network.textContent = 'WEBRTC ACTIVE';
       for (const peerId of state.connections.keys()) callGuest(peerId);
+      if (state.qualityTimer) clearInterval(state.qualityTimer);
+      state.qualityTimer = setInterval(() => { void tuneAllGuests(); }, 4000);
+      void tuneAllGuests();
       syncState();
       connection('Broadcasting live', 'online');
       notify('Live! Guests can watch and hear your video.');
@@ -787,7 +939,10 @@ body.theater-open{overflow:hidden}
     if (state.role === 'host' && state.source === 'file') { updateTransport(); syncState(); }
   });
   window.setInterval(() => {
-    if (state.role === 'guest' && state.guestConn?.open) send(state.guestConn, { type: 'ping', at: performance.now() });
+    if (state.role === 'guest' && state.guestConn?.open) {
+      send(state.guestConn, { type: 'ping', at: performance.now() });
+      void reportGuestQuality();
+    }
   }, 5000);
   document.addEventListener('visibilitychange', () => {
     if (state.broadcasting && document.visibilityState === 'visible') requestWakeLock();
