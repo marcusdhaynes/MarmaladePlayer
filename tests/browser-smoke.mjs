@@ -35,6 +35,12 @@ try {
     assert.equal(await page.locator('#popoutBtn').count(),1);
     assert.equal(await page.locator('#settingsBtn').count(),1);
     assert.equal(await page.locator('#bufferedFill').count(),1);
+    assert.equal(await page.locator('.buffer-line').count(),0,'Remove old buffer strip');
+    assert.equal(await page.locator('#networkLabel').isVisible(),false,'No WebRTC Active label');
+    assert.equal(await page.locator('#subtitlesBtn .captions-icon').count(),1,'Caption icon replaces CC letters');
+    assert.equal((await page.locator('#subtitlesBtn').textContent()).trim(),'','No CC text');
+    assert.equal(await page.locator('#bufferToggle').getAttribute('aria-pressed'),'false');
+    assert.equal(await page.locator('#bufferReadout').isVisible(),false,'Buffer readout is off initially');
     assert.equal(await page.locator('#joinSection').isVisible(),true,'Join field must be visible initially');
     assert.equal(await page.locator('.compact-cdn').isVisible(),true,'CDN option must remain');
     assert.equal(await page.locator('#hostTab').isVisible(),false,'No manual Host/Join tabs');
@@ -68,6 +74,12 @@ try {
     assert.equal(await page.locator('#volumeMark').textContent(),'100%','100% volume detent');
     await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='200';el.dispatchEvent(new Event('input',{bubbles:true}));});
     assert.equal(await page.locator('#volumeMark').textContent(),'200%');
+    await page.locator('#bufferToggle').click({force:true});
+    assert.equal(await page.locator('#bufferToggle').getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('#bufferReadout').isVisible(),true);
+    assert.match((await page.locator('#bufferReadout').textContent()).trim(),/^(?:—|\\d+\\.\\d)s$/,'Only forward seconds appear');
+    await page.locator('#bufferToggle').click({force:true});
+    assert.equal(await page.locator('#bufferReadout').isVisible(),false);
     await page.locator('#fpsToggle').click({force:true});
     assert.equal(await page.locator('#fpsToggle').getAttribute('aria-pressed'),'true');
     await page.locator('#statusToggle').click({force:true});
@@ -121,6 +133,15 @@ try {
     });
     await page.waitForFunction(()=>!document.querySelector('#hostActive').hidden);
     assert((await page.locator('#inviteLink').inputValue()).includes('?room='));
+    await page.evaluate(()=>{
+      const video=document.querySelector('#player');
+      Object.defineProperty(video,'buffered',{configurable:true,value:{length:1,start:()=>0,end:()=>18}});
+      Object.defineProperty(video,'currentTime',{configurable:true,value:10});
+      Object.defineProperty(video,'duration',{configurable:true,value:100});
+    });
+    await page.locator('#bufferToggle').click({force:true});
+    await page.waitForFunction(()=>document.querySelector('#bufferReadout')?.textContent === '8.0s',null,{timeout:3000});
+    await page.locator('#bufferToggle').click({force:true});
     assert.equal(await page.locator('#joinSection').isVisible(),false);
     assert.deepEqual(errors,[],'Hosting must not produce runtime errors');
     await page.close();
