@@ -150,6 +150,12 @@ body.theater-open{overflow:hidden}
       <section class="screen-column" aria-label="Video player">
         <div class="stage" id="dropZone" tabindex="0" aria-label="Video theater, tap to reveal controls">
           <video id="player" playsinline preload="metadata"></video>
+          <div class="stage-empty" id="stageEmpty">
+            <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="m12 8 13 8-13 8V8Z" fill="currentColor"/></svg></span></div>
+            <span class="eyebrow" id="stageEyebrow">YOUR PRIVATE CINEMA</span>
+            <h1 id="stageTitle">Good movies.<em> Better company.</em></h1>
+            <p id="stageSubtitle">Choose a video and invite someone. Nothing to upload, nothing to install.</p>
+          </div>
           
           <div class="theater-top">
             <div class="stage-state"><button type="button" id="statusToggle" class="theater-pill" aria-pressed="true" title="Toggle playback status">STATUS</button><span class="stage-badge" id="stageBadge" hidden><span class="live-dot"></span><span id="stageBadgeText">Live</span></span></div>
