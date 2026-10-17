@@ -1162,7 +1162,7 @@ body.theater-open{overflow:hidden}
 
   function updateRoomPanel() {
     el.joinSection.hidden = !el.hostActive.hidden || !el.joinActive.hidden || state.connecting;
-    const canPick = !state.source && !state.connecting;
+    const canPick = (!state.source || (state.source === 'file' && !!media.error)) && !state.connecting;
     el.stage.classList.toggle('is-pickable', canPick);
     el.stage.setAttribute('aria-label', canPick ?
       'Click to choose a movie and host' : 'Watch-together video player');
@@ -1181,7 +1181,7 @@ body.theater-open{overflow:hidden}
     updateRoomPanel();
   }
   function openMoviePicker() {
-    if (state.source || state.connecting) return;
+    if ((state.source && !(state.source === 'file' && media.error)) || state.connecting) return;
     if (state.role !== 'host') selectRole('host');
     el.fileInput.click();
   }
@@ -2214,7 +2214,8 @@ body.theater-open{overflow:hidden}
     if (state.role !== 'host' || state.source !== 'file') return;
     state.fileReady = false;
     el.startBroadcast.disabled = true;
-    setStage('Can’t decode this file', 'Try an MP4 / WebM, or share an external video-player window.', 'FORMAT NOT SUPPORTED');
+    setStage('Can’t decode this file', 'Click here to choose another video, or use window sharing in Settings.', 'FORMAT NOT SUPPORTED');
+    updateRoomPanel();
     notify('This browser cannot decode that format. Try “Share a video-player window”.');
   });
   for (const event of ['play', 'pause', 'seeked', 'ended']) media.addEventListener(event, () => { updateTransport(); syncState(); if (event === 'play') autoStartIfPlaying(); });
