@@ -245,6 +245,18 @@ body.theater-open{overflow:hidden}
 .theater-controls .icon-btn:disabled{opacity:.3}
 @media(max-width:450px){.theater-controls .icon-btn svg.glass-icon{width:16px;height:16px}.theater-controls .icon-btn svg.skip-icon{width:18px;height:18px}}
 @media(prefers-reduced-motion:reduce){.theater-controls .icon-btn{transition:none}}
+
+/* Detached settings palette: never clipped by the video's overflow:hidden. */
+.theater-popover.settings-popover.settings-floating{
+  position:fixed!important;top:12px;left:12px;right:auto!important;bottom:auto!important;
+  width:min(310px,calc(100vw - 24px));max-height:calc(100dvh - 24px);
+  z-index:1205;overflow-y:auto;overscroll-behavior:contain;
+  border:1px solid rgba(208,209,227,.23);
+  box-shadow:0 22px 60px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.035);
+  background:rgba(23,23,29,.97);backdrop-filter:blur(18px);
+}
+.theater-popover.settings-popover.settings-floating[hidden]{display:none!important}
+@media(max-width:650px){.theater-popover.settings-popover.settings-floating{max-height:calc(100dvh - 24px)}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -298,7 +310,7 @@ body.theater-open{overflow:hidden}
                 <input type="range" id="volume" value="100" min="0" max="200" step="1" aria-label="My volume from 0 to 200 percent">
                 <span class="vol-mark" id="volumeMark">100%</span>
                 <button type="button" class="icon-btn" id="subtitlesBtn" title="Subtitles" aria-label="Subtitles" aria-expanded="false"><svg class="glass-icon captions-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.3" y="5.3" width="17.4" height="13.4" rx="2.4"/><path d="M6.8 11.7h3.5m-3.5 3h3.5m3.3-3h3.5m-3.5 3h3.5"/></svg></button>
-                <button type="button" class="icon-btn" id="mediaInfoToggle" title="Movie and series information" aria-label="Movie and series information" aria-expanded="false" aria-controls="mediaInfoPanel">ⓘ</button>
+                <button type="button" class="icon-btn" id="mediaInfoToggle" title="Movie and series information" aria-label="Movie and series information" aria-expanded="false" aria-controls="mediaInfoPanel"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8v.1"/></svg></button>
                  <button type="button" class="icon-btn" id="popoutBtn" title="Picture in Picture" aria-label="Pop out video"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><rect x="11.8" y="11.2" width="7" height="5.8" rx=".9"/></svg></button>
                 <button class="icon-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Fullscreen"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H4.5v4m11-4h4v4m-15 7v4h4m11-4v4h-4"/></svg></button>
                 <button type="button" class="icon-btn" id="settingsBtn" title="Settings" aria-label="Video settings" aria-expanded="false"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.7 7.5h6.2m5.6 0h4.8M3.7 16.5h4.8m5.5 0h6.3"/><circle cx="12.7" cy="7.5" r="2.6"/><circle cx="11.2" cy="16.5" r="2.6"/></svg></button>
@@ -470,8 +482,10 @@ body.theater-open{overflow:hidden}
   ];
   const MAX_TOTAL_VIDEO_BPS = isMobile ? 2500000 : 7200000;
   const DEFAULT_LEVEL = isMobile ? '360' : '480';
-  const PLAY_PATH = '<path d="M8 5v14l11-7z"/>';
-  const PAUSE_PATH = '<path d="M7 5h4v14H7zM14 5h4v14h-4z"/>';
+  const PLAY_PATH = '<path d="m8.5 5.5 10.5 6.5-10.5 6.5V5.5Z"/>';
+  const PAUSE_PATH = '<path d="M8.7 5.8v12.4M15.3 5.8v12.4"/>';
+  const SPEAKER_ICON = "<svg class=\"glass-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m11 5-5 4H3.5v6H6l5 4V5Z\"/><path d=\"M15 9a4.5 4.5 0 0 1 0 6\"/><path d=\"M18 6a8.7 8.7 0 0 1 0 12\"/></svg>";
+  const MUTED_ICON = "<svg class=\"glass-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m11 5-5 4H3.5v6H6l5 4V5Z\"/><path d=\"m16 9 5 6m0-6-5 6\"/></svg>";
   const state = {
     role: 'host', peer: null, code: '', source: null, file: null, fileUrl: null,
     fileReady: false, broadcasting: false, outgoing: null, nativeCapture: null,
@@ -2023,7 +2037,7 @@ body.theater-open{overflow:hidden}
     el.volumeMark.textContent = `${state.volumePercent}%`;
     el.volume.value = String(state.volumePercent);
     const silent = state.soundMuted || level === 0;
-    el.mute.textContent = silent ? '◖×' : '◖))';
+    el.mute.innerHTML = silent ? MUTED_ICON : SPEAKER_ICON;
     el.mute.setAttribute('aria-label',silent ? 'Unmute' : 'Mute');
     el.mute.title = silent ? 'Unmute' : 'Mute';
   }
@@ -2237,12 +2251,43 @@ body.theater-open{overflow:hidden}
       }, 450);
     }
   });
+
+  // Settings is a real floating palette, not a child clipped by the video.
+  // In native fullscreen it moves back into the fullscreen element, as
+  // browsers cannot display an ordinary body child above a fullscreen layer.
+  function placeSettingsPalette() {
+    const fullscreen = document.fullscreenElement === el.stage;
+    const parent = fullscreen ? el.stage : document.body;
+    if (el.settingsPanel.parentElement !== parent) parent.appendChild(el.settingsPanel);
+    el.settingsPanel.classList.add('settings-floating');
+    if (el.settingsPanel.hidden) return;
+    const width = el.settingsPanel.getBoundingClientRect().width;
+    const height = el.settingsPanel.getBoundingClientRect().height;
+    const button = el.settingsBtn.getBoundingClientRect();
+    const stage = el.stage.getBoundingClientRect();
+    const margin = 12;
+    const x = Math.max(margin,Math.min(window.innerWidth-width-margin,button.right-width));
+    // Outside the video when viewport space permits. Otherwise float above
+    // the trigger with a viewport clamp, without cropping tall settings.
+    const below = window.innerHeight-stage.bottom;
+    const top = below >= height+10
+      ? stage.bottom+8
+      : Math.max(margin,Math.min(window.innerHeight-height-margin,button.top-height-9));
+    el.settingsPanel.style.left = `${Math.round(x)}px`;
+    el.settingsPanel.style.top = `${Math.round(top)}px`;
+  }
+  document.body.appendChild(el.settingsPanel);
+  el.settingsPanel.classList.add('settings-floating');
+  document.addEventListener('fullscreenchange',placeSettingsPalette);
+  window.addEventListener('resize',placeSettingsPalette,{passive:true});
+  window.addEventListener('scroll',placeSettingsPalette,{passive:true});
   function togglePopover(panel, button) {
     const open=panel.hidden;
     el.settingsPanel.hidden = true; el.subtitlePanel.hidden = true;
     el.settingsBtn.setAttribute('aria-expanded', 'false');
     el.subtitleBtn.setAttribute('aria-expanded', 'false');
     panel.hidden=!open;button.setAttribute('aria-expanded',String(open));
+    if(open && panel===el.settingsPanel) placeSettingsPalette();
     revealControls();
   }
   el.settingsBtn.addEventListener('click',()=>togglePopover(el.settingsPanel,el.settingsBtn));
