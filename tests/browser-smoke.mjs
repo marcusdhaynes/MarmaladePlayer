@@ -61,7 +61,7 @@ try {
     await page.locator('#subtitlesBtn').click({force:true});
     assert.equal(await page.locator('#subtitlePanel').isVisible(),true);
     await page.locator('#subtitleFile').setInputFiles({name:'test.vtt',mimeType:'text/vtt',buffer:Buffer.from('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello from subtitles!\n')});
-    assert((await page.locator('#subtitleName').textContent()).includes('1 cues'));
+    await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.includes('1 cues'),{timeout:3000});
     const overflow = await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2);
     assert.equal(overflow,false,'Theater must fit mobile viewport');
     assert.deepEqual(errors,[], 'Browser runtime errors');
