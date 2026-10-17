@@ -1,0 +1,46 @@
+/* Compact, independent filmography drawer; does not change video sizing or controls. */
+.media-info{margin-top:14px;border:1px solid #3c363e;background:linear-gradient(150deg,#211e24,#17171c);border-radius:14px;padding:16px 18px;color:var(--text);overflow:hidden}
+.media-info[hidden]{display:none!important}
+.mi-header{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.mi-header>strong{font-size:14px;letter-spacing:-.2px}
+.mi-header-right{display:flex;align-items:center;gap:12px}
+.mi-header button,.mi-search-row button,.mi-settings-row button,.mi-choice{background:#29262d;border:1px solid #54454a;color:#f2caa6;border-radius:7px;font-size:11px;font-weight:700;padding:8px 10px}
+.mi-header button:hover,.mi-search-row button:hover,.mi-settings-row button:hover,.mi-choice:hover{border-color:#ffba74;background:#3d3133}
+.mi-muted,.mi-footnote{color:#a49ba6;font-size:11px;line-height:1.5}
+.mi-search-row{display:flex;gap:7px;margin:0 0 11px}
+.mi-search-row input,.mi-settings-row input{flex:1;min-width:0;border:1px solid #50454b;border-radius:8px;color:#f5ebe1;background:#101014;padding:9px 11px;font-size:12px}
+.mi-search-row button{min-width:65px}
+.mi-credentials{margin:5px 0 14px;border:1px solid #ffffff19;border-radius:9px;background:#16151b;padding:10px 12px}
+.mi-credentials summary{font-size:11px;color:#edc59e;cursor:pointer;font-weight:750}
+.mi-settings-row{display:grid;grid-template-columns:minmax(130px,1fr) minmax(150px,2fr);align-items:center;gap:8px 11px;margin:11px 0}
+.mi-settings-row label{font-size:11px;color:#c8bac0}
+.mi-settings-row button{justify-self:start}
+.mi-settings-row a,.mi-attribution a{color:#ffbf7d}
+.mi-settings-help{font-size:10px;line-height:1.5;color:#a49aa1;margin:8px 0}
+.mi-match-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:10px 0}
+.mi-choice{font-size:10px;padding:6px 8px}
+.mi-empty{color:#bcb3bd;font-size:12px;line-height:1.6}
+.mi-hero{display:flex;gap:18px;align-items:flex-start;margin:15px 0 4px}
+.mi-poster{display:block;width:125px;max-width:27%;height:auto;object-fit:cover;aspect-ratio:2/3;border-radius:8px;background:#0f0e12;border:1px solid #ffffff25}
+.mi-hero-copy{min-width:0;flex:1}
+.mi-hero h2{font-weight:800;letter-spacing:-.5px;font-size:23px;line-height:1.2;margin:0 0 9px}
+.mi-kicker{font-size:12px;font-weight:800;color:#f1b573}
+.mi-tagline{font-family:Georgia,serif;font-size:14px;color:#edb993;font-style:italic}
+.mi-overview{font-size:12px;line-height:1.65;color:#ded5dc;margin:8px 0}
+.mi-link-row{display:flex;gap:12px;flex-wrap:wrap}
+.mi-link{display:inline-block;font-weight:750;font-size:11px;color:#ffc48a;text-decoration:none;margin:8px 12px 4px 0}
+.mi-link:hover{text-decoration:underline}
+.mi-section{padding:13px 0;border-top:1px solid #ffffff1b}
+.mi-section h3{margin:0 0 10px;font-size:12px;font-weight:800;color:#efd1b5;letter-spacing:.15px}
+.mi-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.mi-stat{display:flex;flex-direction:column;gap:4px;min-width:0;overflow-wrap:anywhere}
+.mi-stat strong{font-size:12px;line-height:1.35;color:#f3eced;font-weight:750}
+.mi-cast-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:9px}
+.mi-person{display:flex;align-items:center;gap:8px;background:#ffffff06;border:1px solid #ffffff12;padding:6px;border-radius:9px;min-width:0}
+.mi-headshot{height:55px;width:40px;flex:none;object-fit:cover;border-radius:5px;background:#141116}
+.mi-person-label{min-width:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
+.mi-person-label strong{font-size:11px}
+.mi-credit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.mi-footnote{margin:11px 0 3px;border-top:1px solid #ffffff19;padding-top:10px;font-size:10px}
+.mi-attribution{color:#89838c;font-size:10px;line-height:1.5;margin-top:12px;border-top:1px solid #ffffff16;padding-top:10px}
+@media(max-width:510px){.media-info{padding:12px}.mi-header{gap:5px}.mi-header>strong{font-size:12px}.mi-hero{gap:11px}.mi-poster{width:95px}.mi-hero h2{font-size:18px}.mi-settings-row{grid-template-columns:1fr}.mi-cast-grid{grid-template-columns:repeat(auto-fit,minmax(125px,1fr))}}
