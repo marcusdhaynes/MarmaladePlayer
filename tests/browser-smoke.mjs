@@ -61,6 +61,12 @@ try {
     assert.equal(await page.locator('#subtitlesBtn').count(),1);
     assert.equal(await page.locator('#popoutBtn').count(),1);
     assert.equal(await page.locator('#settingsBtn').count(),1);
+    for (const id of ['skipBack','playPause','skipForward','muteBtn','subtitlesBtn',
+        'mediaInfoToggle','popoutBtn','fullscreenBtn','settingsBtn']) {
+      assert.equal(await page.locator('#'+id+' svg.glass-icon').count(),1,
+        'Crisp vector artwork must replace Unicode glyphs for '+id);
+      assert.equal(await page.locator('#'+id+' svg').getAttribute('stroke-width'),'1.5');
+    }
     assert.equal(await page.locator('#bufferedFill').count(),1);
     assert.equal(await page.locator('.buffer-line').count(),0,'Remove old buffer strip');
     assert.equal(await page.locator('#networkLabel').isVisible(),false,'No WebRTC Active label');
@@ -94,6 +100,17 @@ try {
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     await page.locator('#settingsBtn').click({force:true});
     assert.equal(await page.locator('#settingsPanel').isVisible(),true);
+    const palette=await page.locator('#settingsPanel').evaluate(panel=>{
+      const r=panel.getBoundingClientRect();
+      return {detached:panel.parentElement===document.body,
+        clipped: r.top < -1 || r.left < -1 || r.right > innerWidth+1 || r.bottom > innerHeight+1,
+        stageContains: document.querySelector('#dropZone').contains(panel),
+        stageBottom:document.querySelector('#dropZone').getBoundingClientRect().bottom,
+        paletteTop:r.top};
+    });
+    assert.equal(palette.detached,true,'Settings palette must be outside clipped video');
+    assert.equal(palette.stageContains,false,'Stage may not clip Settings');
+    assert.equal(palette.clipped,false,'Settings must remain fully visible within viewport');
     await page.locator('#joinTab').evaluate(el=>el.click()); // hidden compatibility action, not user-facing
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     const options=await page.locator('#qualitySelect option').allTextContents();
@@ -103,6 +120,8 @@ try {
     await page.locator('#closeSettingsPanel').click({force:true});
     await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='0';el.dispatchEvent(new Event('input',{bubbles:true}));});
     assert.equal(await page.locator('#player').evaluate(el=>el.muted),true,'0% must hard-mute video element');
+    assert.equal(await page.locator('#muteBtn svg.glass-icon').count(),1,
+      'Mute must retain thin SVG artwork when muted');
     assert.equal(await page.locator('#volumeMark').textContent(),'0%');
     await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='200';el.dispatchEvent(new Event('input',{bubbles:true}));});
     assert.equal(await page.locator('#volumeMark').textContent(),'100%','100% volume detent');
