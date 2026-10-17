@@ -882,42 +882,116 @@ body.theater-open{overflow:hidden}
     }
   }
   async function fileFingerprint(file) {
-    // Verifies size + three separated SHA-256 sampled regions; never uploads bytes.
-    const n = Math.min(131072, file.size);
-    const positions = [0, Math.max(0, Math.floor((file.size - n)/2)), Math.max(0, file.size - n)];
-    const parts = await Promise.all(positions.map(pos => file.slice(pos, pos + n).arrayBuffer()));
-    const merged = new Uint8Array(24 + n*parts.length);
-    const meta = new DataView(merged.buffer);
-    meta.setFloat64(0, file.size); meta.setFloat64(8, file.lastModified || 0); meta.setFloat64(16, n);
-    // Last-modified is intentionally NOT used for equality: copies have different timestamps.
-    meta.setFloat64(8, 0);
-    parts.forEach((part,i) => merged.set(new Uint8Array(part),24 + i*n));
-    const hash = await crypto.subtle.digest('SHA-256', merged);
-    return file.size + '-' + Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    // Strong low-cost fingerprint: byte length plus a SHA-256 digest of sixteen
+    // evenly spaced 64-KiB samples (including both ends). No file data leaves
+    // the device. Full-file hashing of multi-GB movies would impede playback.
+    const chunkSize = Math.min(65536, file.size);
+    const samples = file.size <= chunkSize ? 1 : 16;
+    const maxOffset = Math.max(0, file.size - chunkSize);
+    const regions = await Promise.all(Array.from({length:samples},(_,i)=>{
+      const offset = samples === 1 ? 0 : Math.floor(maxOffset * i / (samples - 1));
+      return file.slice(offset,offset + chunkSize).arrayBuffer();
+    }));
+    const digestInput = new Uint8Array(16 + chunkSize * samples);
+    const meta = new DataView(digestInput.buffer);
+    meta.setFloat64(0,file.size);
+    meta.setUint32(8,chunkSize);
+    meta.setUint32(12,samples);
+    regions.forEach((bytes,i)=>digestInput.set(new Uint8Array(bytes),16+i*chunkSize));
+    const digest=await crypto.subtle.digest('SHA-256',digestInput);
+    return file.size + '-' + Array.from(new Uint8Array(digest))
+      .map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  function probeLocalPlayback(url) {
+    // Check actual browser decoding *before* giving up the existing stream.
+    return new Promise((resolve,reject)=>{
+      const probe=document.createElement('video');
+      probe.preload='metadata';
+      probe.muted=true;
+      probe.playsInline=true;
+      let finished=false;
+      const settle=(error)=>{
+        if(finished)return;
+        finished=true;
+        clearTimeout(timer);
+        probe.removeAttribute('src');
+        probe.load();
+        if(error) reject(error);
+        else resolve(true);
+      };
+      probe.addEventListener('loadedmetadata',()=>{
+        const duration=probe.duration;
+        if(!Number.isFinite(duration) || duration<=0) {
+          settle(Error('Cannot read video duration'));return;
+        }
+        if(state.sharedDuration>0 && Math.abs(duration-state.sharedDuration)>1.5) {
+          settle(Error('Video duration differs from host'));return;
+        }
+        settle(null);
+      },{once:true});
+      probe.addEventListener('error',()=>settle(Error('Video cannot be decoded here')),{once:true});
+      const timer=setTimeout(()=>settle(Error('Local video could not be prepared in time')),15000);
+      probe.src=url;probe.load();
+    });
   }
   async function chooseLocalCopy(file) {
-    if (state.role !== 'guest' || !file || !state.guestConn?.open) return;
-    el.localCopyStatus.textContent = 'Verifying your copy locally…';
-    const expected = state.remoteFingerprint;
+    if(state.role!=='guest'||!file||!state.guestConn?.open||state.localVerified)return;
+    const expectedName=state.remoteFileName,expectedHash=state.remoteFingerprint;
+    if(!expectedName||!expectedHash){
+      el.localCopyStatus.textContent='Waiting for the host to identify the movie. Streaming continues.';
+      return;
+    }
+    if(file.name!==expectedName){
+      el.localCopyStatus.textContent='Filename differs from host: '+expectedName+' · Streaming continues.';
+      return;
+    }
+    const connectionAtStart=state.guestConn;
+    el.localCopyButton.disabled=true;
+    el.localCopyStatus.textContent='Checking identical filename, size and video fingerprints…';
+    let temporaryUrl=null;
     try {
-      const hash = await fileFingerprint(file);
-      if (!expected || expected !== hash) {
-        el.localCopyStatus.textContent = 'File does not match the host. Streaming remains available.';
+      const actualHash=await fileFingerprint(file);
+      if(actualHash!==expectedHash){
+        el.localCopyStatus.textContent='Movie content or file size differs. Streaming continues.';
         return;
       }
-      const url = URL.createObjectURL(file);
-      if (state.localFileUrl) URL.revokeObjectURL(state.localFileUrl);
-      state.localFileUrl = url;
-      state.localVerified = true;
-      if (state.guestCall) { try { state.guestCall.close(); } catch {} state.guestCall = null; }
-      media.pause(); media.srcObject = null; media.src = url; media.preload = 'auto'; media.load();
-      state.source = 'local-guest'; state.bufferedMode = true;
+      if(state.role!=='guest'||connectionAtStart!==state.guestConn ||
+         expectedHash!==state.remoteFingerprint||expectedName!==state.remoteFileName){
+        el.localCopyStatus.textContent='Host video changed during verification. Streaming continues.';
+        return;
+      }
+      temporaryUrl=URL.createObjectURL(file);
+      el.localCopyStatus.textContent='File matches. Checking local playback compatibility…';
+      await probeLocalPlayback(temporaryUrl);
+      if(state.role!=='guest'||connectionAtStart!==state.guestConn ||
+         expectedHash!==state.remoteFingerprint||expectedName!==state.remoteFileName){
+        el.localCopyStatus.textContent='Host video changed during verification. Streaming continues.';
+        return;
+      }
+      // Only now retire the incoming movie stream. The original player,
+      // volume, synchronization controls and host transport remain unchanged.
+      if(state.localFileUrl)URL.revokeObjectURL(state.localFileUrl);
+      state.localFileUrl=temporaryUrl;temporaryUrl=null;
+      state.localVerified=true;
+      state.source='local-guest';
+      state.bufferedMode=true;
+      if(state.guestCall){try{state.guestCall.close();}catch{}state.guestCall=null;}
+      media.pause();
+      media.srcObject=null;
+      media.src=state.localFileUrl;
+      media.preload='auto';
+      media.load();
       send(state.guestConn,{type:'local-verified',verified:true});
-      el.localCopyStatus.textContent = 'Verified ✓ Playing from your device. No movie bandwidth.';
-      showStage(true); badge('LOCAL SYNC');
+      el.localCopyStatus.textContent='Verified ✓ Playing your local copy · synchronized without movie streaming.';
+      showStage(true);badge('LOCAL SYNC');
       void syncSeekablePlayback(true);
       updateDiagnostics();
-    } catch(e) { el.localCopyStatus.textContent = 'Could not verify this file: ' + (e.message || 'try again'); }
+    }catch(error){
+      el.localCopyStatus.textContent='Local copy unavailable ('+(error?.message||'verification failed')+'). Streaming continues.';
+    }finally{
+      if(temporaryUrl)URL.revokeObjectURL(temporaryUrl);
+      if(!state.localVerified && state.guestConn?.open)el.localCopyButton.disabled=false;
+    }
   }
   function expectedHostTime() {
     const transit = clamp(state.observedRtt / 2000, 0, .5);
