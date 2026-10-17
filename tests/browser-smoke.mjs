@@ -23,7 +23,7 @@ try {
   for(const viewport of [{width:1366,height:900},{width:390,height:844}]) {
     const page = await browser.newPage({viewport});
     const errors=[];
-    page.on('pageerror', error => errors.push(String(error)));
+    page.on('pageerror', error => errors.push(error.stack || String(error)));
     await page.route('https://cdn.jsdelivr.net/npm/peerjs@*', route=>route.fulfill({status:200,contentType:'application/javascript',body:'window.Peer = function(){};'}));
     await page.goto('http://127.0.0.1:'+port+'/',{waitUntil:'domcontentloaded'});
     await page.waitForTimeout(400);
