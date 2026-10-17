@@ -42,8 +42,8 @@ try {
     await page.locator('#settingsBtn').click({force:true});
     assert.equal(await page.locator('#settingsPanel').isVisible(),true);
     await page.locator('#joinTab').click();
+    await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     const options=await page.locator('#qualitySelect option').allTextContents();
-    console.log('QUALITY DIAGNOSTIC',JSON.stringify({options,host:await page.locator('#hostTab').getAttribute('aria-selected'),guest:await page.locator('#joinTab').getAttribute('aria-selected'),errors}));
     assert(options.some(x=>x.includes('480')));
     assert(options.some(x=>x.includes('720')));
     await page.locator('#settingsBtn').click({force:true});
