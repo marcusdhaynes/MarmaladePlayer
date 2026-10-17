@@ -41,6 +41,7 @@ try {
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     await page.locator('#settingsBtn').click({force:true});
     assert.equal(await page.locator('#settingsPanel').isVisible(),true);
+    await page.locator('#joinTab').click();
     const options=await page.locator('#qualitySelect option').allTextContents();
     assert(options.some(x=>x.includes('480')));
     assert(options.some(x=>x.includes('720')));
