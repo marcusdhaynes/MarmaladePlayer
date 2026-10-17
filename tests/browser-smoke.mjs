@@ -194,10 +194,9 @@ try {
       const chunkSize=Math.min(65536,bytes.length);
       const samples=bytes.length<=chunkSize?1:16;
       const input=Buffer.alloc(16+chunkSize*samples);
-      input.writeDoubleBE(0,0); // overwritten with little-endian DataView parity below
-      input.writeDoubleLE(bytes.length,0);
-      input.writeUInt32LE(chunkSize,8);
-      input.writeUInt32LE(samples,12);
+      input.writeDoubleBE(bytes.length,0);
+      input.writeUInt32BE(chunkSize,8);
+      input.writeUInt32BE(samples,12);
       for(let i=0;i<samples;i++){
         const offset=samples===1?0:Math.floor((bytes.length-chunkSize)*i/(samples-1));
         bytes.copy(input,16+i*chunkSize,offset,offset+chunkSize);
