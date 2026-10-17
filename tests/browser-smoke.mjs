@@ -24,7 +24,7 @@ try {
     const page = await browser.newPage({viewport});
     const errors=[];
     page.on('pageerror', error => errors.push(error.stack || String(error)));
-    await page.route('https://cdn.jsdelivr.net/npm/peerjs@*', route=>route.fulfill({status:200,contentType:'application/javascript',body:'window.Peer = function(){};'}));
+    await page.route('**/npm/peerjs@*/**', route=>route.fulfill({status:200,contentType:'application/javascript',body:'window.Peer = function(){};'}));
     await page.goto('http://127.0.0.1:'+port+'/',{waitUntil:'domcontentloaded'});
     await page.waitForTimeout(400);
     assert.equal(await page.locator('#player').count(),1);
@@ -109,7 +109,7 @@ try {
     const page=await browser.newPage({viewport:{width:1280,height:800}});
     const errors=[];
     page.on('pageerror',e=>errors.push(e.stack||String(e)));
-    await page.route('https://cdn.jsdelivr.net/npm/peerjs@*',route=>route.fulfill({
+    await page.route('**/npm/peerjs@*/**',route=>route.fulfill({
       status:200,contentType:'application/javascript',body:fakePeer}));
     await page.goto('http://127.0.0.1:'+port+path,{waitUntil:'load'});
     return {page,errors};
