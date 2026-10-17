@@ -7,13 +7,12 @@
   const ui = {
     toggle: $('mediaInfoToggle'), panel: $('mediaInfoPanel'), close: $('miClose'),
     status: $('miStatus'), form: $('miSearchForm'), search: $('miSearch'),
-    matches: $('miMatches'), results: $('miResults'), sources: $('miSources'),
+    matches: $('miMatches'), results: $('miResults'), sources: $('miSources'), kind: $('miKind'),
     tmdb: $('miTmdbToken'), omdb: $('miOmdbKey'), subtitles: $('miSubtitlesKey'),
     save: $('miSave'), forget: $('miForget')
   };
   if (!ui.panel || !ui.toggle) return;
   const STORE = 'marmalade:media-info-keys:v1';
-  const MAX_TEXT = 1200;
   let activeFile = null;
   let detected = null;
   let displayed = null;
@@ -39,13 +38,13 @@
     parent.append(a);
   }
   function status(value) { ui.status.textContent = value; }
-  function openPanel() {
+  function openPanel(scroll = false) {
     ui.panel.hidden = false;
     ui.toggle.setAttribute('aria-expanded', 'true');
-    ui.panel.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    if (scroll) ui.panel.scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }
   function closePanel() { ui.panel.hidden = true; ui.toggle.setAttribute('aria-expanded', 'false'); }
-  ui.toggle.addEventListener('click', () => ui.panel.hidden ? openPanel() : closePanel());
+  ui.toggle.addEventListener('click', () => ui.panel.hidden ? openPanel(true) : closePanel());
   ui.close.addEventListener('click', closePanel);
   function normalize(value) {
     return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
@@ -82,7 +81,7 @@
       const audio = tracks.find(t => t['@type'] === 'Audio') || {};
       return {
         title: general.Movie || general.Title || general.Track || '',
-        year: Number(String(general.Recorded_Date || general.Encoded_Date || '').slice(0,4)) || null,
+        year: null, // Recorded/encoded dates describe the file, not the movie release.
         kind: general.TVShow ? 'tv' : '',
         series: general.TVShow || '',
         season: Number(general.Season) || null, episode: Number(general.Episode) || null,
@@ -209,7 +208,7 @@
         status('No match'); return;
       }
       showChoices(items.slice(1), parsed, seq);
-      if (rank(items[0], parsed) < 36 && items.length > 1) {
+      if (rank(items[0], parsed) < 36) {
         showChoices(items, parsed, seq);
         status('Choose a matching title');
         ui.results.replaceChildren();
@@ -423,11 +422,15 @@
     const parsed = parseFilename(file.name);
     detected = {parsed, metadata:null};
     ui.search.value = parsed.title;
+    ui.kind.value = parsed.kind;
     openPanel();
     status('Identifying ' + file.name + '…');
     clearResult('Reading local file information…');
+    const limited = (task, timeout = 6500) => Promise.race([
+      task.catch(() => null), new Promise(resolve => setTimeout(() => resolve(null), timeout))
+    ]);
     const [metadata, match] = await Promise.all([
-      fileMetadata(file), hashMatch(file)
+      limited(fileMetadata(file)), limited(hashMatch(file))
     ]);
     if (seq !== sequence) return;
     detected.metadata = metadata;
@@ -442,6 +445,7 @@
     if (match?.season_number) parsed.season=Number(match.season_number);
     if (match?.episode_number) parsed.episode=Number(match.episode_number);
     ui.search.value = parsed.title;
+    ui.kind.value = parsed.kind;
     await findMovie(parsed,seq,match);
   }
   ui.form.addEventListener('submit', event => {
@@ -449,7 +453,7 @@
     const title = ui.search.value.trim().slice(0,160);
     if (!title) return;
     const original = detected?.parsed || {kind:'movie',season:null,episode:null,year:null};
-    const parsed = {...original,title,year:null};
+    const parsed = {...original,title,kind:ui.kind.value,year:null};
     detected = {...(detected||{}),parsed};
     void findMovie(parsed,++sequence);
   });
@@ -483,9 +487,9 @@
       payload.title.length > 250 || !['movie','tv'].includes(payload.kind) ||
       !Array.isArray(payload.cast) || payload.cast.length > 40) return;
     // Peer messages are not trusted; accept only compact source-generated fields.
-    const valid = JSON.stringify(payload);
-    if (valid.length > 40000) return;
     try {
+      const valid = JSON.stringify(payload);
+      if (valid.length > 40000) return;
       displayed = JSON.parse(valid);
       detected = null;
       render(displayed);
