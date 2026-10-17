@@ -132,6 +132,10 @@ body.theater-open{overflow:hidden}
 @media(max-width:450px){.theater-controls{padding:20px 5px 5px}.theater-controls .icon-btn{width:25px;min-width:25px;font-size:15px}.theater-controls .skip-btn{font-size:20px}.theater-controls .skip-btn small{top:10px;left:8px}.theater-controls #volume{width:42px}.theater-controls .vol-mark{min-width:27px;font-size:9px}.theater-bottom{gap:2px}.theater-actions{gap:1px}.theater-seek{gap:5px}.theater-seek .timecode{font-size:9px}.buffer-line{font-size:8px}.buffer-meter{width:38px}.theater-popover{bottom:77px}.subtitle-overlay{bottom:82px}}
 @media(pointer:coarse){.stage.controls-visible .theater-controls{opacity:1;pointer-events:auto}.stage:hover:not(.controls-visible) .theater-controls{opacity:0;pointer-events:none}.theater-controls .icon-btn{min-height:34px}.theater-top .theater-pill{min-height:30px}}
 @media(prefers-reduced-motion:reduce){.theater-controls,.theater-top .theater-pill{transition:none}}
+
+.popover-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.popover-heading button{border:1px solid #635452;background:#2b282e;color:#f8e6d2;border-radius:7px;padding:4px 9px;min-width:29px;min-height:27px}
+@media(max-width:650px){.theater-popover{bottom:8px;max-height:calc(100% - 16px);overflow-y:auto}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
 
@@ -189,9 +193,9 @@ body.theater-open{overflow:hidden}
             </div>
             <div class="buffer-line"><div class="buffer-meter"><span id="bufferMeterFill"></span></div><span id="bufferText">Buffer: checking…</span><span class="network-label" id="networkLabel">P2P READY</span></div>
           </div>
-          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><strong>Subtitles</strong><p id="subtitleName">Off · Supports .srt and .vtt</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" hidden></div>
+          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><div class="popover-heading"><strong>Subtitles</strong><button type="button" id="closeSubtitlePanel" aria-label="Close subtitles">✕</button></div><p id="subtitleName">Off · Supports .srt and .vtt</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" hidden></div>
           <div class="theater-popover settings-popover" id="settingsPanel" hidden>
-            <strong>Playback settings</strong>
+            <div class="popover-heading"><strong>Playback settings</strong><button type="button" id="closeSettingsPanel" aria-label="Close settings">✕</button></div>
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (recommended)</option></select></label>
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast">Lowest delay</option></select></label>
@@ -262,6 +266,7 @@ body.theater-open{overflow:hidden}
     subtitleOverlay: $('subtitleOverlay'), subtitleFile: $('subtitleFile'), subtitleName: $('subtitleName'),
     loadSubtitle: $('loadSubtitle'), hideSubtitle: $('hideSubtitle'), popoutBtn: $('popoutBtn'),
     bufferedFill: $('bufferedFill'), bufferMeterFill: $('bufferMeterFill'), bufferText: $('bufferText'),
+    closeSettings: $('closeSettingsPanel'), closeSubtitles: $('closeSubtitlePanel'),
   };
   const media = el.player;
   const PEER_PREFIX = 'marmalade-';
@@ -1948,6 +1953,17 @@ body.theater-open{overflow:hidden}
     revealControls();
   }
   el.settingsBtn.addEventListener('click',()=>togglePopover(el.settingsPanel,el.settingsBtn));
+  el.closeSettings.addEventListener('click',()=>{
+    el.settingsPanel.hidden=true;el.settingsBtn.setAttribute('aria-expanded','false');revealControls();
+  });
+  el.closeSubtitles.addEventListener('click',()=>{
+    el.subtitlePanel.hidden=true;el.subtitleBtn.setAttribute('aria-expanded','false');revealControls();
+  });
+  el.stage.addEventListener('pointerdown',event=>{
+    if(event.target.closest('.theater-popover,#settingsBtn,#subtitlesBtn'))return;
+    if(!el.settingsPanel.hidden){el.settingsPanel.hidden=true;el.settingsBtn.setAttribute('aria-expanded','false');}
+    if(!el.subtitlePanel.hidden){el.subtitlePanel.hidden=true;el.subtitleBtn.setAttribute('aria-expanded','false');}
+  });
   el.subtitleBtn.addEventListener('click',()=>togglePopover(el.subtitlePanel,el.subtitleBtn));
   el.statusToggle.addEventListener('click',()=>{
     state.showStatus=!state.showStatus;
