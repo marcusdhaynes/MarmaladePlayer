@@ -639,13 +639,17 @@ body.theater-open{overflow:hidden}
     if (state.source === 'screen') return state.outgoing?.getVideoTracks()[0] || null;
     if (state.highTrack?.readyState === 'live') return state.highTrack;
     const nativeTrack = state.nativeCapture?.getVideoTracks()[0];
-    if (nativeTrack?.readyState === 'live') {
+    // Never push 4K raw pixels into an encoder when the highest offered quality
+    // is 1080p. For 720p sources keep the zero-copy native video track.
+    if (nativeTrack?.readyState === 'live' && sourceHeight() <= 1080) {
       state.highTrack = nativeTrack;
       return nativeTrack;
     }
     if (!media.videoWidth || !media.videoHeight) return null;
     const canvas = document.createElement('canvas');
-    canvas.width = media.videoWidth; canvas.height = media.videoHeight;
+    const factor = Math.min(1, 1920 / media.videoWidth, 1080 / media.videoHeight);
+    canvas.width = Math.max(2, Math.round(media.videoWidth * factor));
+    canvas.height = Math.max(2, Math.round(media.videoHeight * factor));
     const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     if (!ctx || !canvas.captureStream) return null;
     const paint = () => {
