@@ -339,6 +339,87 @@ try {
     await page.close();
     console.log('PASS captured outgoing movie frames visible to a receiving player');
   }
+
+  // Mobile and slow-network signaling regressions: no endless Joining screen.
+  {
+    const {page,errors}=await launchRoomPage();
+    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
+    assert.equal(await page.locator('#joinProgress').isVisible(),false);
+    assert.equal(await page.locator('#retryJoin').isVisible(),false);
+    assert.deepEqual(errors,[]);
+    await page.close();
+    console.log('PASS quick guest connect hides progress and retry controls');
+  }
+  {
+    const {page,errors}=await launchRoomPage();
+    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
+    await page.locator('#leaveRoom').click();
+    // Suppress the next data-channel open to exercise Cancel on an in-flight join.
+    await page.evaluate(()=>{
+      window.Peer.prototype.connect=function(id){
+        const conn={peer:id,open:false,handlers:{},on(n,cb){this.handlers[n]=cb;},
+          send(){},close(){this.open=false;}};
+        window.__connections.push(conn);return conn;
+      };
+    });
+    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.locator('#roomInput').press('Enter');
+    await page.waitForFunction(()=>!document.querySelector('#joinProgress').hidden);
+    assert.equal(await page.locator('#cancelJoin').isVisible(),true);
+    await page.locator('#cancelJoin').click();
+    assert.equal(await page.locator('#joinProgress').isVisible(),false);
+    assert.equal(await page.locator('#joinSection').isVisible(),true);
+    assert.equal(await page.locator('#connectionText').textContent(),'Not connected');
+    assert.deepEqual(errors,[]);
+    await page.close();
+    console.log('PASS guest can cancel a hanging join and retry later');
+  }
+  {
+    const {page,errors}=await launchRoomPage();
+    await page.evaluate(()=>{
+      window.Peer.prototype.connect=function(id){
+        const conn={peer:id,open:false,handlers:{},on(n,cb){this.handlers[n]=cb;},
+          send(){},close(){this.open=false;}};
+        window.__connections.push(conn);return conn;
+      };
+    });
+    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.waitForFunction(()=>window.__peers.length===1);
+    await page.evaluate(()=>window.__peers[0].handlers.error({type:'network'}));
+    await page.waitForFunction(()=>document.querySelector('#joinProgressText')?.textContent?.includes('Retrying'));
+    await page.waitForFunction(()=>window.__peers.length===2,null,{timeout:4000});
+    // The second attempt succeeds after recovering its signaling connection.
+    await page.evaluate(()=>{
+      const c=window.__connections[1];
+      c.open=true;c.handlers.open();
+    });
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
+    assert.equal(await page.locator('#connectionText').textContent(),'Watching with host');
+    assert.deepEqual(errors,[]);
+    await page.close();
+    console.log('PASS guest retries signaling failure then successfully joins');
+  }
+  {
+    const {page,errors}=await launchRoomPage();
+    await page.evaluate(()=>{
+      window.Peer.prototype.connect=function(id){
+        const conn={peer:id,open:false,handlers:{},on(n,cb){this.handlers[n]=cb;},
+          send(){},close(){this.open=false;}};
+        window.__connections.push(conn);return conn;
+      };
+    });
+    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.waitForFunction(()=>window.__peers.length===1);
+    await page.evaluate(()=>window.__peers[0].handlers.error({type:'peer-unavailable'}));
+    await page.waitForFunction(()=>!document.querySelector('#retryJoin').hidden);
+    assert.equal(await page.locator('#joinSection').isVisible(),true);
+    assert((await page.locator('#stageSubtitle').textContent()).includes('fresh invitation'));
+    assert.deepEqual(errors,[]);
+    await page.close();
+    console.log('PASS unavailable host exits Joining screen and offers Retry');
+  }
   // A connected guest can choose an identically named, content-verified movie.
   // A negative check must not replace or interrupt incoming streaming media.
   {
