@@ -58,6 +58,7 @@ try {
       body:'window.MediaInfo=async()=>({analyzeData:async()=>({media:{track:[]}})});'}));
     return page;
   };
+  console.log('E2E host opening');
   const host=await makePage();
   await host.goto('http://127.0.0.1:'+WEB_PORT,{waitUntil:'load'});
   await host.locator('#fileInput').setInputFiles({
@@ -65,17 +66,21 @@ try {
   });
   await host.waitForFunction(()=>!document.querySelector('#hostActive').hidden &&
     !document.querySelector('#playPause').disabled,null,{timeout:16000});
+  console.log('E2E host room ready');
   await host.locator('#playPause').click({force:true});
   await host.waitForFunction(()=>document.querySelector('#connectionText').textContent==='Broadcasting live',
     null,{timeout:12000});
   const invite=await host.locator('#inviteLink').inputValue();
   console.log('HOST BROADCAST READY',invite);
+  console.log('E2E host streaming');
   const guest=await makePage();
   await guest.goto(invite,{waitUntil:'load'});
   await guest.waitForFunction(()=>document.querySelector('#joinActive').hidden===false,
     null,{timeout:18000});
+  console.log('E2E guest joined control channel');
   await guest.waitForFunction(()=>document.querySelector('#player').srcObject?.getVideoTracks()?.length>0,
     null,{timeout:22000});
+  console.log('E2E guest received media tracks');
   await guest.waitForFunction(()=>{
     const v=document.querySelector('#player');return v.videoWidth>0 && v.readyState>=2;
   },null,{timeout:12000});
@@ -103,9 +108,13 @@ try {
   assert.deepEqual(errors,[],'Browser runtime errors');
   console.log('PASS actual two-browser Marmalade PeerJS movie + sound');
   await guest.close();await host.close();
+} catch(error) {
+  console.error('MARMALADE FULL PEERJS TEST FAILED',error);
+  process.exitCode=1;
 } finally {
-  await browser.close();
-  signaling.close?.();
-  await new Promise(resolve=>web.close(resolve));
+  await browser.close().catch(()=>{});
+  try{signaling.close?.();}catch{}
+  web.close();
   rmSync(dir,{recursive:true,force:true});
+  process.exit(process.exitCode || 0);
 }
