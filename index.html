@@ -534,6 +534,7 @@ body.theater-open{overflow:hidden}
     showStatus: true, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
+    basePaint: null, basePaintIdle: false, highGfxMode: '2d',
   };
 
   function notify(message) {
@@ -1365,6 +1366,8 @@ body.theater-open{overflow:hidden}
     state.broadcasting = false;
     releaseWakeLock();
     if (state.interval) { window.clearInterval(state.interval); state.interval = null; }
+    state.basePaint = null;
+    state.basePaintIdle = false;
     if (state.qualityTimer) { window.clearInterval(state.qualityTimer); state.qualityTimer = null; }
     if (state.animationFrame) { cancelAnimationFrame(state.animationFrame); state.animationFrame = 0; }
     // AudioContext's destination is reused; never end its audio track.
@@ -1729,13 +1732,44 @@ body.theater-open{overflow:hidden}
       send(entry.conn, { type: 'quality-applied', level: 'limited', message: 'Browser-limited quality; playback continues' });
     } finally { entry.tuning = false; }
   }
+  function refreshCaptureWork() {
+    // Keep the low-resolution track alive, but stop drawing redundant 540p
+    // frames when every actual sender now uses a 720p+ track. Immediately
+    // resume for low-quality selections or newly connecting guests.
+    if (!state.basePaint || !state.broadcasting || state.source !== 'file') return;
+    const active = [...state.connections.values()]
+      .filter(e => e.conn.open && !e.localMirror && e.call);
+    if (!active.length) return;
+    const anyBase = active.some(e => {
+      const sender=e.call?.peerConnection?.getSenders?.().find(s=>s.track?.kind==='video');
+      return !sender || sender.track === state.outgoing?.getVideoTracks()[0] ||
+        levelForGuest(e).height <= STREAM_HEIGHT;
+    });
+    if (anyBase && !state.interval) {
+      state.basePaint();
+      state.interval = setInterval(state.basePaint, Math.round(1000 / STREAM_FPS));
+      state.basePaintIdle = false;
+    } else if (!anyBase && state.interval) {
+      clearInterval(state.interval);
+      state.interval = null;
+      state.basePaintIdle = true;
+    }
+  }
   async function tuneAllGuests() {
     await Promise.all([...state.connections.values()].map(entry => tuneGuest(entry)));
+    refreshCaptureWork();
   }
   function callGuest(peerId) {
     if (!state.peer || !state.outgoing || state.source==='hosted') return;
     const entry = state.connections.get(peerId);
     if (!entry?.conn.open || entry.localMirror) return;
+    // First offer uses reliable base capture; revive painter until the new
+    // sender has been replaced with its preferred high-tier track.
+    if (state.basePaintIdle && state.basePaint) {
+      state.basePaint();
+      state.interval = setInterval(state.basePaint, Math.round(1000 / STREAM_FPS));
+      state.basePaintIdle = false;
+    }
     try {
       entry.mediaConfirmed = false;
       entry.mediaOfferedAt = Date.now();
@@ -2304,6 +2338,8 @@ body.theater-open{overflow:hidden}
     paint();
     // Limit raw pixels before the multiple WebRTC encoders, not just afterward.
     // 24fps/540p reduces host load significantly without reducing local playback.
+    state.basePaint = paint;
+    state.basePaintIdle = false;
     state.interval = window.setInterval(paint, Math.round(1000 / STREAM_FPS));
     state.canvasStream = canvas.captureStream(STREAM_FPS);
     const v=state.canvasStream.getVideoTracks()[0];
