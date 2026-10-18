@@ -178,6 +178,16 @@ try {
   async function launchRoomPage(path='/',opts={}) {
     const page=await browser.newPage({viewport:{width:1280,height:800}});
     if(opts.deferConnectionOpen)await page.addInitScript(()=>{window.__deferConnOpen=true;});
+    if(opts.hungAudio)await page.addInitScript(()=>{
+      const Original=window.AudioContext || window.webkitAudioContext;
+      window.__audioContextsCreated=0;
+      class SuspendedAudioContext extends Original {
+        constructor(...args){ super(...args); window.__audioContextsCreated++; }
+        resume(){return new Promise(()=>{});}
+      }
+      window.AudioContext=SuspendedAudioContext;
+      window.webkitAudioContext=SuspendedAudioContext;
+    });
     const errors=[];
     page.on('pageerror',e=>errors.push(e.stack||String(e)));
     await page.route('**/npm/peerjs@*/**',route=>route.fulfill({
@@ -266,6 +276,52 @@ try {
     await page.evaluate(()=>clearInterval(window.__earlyFrameTimer));
     await page.close();
     console.log('PASS early media offer persists across late data-channel open');
+  }
+
+  // Android browser regression: AudioContext.resume() can remain pending
+  // until another tap. That must never block receiving or showing video.
+  {
+    const {page,errors}=await launchRoomPage('/?room=ABCDEFGH',{hungAudio:true});
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
+    await page.evaluate(()=>{
+      window.__connections[0].callbacks.data({
+        type:'state',playing:true,live:true,time:0,duration:30,revision:1,
+        mediaKind:'file',name:'movie.webm',sourceWidth:160,sourceHeight:90,fingerprint:''
+      });
+      const cv=document.createElement('canvas');cv.width=160;cv.height=90;
+      const context=cv.getContext('2d');context.fillStyle='red';
+      context.fillRect(0,0,160,90);
+      window.__videoFrames=setInterval(()=>context.fillRect(0,0,160,90),40);
+      const stream=cv.captureStream(24);
+      const handlers={};
+      const call={
+        peer:'marmalade-ABCDEFGH',metadata:{mediaId:8},
+        on(name,cb){handlers[name]=cb;},
+        answer(){setTimeout(()=>handlers.stream(stream),30);},
+        close(){handlers.close?.();}
+      };
+      window.__peers[0].handlers.call(call);
+    });
+    await page.waitForFunction(()=>{
+      const video=document.querySelector('#player');
+      return !video.paused && video.videoWidth>0 && video.readyState>=2;
+    },null,{timeout:9000});
+    const proof=await page.evaluate(()=>{
+      const v=document.querySelector('#player');
+      const c=document.createElement('canvas');c.width=32;c.height=20;
+      const cx=c.getContext('2d');cx.drawImage(v,0,0,32,20);
+      return {rgb:Array.from(cx.getImageData(16,10,1,1).data),
+        contextsCreated:window.__audioContextsCreated,
+        status:document.querySelector('#connectionText').textContent};
+    });
+    assert(proof.rgb[0]>130 && proof.rgb[0]>proof.rgb[1]*2,
+      'Guest picture must play while Web Audio would remain suspended');
+    assert.equal(proof.contextsCreated,0,
+      'Joining and receiving a movie must not create a suspended AudioContext');
+    await page.evaluate(()=>clearInterval(window.__videoFrames));
+    assert.deepEqual(errors,[]);
+    await page.close();
+    console.log('PASS Android suspended AudioContext does not block receiving video frames',JSON.stringify(proof));
   }
   // Autoplay restrictions must never leave a joined guest with only a black
   // player because the old center play control no longer exists.
