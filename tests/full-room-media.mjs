@@ -11,7 +11,7 @@ const WEB_PORT=38843,PEER_PORT=38844;
 const dir=mkdtempSync(join(tmpdir(),'marmalade-e2e-'));
 const video=join(dir,'full-stream.webm');
 execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi',
-  '-i','color=c=red:s=320x180:r=24','-f','lavfi',
+  '-i','color=c=red:s=1280x720:r=24','-f','lavfi',
   '-i','sine=frequency=440:sample_rate=48000','-t','12',
   '-c:v','libvpx','-crf','24','-b:v','0','-c:a','libopus',
   '-b:a','64k','-shortest','-y',video],{timeout:30000});
@@ -81,6 +81,27 @@ try {
   await guest.waitForFunction(()=>document.querySelector('#player').srcObject?.getVideoTracks()?.length>0,
     null,{timeout:22000});
   console.log('E2E guest received media tracks');
+  // Switch 480p -> 720p -> 540p, checking each retains actual WebRTC media.
+  await guest.locator('#qualitySelect').selectOption('720');
+  await guest.waitForFunction(()=>{
+    const text=document.querySelector('#qualityHint')?.textContent||'';
+    return /Receiving 720p/.test(text);
+  },null,{timeout:14000});
+  const highImage=await guest.evaluate(async()=>{
+    await new Promise(resolve=>setTimeout(resolve,600));
+    const el=document.querySelector('#player'),c=document.createElement('canvas');
+    c.width=24;c.height=16;
+    const cx=c.getContext('2d',{willReadFrequently:true});
+    cx.drawImage(el,0,0,24,16);
+    return Array.from(cx.getImageData(12,8,1,1).data);
+  });
+  assert(highImage[0]>125 && highImage[0]>highImage[1]*2,
+    '720p must transmit a visible movie after track replacement');
+  console.log('PASS guest can manually switch to 720p with visible frames',highImage);
+  await guest.locator('#qualitySelect').selectOption('540');
+  await guest.waitForFunction(()=>/Receiving 540p/.test(
+    document.querySelector('#qualityHint')?.textContent||''),null,{timeout:14000});
+  console.log('PASS returning to proven 540p capture path');
   await guest.waitForFunction(()=>{
     const v=document.querySelector('#player');return v.videoWidth>0 && v.readyState>=2;
   },null,{timeout:12000});
