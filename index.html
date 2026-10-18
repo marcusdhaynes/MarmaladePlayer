@@ -503,6 +503,8 @@ body.theater-open{overflow:hidden}
     bitrateEstimate: 0, videoFrameHandle: null, fpsFrames: 0, fpsAt: 0,
     stabilityMode: 'smooth', strictSync: true, diagnostics: false, jitterTarget: 600,
     bufferTarget: 30, mediaStallAt: 0, mediaRetryCount: 0, lastRecoverAt: 0,
+    remoteVideoConnectedAt: 0, remoteLastFrameAt: 0, remoteVideoFrameCount: 0,
+    remoteVideoQualityFrames: 0, remoteFramesAvailable: false,
     statsReport: null, localFingerprint: null, remoteFingerprint: null, remoteFileName: '', localFileUrl: null,
     localVerified: false, hostedUrl: '', backupUrl: '', hostedAttempt: 0, hls: null,
     bufferedMode: false, waitingForBuffer: false, hostSyncVersion: 0, pendingHostedLoad: '', hostedFallbackOf: '',
@@ -596,6 +598,11 @@ body.theater-open{overflow:hidden}
   function startFpsMeasurement() {
     if (typeof media.requestVideoFrameCallback === 'function') {
       const frame = (now) => {
+        if (state.role === 'guest' && state.source === 'remote') {
+          state.remoteLastFrameAt = now;
+          state.remoteVideoFrameCount++;
+          state.remoteFramesAvailable = true;
+        }
         if (!el.fpsOverlay.hidden && !media.paused && media.readyState >= 2) {
           if (!state.fpsAt) { state.fpsAt = now; state.fpsFrames = 0; }
           state.fpsFrames++;
@@ -611,9 +618,15 @@ body.theater-open{overflow:hidden}
     } else if (typeof media.getVideoPlaybackQuality === 'function') {
       let previousFrames = null, previousAt = 0;
       setInterval(() => {
-        if (el.fpsOverlay.hidden) return;
         const now = performance.now();
         const total = media.getVideoPlaybackQuality().totalVideoFrames;
+        if (state.role === 'guest' && state.source === 'remote' &&
+            total > state.remoteVideoQualityFrames) {
+          state.remoteVideoQualityFrames = total;
+          state.remoteLastFrameAt = now;
+          state.remoteFramesAvailable = true;
+        }
+        if (el.fpsOverlay.hidden) return;
         el.fpsOverlay.textContent = media.paused ? 'PAUSED' :
           previousAt && total >= previousFrames ? `${Math.round((total - previousFrames) * 1000 / (now - previousAt))} FPS` : '— FPS';
         previousAt = now; previousFrames = total;
@@ -1242,23 +1255,43 @@ body.theater-open{overflow:hidden}
     updateRoomPanel();
   }
   function recoveryCheck() {
-    if(state.role!=='guest'||!state.guestConn?.open)return;
-    const now=performance.now();
-    if(state.localVerified||state.bufferedMode){
+    if (state.role !== 'guest' || !state.guestConn?.open) return;
+    const now = performance.now();
+    if (state.localVerified || state.bufferedMode) {
       const ahead=bufferAhead();
       const blocked=state.hostPlaying&&(media.readyState<3||ahead<.15||media.paused&&!el.stage.classList.contains('needs-gesture'));
       if(blocked && !state.waitingForBuffer){state.waitingForBuffer=true;send(state.guestConn,{type:'buffer-status',ready:false});}
       if(state.waitingForBuffer && (ahead>=Math.min(12,Math.max(2,state.bufferTarget/3)) || (state.localVerified && ahead>=2) || (media.ended && media.readyState>=3))){
         state.waitingForBuffer=false; send(state.guestConn,{type:'buffer-status',ready:true}); void syncSeekablePlayback(true);
       }
-    } else if(state.guestCall && media.readyState<2 && state.hostPlaying){
-      if(!state.mediaStallAt)state.mediaStallAt=now;
-      if(now-state.mediaStallAt>8000 && now-state.lastRecoverAt>Math.min(60000,7000*2**state.mediaRetryCount)){
-        state.lastRecoverAt=now;state.mediaRetryCount=Math.min(state.mediaRetryCount+1,4);
-        send(state.guestConn,{type:'requestmedia'});
-        notify('Refreshing the stalled video connection…');
+    } else if (state.guestCall && state.source === 'remote' && state.hostPlaying &&
+        document.visibilityState === 'visible' && !el.stage.classList.contains('needs-gesture')) {
+      const videoTracks = media.srcObject?.getVideoTracks?.() || [];
+      const hasLiveVideo = videoTracks.some(track=>track.readyState === 'live');
+      // An onstream callback (and even readyState >= HAVE_CURRENT_DATA)
+      // does not establish that the movie's video frames are decoding.
+      // Never restart deliberately paused, hidden, or gesture-blocked playback.
+      const sinceConnection = now - (state.remoteVideoConnectedAt || now);
+      const sinceFrame = now - (state.remoteLastFrameAt || state.remoteVideoConnectedAt || now);
+      const noFrames = hasLiveVideo && sinceConnection > 8000 &&
+        (!state.remoteFramesAvailable || sinceFrame > 10000);
+      const noImage = media.readyState < 2 && sinceConnection > 6500;
+      if (noFrames || noImage || (!hasLiveVideo && sinceConnection > 7500)) {
+        if (!state.mediaStallAt) state.mediaStallAt = now;
+        if (now - state.lastRecoverAt > Math.min(60000,7000 * 2 ** state.mediaRetryCount)) {
+          state.lastRecoverAt=now;
+          state.mediaRetryCount=Math.min(state.mediaRetryCount+1,4);
+          send(state.guestConn,{type:'requestmedia',reason:'no-decoded-video-frames'});
+          connection('Restoring video…','error');
+          notify('Video frames stalled. Reconnecting the movie stream…');
+        }
+      } else if (state.remoteFramesAvailable && sinceFrame < 3500) {
+        state.mediaStallAt=0;
+        state.mediaRetryCount=0;
+        if(el.connectionText.textContent==='Restoring video…')
+          connection('Watching live','online');
       }
-    } else if(media.readyState>=2){state.mediaStallAt=0;state.mediaRetryCount=0;}
+    }
     updateDiagnostics();
   }
   function notifyWaiting(ready) {
@@ -1276,6 +1309,10 @@ body.theater-open{overflow:hidden}
     catch { /* already closed */ }
     state.guestConn = state.guestCall = state.peer = null;
     state.guestQualitySample = null;
+    state.remoteVideoConnectedAt = 0;
+    state.remoteLastFrameAt = 0;
+    state.remoteFramesAvailable = false;
+    state.remoteVideoFrameCount = 0;
     state.remoteFingerprint = null;state.remoteFileName = '';state.localVerified=false;
     el.localCopyPanel.hidden = true;
     el.localCopyButton.disabled = true;
@@ -1725,6 +1762,12 @@ body.theater-open{overflow:hidden}
       call.on('stream', async (stream) => {
         if (state.guestCall !== call) return;
         state.guestQualitySample = null;
+        state.remoteVideoConnectedAt = performance.now();
+        state.remoteLastFrameAt = 0;
+        state.remoteVideoFrameCount = 0;
+        state.remoteFramesAvailable = false;
+        state.remoteVideoQualityFrames = typeof media.getVideoPlaybackQuality === 'function'
+          ? media.getVideoPlaybackQuality().totalVideoFrames : 0;
         sendQualityPreference();
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
@@ -1749,6 +1792,9 @@ body.theater-open{overflow:hidden}
         if (state.guestCall !== call) return;
         state.guestQualitySample = null;
         state.guestCall = null;
+        state.remoteVideoConnectedAt = 0;
+        state.remoteLastFrameAt = 0;
+        state.remoteFramesAvailable = false;
         if(state.localVerified || state.bufferedMode) return;
         state.source = null;
         clearTimeout(state.streamWaitTimer);
