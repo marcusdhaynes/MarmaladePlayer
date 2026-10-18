@@ -211,7 +211,16 @@ try {
     });
     await page.locator('#bufferToggle').click({force:true});
     await page.waitForFunction(()=>document.querySelector('#bufferReadout')?.textContent === '8.0s',null,{timeout:3000});
+    assert.equal(await page.locator('#bufferedFill').isVisible(),true,
+      'Seekable movie must display a loaded-range bar like YouTube');
+    const bufferStyle=await page.locator('#bufferedFill').evaluate(el=>({
+      width:el.style.width,background:el.style.background
+    }));
+    assert.equal(bufferStyle.width,'100%','Buffer overlay spans the entire seek rail');
+    assert(bufferStyle.background.includes('linear-gradient'),'Only real playable ranges are drawn');
     await page.locator('#bufferToggle').click({force:true});
+    assert.equal(await page.locator('#bufferedFill').isVisible(),true,
+      'Turning off seconds must not hide the buffered seek ranges');
     assert.equal(await page.locator('#joinSection').isVisible(),false);
     assert.deepEqual(errors,[],'Hosting must not produce runtime errors');
     await page.close();
