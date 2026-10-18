@@ -262,6 +262,12 @@ body.theater-open{overflow:hidden}
    without restoring a floating central play icon. */
 .stage.needs-gesture.has-video .theater-controls{opacity:1;transform:translateY(0);pointer-events:auto}
 .stage.needs-gesture .theater-play{outline:1px solid rgba(255,190,118,.72);outline-offset:1px;background:rgba(255,176,96,.15)}
+
+.compact-sidepanel .compact-retry{margin-top:2px;padding:9px 12px;border:1px solid #ae825c;background:#342823;color:#f4d3ab;border-radius:8px;font-size:11px;font-weight:650}
+.compact-sidepanel .compact-joining{padding:2px 0}
+.compact-joining .room-indicator{background:#eeb372;box-shadow:0 0 0 3px #eeb37218;animation:joinPulse 1.4s ease-in-out infinite}
+@keyframes joinPulse{50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){.compact-joining .room-indicator{animation:none}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -368,6 +374,11 @@ body.theater-open{overflow:hidden}
           <label for="roomInput" class="compact-label"><span class="compact-icon">↗</span> Join a room</label>
           <input id="roomInput" class="text-input" type="text" placeholder="Paste invitation link or room code" autocomplete="off" spellcheck="false" aria-describedby="joinHelp">
           <p class="compact-help" id="joinHelp">Paste an invite to join automatically.</p>
+          <button id="retryJoin" type="button" class="compact-retry" hidden>Retry connection</button>
+        </section>
+        <section class="compact-room compact-joining" id="joinProgress" hidden role="status">
+          <span class="compact-heading"><span class="room-indicator"></span><strong id="joinProgressText">Finding your host…</strong><button id="cancelJoin" type="button" class="compact-text-btn">Cancel</button></span>
+          <p class="compact-help">Keep this page open while Marmalade connects.</p>
         </section>
         <section id="hostActive" class="compact-room" hidden>
           <div class="compact-heading"><span class="room-indicator"></span><strong>Hosting</strong><button id="endRoom" type="button" class="compact-text-btn">End room</button></div>
@@ -425,6 +436,8 @@ body.theater-open{overflow:hidden}
     screenShare: $('screenShareBtn'), createRoom: $('createRoom'), hostActive: $('hostActive'),
     inviteLink: $('inviteLink'), copy: $('copyLink'), startBroadcast: $('startBroadcast'),
     endRoom: $('endRoom'), joinInput: $('roomInput'), joinRoom: $('joinRoom'), joinActive: $('joinActive'),
+    joinProgress: $('joinProgress'), joinProgressText: $('joinProgressText'),
+    retryJoin: $('retryJoin'), cancelJoin: $('cancelJoin'),
     joinedCode: $('joinedCode'), leave: $('leaveRoom'), toast: $('toast'), hint: $('mediaHint'),
     exitTheater: $('exitTheater'), qualitySelect: $('qualitySelect'), qualityHint: $('qualityHint'),
     fpsToggle: $('fpsToggle'), fpsOverlay: $('fpsOverlay'),
@@ -516,6 +529,7 @@ body.theater-open{overflow:hidden}
     localLastSync: 0, hostedLastSync: 0, statsPrev: null, observedRtt: 0, statsSamples: [],
     peerCache: new Map(), peerCacheBytes: 0, peerTransfer: new Map(),
     peerAssistance: true, heldForBuffer:false, joinDebounce: null,
+    joinTimeout: null, joinRetryTimer: null, joinAttempt: 0, joinFailure: false,
     showStatus: true, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
@@ -1304,6 +1318,11 @@ body.theater-open{overflow:hidden}
     send(state.guestConn,{type:'buffer-status',ready});
   }
   function closeConnections() {
+    clearTimeout(state.joinTimeout);
+    clearTimeout(state.joinRetryTimer);
+    state.joinTimeout = state.joinRetryTimer = null;
+    state.joinAttempt = 0;
+    state.joinFailure = false;
     clearTimeout(state.streamWaitTimer);
     state.streamWaitTimer = null;
     for (const entry of state.connections.values()) {
@@ -1398,6 +1417,8 @@ body.theater-open{overflow:hidden}
 
   function updateRoomPanel() {
     el.joinSection.hidden = !el.hostActive.hidden || !el.joinActive.hidden || state.connecting;
+    el.joinProgress.hidden = !state.connecting || state.role !== 'guest';
+    el.retryJoin.hidden = !state.joinFailure || state.connecting;
     const canPick = (!state.source || (state.source === 'file' && !!media.error)) && !state.connecting;
     el.stage.classList.toggle('is-pickable', canPick);
     el.stage.setAttribute('aria-label', canPick ?
@@ -1901,46 +1922,76 @@ body.theater-open{overflow:hidden}
       }
     }
   }
-  async function joinRoom() {
-    void ensureAudioPlayback();
-    if (!requirePeerJS() || state.connecting) return;
-    const code = parseCode(el.joinInput.value);
-    if (!code) { notify('Enter a valid 8-character room code or invite link.'); el.joinInput.focus(); return; }
+  const JOIN_TIMEOUT_MS = 13500;
+  const MAX_JOIN_ATTEMPTS = 3;
+  function joinFailed(message, fatal = false, expectedPeer = state.peer) {
+    if (state.peer !== expectedPeer || !state.connecting) return;
+    clearTimeout(state.joinTimeout);
+    state.joinTimeout = null;
+    if (!fatal && state.joinAttempt < MAX_JOIN_ATTEMPTS) {
+      const next = state.joinAttempt + 1, code = state.code;
+      connection(`Retrying connection (${next}/${MAX_JOIN_ATTEMPTS})…`);
+      el.joinProgressText.textContent = `Retrying · attempt ${next}/${MAX_JOIN_ATTEMPTS}`;
+      setStage('Still finding your host…','The connection is taking longer than expected. Retrying automatically.','RECONNECTING');
+      const stalePeer = state.peer;
+      state.peer = null;
+      state.guestConn = null;
+      try { stalePeer?.destroy(); } catch {}
+      state.joinRetryTimer = setTimeout(() => {
+        state.joinRetryTimer = null;
+        if (state.connecting && state.code === code) startGuestJoinAttempt(code,next);
+      }, Math.min(2000,600*next));
+      return;
+    }
     closeConnections();
-    removeMedia();
     state.role = 'guest';
-    buildQualitySelect();
-    state.requestedQuality = recommendedLevel(state.recommendation);
-    state.userChoseQuality = false;
-    state.code = code;
-    state.connecting = true;
-    el.joinRoom.disabled = true;
+    state.joinFailure = true;
+    connection(fatal ? 'Room unavailable' : 'Unable to connect','error');
+    setStage('Couldn’t join this room',message,'CONNECTION TROUBLE');
     updateRoomPanel();
-    connection('Connecting…');
-    setStage('Finding your party…', 'Connecting securely to your host.', 'JOINING');
-    const peer = new window.Peer(PEER_OPTIONS);
+    notify(message);
+  }
+  function startGuestJoinAttempt(code, attempt) {
+    if (!state.connecting || state.role !== 'guest' || state.code !== code) return;
+    state.joinAttempt = attempt;
+    el.joinProgressText.textContent = `Connecting · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`;
+    connection(attempt === 1 ? 'Connecting…' : `Connecting · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`);
+    let peer;
+    try { peer = new window.Peer(PEER_OPTIONS); }
+    catch { joinFailed('Could not start the connection service. Check your internet and try again.',true); return; }
     state.peer = peer;
+    state.joinTimeout = setTimeout(() => {
+      joinFailed('The host could not be reached. Ask them to check that the room is open, then retry.',false,peer);
+    },JOIN_TIMEOUT_MS);
     setupGuestCallHandler(peer);
     peer.on('open', () => {
-      if (state.peer !== peer) return;
-      const conn = peer.connect(PEER_PREFIX + code, { reliable: true });
+      if (state.peer !== peer || !state.connecting) return;
+      let conn;
+      try { conn = peer.connect(PEER_PREFIX + code,{reliable:true}); }
+      catch { joinFailed('Could not reach the host. Please check the invitation.',false,peer); return; }
       state.guestConn = conn;
+      el.joinProgressText.textContent = `Finding host · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`;
       conn.on('open', () => {
-        if (state.guestConn !== conn) return;
+        if (state.guestConn !== conn || state.peer !== peer) return;
+        clearTimeout(state.joinTimeout);
+        clearTimeout(state.joinRetryTimer);
+        state.joinTimeout = state.joinRetryTimer = null;
+        state.joinAttempt = 0;
+        state.joinFailure = false;
         state.connecting = false;
         el.joinActive.hidden = false;
         el.joinedCode.textContent = code;
         updateRoomPanel();
         el.joinRoom.disabled = true;
-        connection('Watching with host', 'online');
+        connection('Watching with host','online');
         renderCount();
-        setStage('Waiting for the host…', 'They’ll start the movie when they’re ready.', 'ROOM CONNECTED');
-        el.localCopyPanel.hidden=false;
+        setStage('Waiting for the host…','They’ll start the movie when they’re ready.','ROOM CONNECTED');
+        el.localCopyPanel.hidden = false;
         el.localCopyButton.disabled = !state.remoteFingerprint || !state.remoteFileName;
         el.localCopyStatus.textContent = state.remoteFileName
           ? `Host movie: ${state.remoteFileName} · Choose the identically named file.`
           : 'Waiting for the host\'s movie…';
-        send(conn, { type: 'hello' });
+        send(conn,{type:'hello'});
         sendQualityPreference();
       });
       conn.on('data', (data) => {
@@ -1961,27 +2012,55 @@ body.theater-open{overflow:hidden}
         }
       });
       conn.on('close', () => {
-        if (state.guestConn !== conn) return;
+        if (state.guestConn !== conn || state.peer !== peer) return;
+        if (state.connecting) { joinFailed('The host closed the connection before joining.',false,peer); return; }
         notify('The room has closed or connection was lost.');
         leaveRoom();
       });
       conn.on('error', (error) => {
-        console.warn('Guest connection error', error);
-        notify('Could not reach the host. Check the code and connection.');
+        if (state.guestConn !== conn || state.peer !== peer) return;
+        console.warn('Guest connection error',error);
+        if (state.connecting) joinFailed('The connection to the host failed. Retrying…',false,peer);
+        else notify('The host connection was interrupted.');
       });
     });
     peer.on('error', (error) => {
       if (state.peer !== peer) return;
-      console.error('Join signaling error', error);
-      const message = error.type === 'peer-unavailable' ? 'Room not found. Ask the host to create it first.' : 'Unable to join. Check your connection and try again.';
-      leaveRoom();
-      notify(message);
+      console.error('Join signaling error',error);
+      if (state.connecting) {
+        const missing = error?.type === 'peer-unavailable';
+        joinFailed(missing ? 'Room not found. The host may have recreated it. Ask for a fresh invitation.'
+          : 'The connection service is having trouble. Trying again…',missing,peer);
+      } else if (error?.type === 'network' || error?.type === 'server-error') {
+        connection('Signaling interrupted','error');
+      }
     });
     peer.on('disconnected', () => {
       if (state.peer !== peer) return;
-      connection('Reconnecting…', 'error');
-      try { peer.reconnect(); } catch { /* no-op */ }
+      if (state.connecting) { joinFailed('The connection service disconnected before joining.',false,peer); return; }
+      connection('Reconnecting…','error');
+      try { peer.reconnect(); } catch {}
     });
+  }
+  async function joinRoom() {
+    void ensureAudioPlayback();
+    if (!requirePeerJS() || state.connecting) return;
+    const code = parseCode(el.joinInput.value);
+    if (!code) { notify('Enter a valid 8-character room code or invite link.'); el.joinInput.focus(); return; }
+    closeConnections();
+    removeMedia();
+    state.role = 'guest';
+    buildQualitySelect();
+    state.requestedQuality = recommendedLevel(state.recommendation);
+    state.userChoseQuality = false;
+    state.code = code;
+    state.connecting = true;
+    state.joinFailure = false;
+    el.joinRoom.disabled = true;
+    updateRoomPanel();
+    connection('Connecting…');
+    setStage('Finding your party…','Connecting to your host.','JOINING');
+    startGuestJoinAttempt(code,1);
   }
   function leaveRoom() {
     clearTimeout(state.joinDebounce);
@@ -2467,6 +2546,14 @@ body.theater-open{overflow:hidden}
   el.copy.addEventListener('click', copyInvite);
   el.startBroadcast.addEventListener('click', startBroadcast);
   el.endRoom.addEventListener('click', () => { stopBroadcast(); closeConnections(); notify('Room ended. Your video is still on this device.'); });
+  el.retryJoin.addEventListener('click',()=>{if(!state.connecting)void joinRoom();});
+  el.cancelJoin.addEventListener('click',()=>{
+    if(!state.connecting)return;
+    leaveRoom();
+    state.role='guest';
+    setStage('Connection cancelled','Paste a room link to try again.','JOIN A ROOM');
+    updateRoomPanel();
+  });
   el.joinRoom.addEventListener('click', joinRoom);
   el.joinInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') joinRoom(); });
   el.leave.addEventListener('click', leaveRoom);
