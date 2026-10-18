@@ -1,0 +1,23 @@
+name: Marmalade Real Host and Guest Video
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  full-media-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test-only browser and local PeerJS signaling
+        run: npm install --no-save --no-package-lock playwright@1.56.1 peerjs@1.5.5 peer@1.0.2
+      - run: npx playwright install --with-deps chromium
+      - name: Install sample movie encoder
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Test real Marmalade two-browser media flow
+        run: node tests/full-room-media.mjs
