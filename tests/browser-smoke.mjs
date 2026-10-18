@@ -164,7 +164,8 @@ try {
         const conn={
           peer:id,open:false,callbacks:{},sent:[],
           on(name,callback){this.callbacks[name]=callback;window.__peerTrace.push(['connection-on',name]);
-            if(name==='open')setTimeout(()=>{this.open=true;window.__peerTrace.push(['connection-open']);callback();},0);},
+            if(name==='open' && !window.__deferConnOpen)
+              setTimeout(()=>{this.open=true;window.__peerTrace.push(['connection-open']);callback();},0);},
           send(message){this.sent.push(message);},close(){this.open=false;}
         };
         window.__connections.push(conn);
@@ -174,8 +175,9 @@ try {
       reconnect(){}
     };
   `;
-  async function launchRoomPage(path='/') {
+  async function launchRoomPage(path='/',opts={}) {
     const page=await browser.newPage({viewport:{width:1280,height:800}});
+    if(opts.deferConnectionOpen)await page.addInitScript(()=>{window.__deferConnOpen=true;});
     const errors=[];
     page.on('pageerror',e=>errors.push(e.stack||String(e)));
     await page.route('**/npm/peerjs@*/**',route=>route.fulfill({
@@ -228,6 +230,43 @@ try {
 
 
 
+  // Regression: the media call can arrive before its data channel opens.
+  // The later room-open event must not cover a playing guest video.
+  {
+    const {page,errors}=await launchRoomPage('/?room=ABCDEFGH',{deferConnectionOpen:true});
+    await page.waitForFunction(()=>window.__connections?.length===1);
+    await page.evaluate(()=>{
+      const canvas=document.createElement('canvas');canvas.width=160;canvas.height=90;
+      const ctx=canvas.getContext('2d');
+      ctx.fillStyle='red';ctx.fillRect(0,0,160,90);
+      window.__earlyCanvas=canvas;
+      window.__earlyFrameTimer=setInterval(()=>ctx.fillRect(0,0,160,90),40);
+      const stream=canvas.captureStream(24);
+      const handlers={};
+      window.__earlyCall={
+        peer:'marmalade-ABCDEFGH',metadata:{mediaId:11},
+        on(name,cb){handlers[name]=cb;},
+        answer(){setTimeout(()=>handlers.stream(stream),10);},
+        close(){handlers.close?.();}
+      };
+      window.__peers[0].handlers.call(window.__earlyCall);
+    });
+    await page.waitForFunction(()=>document.querySelector('#player').srcObject &&
+      document.querySelector('#dropZone').classList.contains('has-video'),null,{timeout:6000});
+    await page.evaluate(()=>{
+      const conn=window.__connections[0];conn.open=true;conn.callbacks.open();
+    });
+    await page.waitForTimeout(120);
+    assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('has-video')),true,
+      'Late room-open event must never cover video already received');
+    const confirmations=await page.evaluate(()=>window.__connections[0].sent
+      .filter(x=>x.type==='media-received'));
+    assert(confirmations.some(x=>x.id===11),'Guest acknowledges early media after room opens');
+    assert.deepEqual(errors,[]);
+    await page.evaluate(()=>clearInterval(window.__earlyFrameTimer));
+    await page.close();
+    console.log('PASS early media offer persists across late data-channel open');
+  }
   // Autoplay restrictions must never leave a joined guest with only a black
   // player because the old center play control no longer exists.
   {
