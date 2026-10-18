@@ -1502,6 +1502,7 @@ body.theater-open{overflow:hidden}
       const prior = state.connections.get(conn.peer);
       if (prior) { try { prior.call?.close(); prior.conn.close(); } catch { /* no-op */ } }
       const entry = { conn, call: null, mode: DEFAULT_LEVEL, recommendation: DEFAULT_LEVEL,
+        mediaConfirmed: false, mediaOfferedAt: 0, lastMediaRetry: 0, mediaAttempt: 0,
         tier: 2, healthy: 0, warning: 0, tuning: false,
         applied: '', lastTuneAt: 0, requestedLevel: DEFAULT_LEVEL, trackType: 'base' };
       state.connections.set(conn.peer, entry);
@@ -1544,10 +1545,20 @@ body.theater-open{overflow:hidden}
             if(!wait&&state.heldForBuffer){state.heldForBuffer=false;void media.play();syncState();}
           }
         }
-        if (data.type === 'requestmedia' && state.outgoing && !entry.localMirror) {
-          const now = Date.now();
-          if (!entry.call || now - (entry.lastMediaRetry || 0) > 15000) {
-            entry.lastMediaRetry = now; callGuest(conn.peer);
+        if (data.type === 'media-received' && entry.call && !entry.localMirror) {
+          if (typeof data.id === 'number' && data.id === entry.mediaAttempt) {
+            entry.mediaConfirmed = true;
+          }
+        }
+        if (data.type === 'requestmedia' && !entry.localMirror) {
+          // A connected room is only the control channel. Make sure there is
+          // actually a movie stream, including when the first capture failed.
+          if (!state.outgoing) {
+            if (state.source === 'file' && state.fileReady && !media.paused)
+              autoStartIfPlaying();
+          } else {
+            const now = Date.now();
+            if (!entry.call || now - entry.lastMediaRetry >= 14000) callGuest(conn.peer);
           }
         }
         if (data.type === 'transport' && typeof data.action === 'string' &&
@@ -1724,14 +1735,23 @@ body.theater-open{overflow:hidden}
     const entry = state.connections.get(peerId);
     if (!entry?.conn.open || entry.localMirror) return;
     try {
+      entry.mediaConfirmed = false;
+      entry.mediaOfferedAt = Date.now();
+      entry.lastMediaRetry = entry.mediaOfferedAt;
+      const mediaId = ++entry.mediaAttempt;
       entry.call?.close();
-      const call = state.peer.call(peerId, state.outgoing);
+      const call = state.peer.call(peerId, state.outgoing, { metadata: { mediaId } });
       if (!call) { notify('Could not start the media call.'); return; }
       entry.call = call;
       entry.applied = '';
       entry.healthy = 0;
       entry.warning = 0;
-      call.on('error', (error) => { console.warn('Media call error', error); notify('Media connection failed. A TURN relay may be required.'); });
+      call.on('error', (error) => {
+        if (entry.call !== call) return;
+        console.warn('Media call error',error);
+        send(entry.conn,{type:'media-error',message:'Host media connection failed. Retrying may help; some networks require a TURN relay.'});
+        notify('Media connection failed. A TURN relay may be required.');
+      });
       call.on('close', () => {
         if (entry.call === call) {
           entry.call = null;
@@ -1742,6 +1762,18 @@ body.theater-open{overflow:hidden}
       // PeerJS's RTCPeerConnection is created asynchronously; the periodic tuner
       // also picks it up later if negotiation takes longer on a remote network.
       setTimeout(() => { if (entry.call === call) void tuneAllGuests(); }, 650);
+      // An SDP offer is not confirmation that media crossed the internet.
+      // If this guest never confirms receiving tracks, retry this call,
+      // without touching any other guest's media or quality selection.
+      setTimeout(() => {
+        if (entry.call !== call || entry.mediaConfirmed || !entry.conn.open ||
+            entry.localMirror || !state.outgoing) return;
+        if (Date.now() - entry.lastMediaRetry >= 12000) {
+          if (entry.mediaAttempt <= 3) callGuest(peerId);
+          else send(entry.conn,{type:'media-error',
+            message:'The media connection is blocked. Try another network or a TURN relay.'});
+        }
+      }, 14000);
     } catch (error) { console.error(error); notify('Unable to establish the video call.'); }
   }
   async function createRoom() {
@@ -1795,6 +1827,7 @@ body.theater-open{overflow:hidden}
         state.remoteVideoQualityFrames = typeof media.getVideoPlaybackQuality === 'function'
           ? media.getVideoPlaybackQuality().totalVideoFrames : 0;
         sendQualityPreference();
+        send(state.guestConn,{type:'media-received',id:call.metadata?.mediaId});
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
         applyReceiverPlayout();
@@ -1907,6 +1940,8 @@ body.theater-open{overflow:hidden}
     }
     updateTransport();
     if (!data.live && state.source !== 'remote' && !state.localVerified && !state.bufferedMode) {
+      if (data.playing && state.guestConn?.open)
+        send(state.guestConn,{type:'requestmedia'});
       setStage('Waiting for the host…', 'They’ll start the movie when they’re ready.', 'ROOM CONNECTED');
     }
     if (data.live && state.source !== 'remote' && !state.localVerified && !state.bufferedMode) {
@@ -1985,7 +2020,10 @@ body.theater-open{overflow:hidden}
         el.joinRoom.disabled = true;
         connection('Watching with host','online');
         renderCount();
-        setStage('Waiting for the host…','They’ll start the movie when they’re ready.','ROOM CONNECTED');
+        // The media offer may beat the data channel's 'open' callback.
+        // Never cover an already playing video with the waiting-room stage.
+        if (state.source !== 'remote' && !state.localVerified && !state.bufferedMode)
+          setStage('Waiting for the host…','They’ll start the movie when they’re ready.','ROOM CONNECTED');
         el.localCopyPanel.hidden = false;
         el.localCopyButton.disabled = !state.remoteFingerprint || !state.remoteFileName;
         el.localCopyStatus.textContent = state.remoteFileName
@@ -1997,6 +2035,12 @@ body.theater-open{overflow:hidden}
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
         if (data.type === 'state') receiveState(data);
+        if (data.type === 'media-error' && state.source !== 'remote' && !state.localVerified) {
+          connection('Media connection failed','error');
+          setStage('Video and sound not connected',
+            typeof data.message === 'string' ? data.message :
+              'The movie stream could not cross the network. Please retry.', 'STREAM TROUBLE');
+        }
         if (data.type === 'movie-info') window.MarmaladeInfoReceive?.(data.payload);
         if(data.type==='segment-part' && typeof data.id==='string')receiveRescueChunk(data);
         if(data.type==='segment-missing' && state.peerTransfer.has(data.id)){
