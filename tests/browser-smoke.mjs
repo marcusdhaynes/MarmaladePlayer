@@ -225,6 +225,66 @@ try {
     console.log('PASS pasted code automatically joins guest room');
   }
 
+
+  // Real moving-video regression: ensure the host's outgoing canvas track
+  // contains picture data and the receiving WebRTC decoder doesn't get black.
+  {
+    const dir=mkdtempSync(join(tmpdir(),'marmalade-video-'));
+    let bytes;
+    try {
+      const path=join(dir,'red-test.webm');
+      execFileSync('ffmpeg',['-hide_banner','-loglevel','error',
+        '-f','lavfi','-i','color=c=red:s=320x180:r=24','-t','9',
+        '-an','-c:v','libvpx','-pix_fmt','yuv420p',
+        '-deadline','realtime','-cpu-used','5','-crf','24','-b:v','0','-y',path],
+        {timeout:25000});
+      bytes=readFileSync(path);
+    } finally {rmSync(dir,{recursive:true,force:true});}
+    const {page,errors}=await launchRoomPage();
+    await page.addInitScript(()=>{});
+    await page.evaluate(()=>{
+      const original=HTMLCanvasElement.prototype.captureStream;
+      HTMLCanvasElement.prototype.captureStream=function(...args) {
+        const output=original.apply(this,args);
+        window.__hostCanvasCapture={canvas:this,stream:output};
+        return output;
+      };
+    });
+    await page.locator('#fileInput').setInputFiles({name:'red-test.webm',mimeType:'video/webm',buffer:bytes});
+    await page.waitForFunction(()=>!document.querySelector('#hostActive').hidden);
+    await page.waitForFunction(()=>document.querySelector('#playPause').disabled===false,{timeout:5000});
+    await page.locator('#playPause').evaluate(el=>el.click());
+    await page.waitForFunction(()=>window.__hostCanvasCapture?.stream.getVideoTracks()[0]?.readyState==='live',null,{timeout:6000});
+    await page.waitForTimeout(1400);
+    const samples=await page.evaluate(async ()=>{
+      const video=document.querySelector('#player');
+      const cap=window.__hostCanvasCapture;
+      const read=(source,w,h)=>{
+        const c=document.createElement('canvas');c.width=w;c.height=h;
+        const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(source,0,0,w,h);
+        const data=ctx.getImageData(w/2|0,h/2|0,1,1).data;
+        return Array.from(data);
+      };
+      const host=read(video,64,36);
+      const canvas=read(cap.canvas,64,36);
+      const receiver=document.createElement('video');
+      receiver.muted=true;receiver.autoplay=true;receiver.playsInline=true;
+      receiver.srcObject=cap.stream;
+      document.body.appendChild(receiver);
+      await receiver.play();
+      await new Promise(resolve=>setTimeout(resolve,600));
+      const captured=receiver.videoWidth?read(receiver,64,36):null;
+      receiver.remove();
+      return {host,canvas,captured,hostTime:video.currentTime,captureReady:cap.stream.getVideoTracks()[0].readyState};
+    });
+    console.log('OUTBOUND VIDEO DIAGNOSTIC',JSON.stringify(samples),errors);
+    assert(samples.host[0]>130 && samples.host[0]>samples.host[1]*2,'Host sample must be red');
+    assert(samples.canvas[0]>130 && samples.canvas[0]>samples.canvas[1]*2,'Canvas broadcast sample must not be black');
+    assert(samples.captured && samples.captured[0]>130 && samples.captured[0]>samples.captured[1]*2,'Captured guest video track must show the actual movie');
+    assert.deepEqual(errors,[],'Capture test browser errors');
+    await page.close();
+    console.log('PASS captured outgoing movie frames visible to a receiving player');
+  }
   // A connected guest can choose an identically named, content-verified movie.
   // A negative check must not replace or interrupt incoming streaming media.
   {
