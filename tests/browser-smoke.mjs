@@ -152,8 +152,9 @@ try {
   const fakePeer = `
     window.__peerTrace=[];
     window.__connections=[];
+    window.__peers=[];
     window.Peer = class MockPeer {
-      constructor(id) {this.id=typeof id==='string'?id:'guest-test';this.open=true;this.handlers={};window.__peerTrace.push(['constructed',this.id]);}
+      constructor(id) {this.id=typeof id==='string'?id:'guest-test';this.open=true;this.handlers={};window.__peers.push(this);window.__peerTrace.push(['constructed',this.id]);}
       on(name,callback) {
         this.handlers[name]=callback;window.__peerTrace.push(['peer-on',name]);
         if(name==='open') setTimeout(()=>{window.__peerTrace.push(['peer-open',this.id]);callback(this.id)},0);
@@ -226,6 +227,54 @@ try {
   }
 
 
+
+  // Autoplay restrictions must never leave a joined guest with only a black
+  // player because the old center play control no longer exists.
+  {
+    const {page,errors}=await launchRoomPage('/?room=ABCDEFGH');
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,null,{timeout:6000});
+    await page.evaluate(()=>{
+      const canvas=document.createElement('canvas');
+      canvas.width=160;canvas.height=90;
+      const ctx=canvas.getContext('2d');
+      ctx.fillStyle='red';ctx.fillRect(0,0,160,90);
+      const interval=setInterval(()=>ctx.fillRect(0,0,160,90),42);
+      window.__autoplayInterval=interval;
+      const output=canvas.captureStream(24);
+      const player=document.querySelector('#player');
+      const actualPlay=player.play.bind(player);
+      window.__blockedAutoplay=0;
+      player.play=function(){
+        if(!this.muted && window.__blockedAutoplay++===0)
+          return Promise.reject(new DOMException('Autoplay policy prevents sound','NotAllowedError'));
+        return actualPlay();
+      };
+      const callHandlers={};
+      const incoming={
+        peer:'marmalade-ABCDEFGH',handlers:callHandlers,
+        on(name,cb){callHandlers[name]=cb;},
+        answer(){setTimeout(()=>callHandlers.stream(output),30);},
+        close(){if(callHandlers.close)callHandlers.close();}
+      };
+      window.__peers[0].handlers.call(incoming);
+    });
+    await page.waitForFunction(()=>{
+      const p=document.querySelector('#player');
+      return !p.paused && p.muted && document.querySelector('#dropZone').classList.contains('needs-gesture');
+    },null,{timeout:8000});
+    assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('has-video')),true);
+    const chrome=await page.locator('#theaterControls').evaluate(el=>getComputedStyle(el).opacity);
+    assert.equal(chrome,'1','Play button must remain visible until sound is allowed');
+    await page.locator('#playPause').evaluate(el=>el.click());
+    await page.waitForFunction(()=>{
+      const player=document.querySelector('#player');
+      return !player.muted && !document.querySelector('#dropZone').classList.contains('needs-gesture');
+    },null,{timeout:8000});
+    await page.evaluate(()=>clearInterval(window.__autoplayInterval));
+    assert.deepEqual(errors,[],'Autoplay fallback should not throw');
+    await page.close();
+    console.log('PASS blocked audible autoplay falls back to visible muted video, then unmute via Play');
+  }
   // Real moving-video regression: ensure the host's outgoing canvas track
   // contains picture data and the receiving WebRTC decoder doesn't get black.
   {
