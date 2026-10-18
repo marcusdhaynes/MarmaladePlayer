@@ -268,6 +268,17 @@ body.theater-open{overflow:hidden}
 .compact-joining .room-indicator{background:#eeb372;box-shadow:0 0 0 3px #eeb37218;animation:joinPulse 1.4s ease-in-out infinite}
 @keyframes joinPulse{50%{opacity:.35}}
 @media(prefers-reduced-motion:reduce){.compact-joining .room-indicator{animation:none}}
+
+/* YouTube-style secondary loading track: grey playable seek ranges behind the
+   amber playhead, independent from the optional seconds-readout toggle. */
+.seek-stack .buffered-fill{
+  z-index:3;pointer-events:none;display:block;
+  top:50%;height:3px;border-radius:3px;transform:translateY(-50%);
+  opacity:1;box-shadow:none;transition:none;
+}
+.seek-stack .buffered-fill[hidden]{display:none!important}
+.seek-stack input[type=range]::-webkit-slider-runnable-track{background:rgba(255,255,255,.23)}
+.seek-stack input[type=range]::-moz-range-track{background:rgba(255,255,255,.23)}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -712,30 +723,53 @@ body.theater-open{overflow:hidden}
   // Forward-buffer estimate is meaningful only for seekable movie sources.
   // Live WebRTC doesn't expose seconds of *future movie frames*: never pretend
   // that a jitter buffer or its target equals a forward media buffer.
+  // YouTube-style buffered ranges for genuinely seekable files/HTTP streams.
+  // WebRTC has only a short internal jitter queue, not cached future minutes:
+  // never draw a fake grey movie buffer for a live peer stream.
   function updateBufferDisplay() {
-    const enabled = el.bufferToggle.getAttribute('aria-pressed') === 'true';
-    el.bufferReadout.hidden = !enabled;
-    if (!enabled) return;
-    const seekable = state.bufferedMode || state.localVerified ||
-      state.source === 'file' || state.source === 'hosted' || state.source === 'hosted-guest';
-    let forward = null;
-    if (seekable && Number.isFinite(media.currentTime) && media.buffered?.length) {
-      for (let i = 0; i < media.buffered.length; i++) {
-        const start = media.buffered.start(i);
-        const end = media.buffered.end(i);
-        if (start <= media.currentTime + 0.15 && end >= media.currentTime) {
-          forward = Math.max(0, end - media.currentTime);
-          break;
-        }
+    const showSeconds = el.bufferToggle.getAttribute('aria-pressed') === 'true';
+    el.bufferReadout.hidden = !showSeconds;
+    const seekable = state.localVerified || state.bufferedMode ||
+      state.source === 'file' || state.source === 'hosted' ||
+      state.source === 'hosted-guest';
+    const duration = media.duration;
+    const track = el.bufferedFill;
+    const ranges = [];
+    if (seekable && Number.isFinite(duration) && duration > 0 && media.buffered) {
+      for (let i = 0; i < Math.min(32,media.buffered.length); i++) {
+        const start=media.buffered.start(i), end=media.buffered.end(i);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start)
+          ranges.push([Math.max(0,Math.min(100,start / duration * 100)),
+            Math.max(0,Math.min(100,end / duration * 100)),start,end]);
       }
     }
-    // Only a short numeric readout in the theater; explanations belong in titles.
-    el.bufferReadout.textContent = forward === null ? '—s' : `${forward.toFixed(1)}s`;
-    el.bufferReadout.title = forward === null
-      ? (state.source === 'remote'
-          ? 'Live WebRTC does not expose forward-buffered movie seconds'
-          : 'Forward buffer is not measurable yet')
-      : `${forward.toFixed(1)} seconds of video buffered ahead`;
+    track.hidden = !ranges.length;
+    if (ranges.length) {
+      // Multiple independent downloaded ranges are shown accurately rather
+      // than filling across gaps created by seeking.
+      const stops = ['transparent 0%'];
+      for (const [start,end] of ranges) {
+        stops.push(`transparent ${start.toFixed(3)}%`);
+        stops.push(`rgba(222,225,230,.82) ${start.toFixed(3)}%`);
+        stops.push(`rgba(222,225,230,.82) ${end.toFixed(3)}%`);
+        stops.push(`transparent ${end.toFixed(3)}%`);
+      }
+      stops.push('transparent 100%');
+      track.style.left = '0';
+      track.style.width = '100%';
+      track.style.background = `linear-gradient(to right,${stops.join(',')})`;
+    }
+    if (!showSeconds) return;
+    const forward = ranges.length && Number.isFinite(media.currentTime)
+      ? ranges.find(([, ,start,end])=>start<=media.currentTime+.15 && end>=media.currentTime)
+      : null;
+    const seconds = forward ? Math.max(0,forward[3]-media.currentTime) : null;
+    el.bufferReadout.textContent= seconds === null ? '—s' : `${seconds.toFixed(1)}s`;
+    el.bufferReadout.title=seconds===null
+      ? (state.source==='remote'
+          ? 'Live WebRTC has no seekable future video buffer'
+          : 'No future video buffered at the current position')
+      : `${seconds.toFixed(1)} seconds ready ahead`;
   }
   function parseSubtitleTime(value) {
     const parts = value.trim().replace(',','.').split(':').map(Number);
@@ -949,14 +983,21 @@ body.theater-open{overflow:hidden}
   function applyReceiverPlayout() {
     const pc = state.guestCall?.peerConnection;
     if (!pc?.getReceivers) return;
-    const wanted=Number(state.requestedQuality)||0;
-    // More decode/network headroom only for 720p and 1080p; do not change 540p
-    // or below, whose field-tested jitter settings are already performing well.
+    const wanted = Number(state.requestedQuality) || 0;
+    const high = wanted > STREAM_HEIGHT;
+    // 144–540p preserve their field-tested playout settings. For 720p/1080p
+    // give the decoder a little more jitter headroom only when telemetry
+    // justifies it; this adds delay, not a fictional future-movie buffer.
     const extra = state.stabilityMode === 'smooth' ?
       wanted >= 1080 ? 1700 : wanted >= 720 ? 1050 : 0 :
       state.stabilityMode === 'balanced' ?
       wanted >= 1080 ? 1000 : wanted >= 720 ? 700 : 0 : 0;
-    const target = Math.max(state.jitterTarget,extra);
+    const quality = state.statsReport;
+    const stressed = high && quality &&
+      (quality.loss > .012 || quality.freezes > 0 || quality.jitter > 100);
+    const extraOnStress = stressed && state.stabilityMode !== 'fast'
+      ? (wanted >= 1080 ? 550 : 400) : 0;
+    const target = Math.min(2800,Math.max(state.jitterTarget, extra + extraOnStress));
     for (const receiver of pc.getReceivers()) {
       if (receiver.track?.kind !== 'video') continue;
       if ('jitterBufferTarget' in receiver) {
@@ -1643,6 +1684,14 @@ body.theater-open{overflow:hidden}
     // using hardware acceleration instead of duplicating full-HD canvas work.
     // If the browser rejects sender scaling, tuneGuest() falls back to canvas.
     if (!forceCanvas && nativeTrack?.readyState === 'live') {
+      // Cancel old high-canvas paints when native capture replaces a canvas.
+      if (state.highTimer) { clearInterval(state.highTimer); state.highTimer=null; }
+      if (state.highFrameHandle != null) {
+        try { media.cancelVideoFrameCallback?.(state.highFrameHandle); } catch {}
+        state.highFrameHandle=null;
+      }
+      state.highCanvas=null;
+      state.highStream=null;
       state.highTrack = nativeTrack; state.highTierHeight = sourceHeight();
     } else if (nativeTrack?.readyState === 'live' && sourceHeight() <= height) {
       state.highTrack = nativeTrack; state.highTierHeight = sourceHeight();
@@ -1731,7 +1780,17 @@ body.theater-open{overflow:hidden}
     if (signature === entry.applied) return;
     entry.tuning = true;
     try {
-      if (sender.track !== newTrack) await sender.replaceTrack(newTrack);
+      if (sender.track !== newTrack) {
+        try { await sender.replaceTrack(newTrack); }
+        catch (error) {
+          if (!wantsHigh || newTrack !== state.nativeCapture?.getVideoTracks()[0]) throw error;
+          // Browser cannot transmit its native capture track: fall back to
+          // the existing exact-resolution high canvas, never disconnect video.
+          const safe = getHighVideoTrack(current.height,true);
+          if (!safe || safe.readyState !== 'live') throw error;
+          await sender.replaceTrack(safe);
+        }
+      }
       const params = sender.getParameters();
       if (!params.encodings?.length) return;
       params.encodings[0].maxBitrate = bitrate;
