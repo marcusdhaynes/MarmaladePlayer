@@ -234,6 +234,11 @@ try {
     const {page,errors}=await launchRoomPage('/?room=ABCDEFGH');
     await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,null,{timeout:6000});
     await page.evaluate(()=>{
+      window.__connections[0].callbacks.data({
+        type:'state',playing:true,live:true,time:0,duration:20,revision:1,
+        mediaKind:'file',name:'red-test.webm',sourceWidth:160,sourceHeight:90,
+        fingerprint:''
+      });
       const canvas=document.createElement('canvas');
       canvas.width=160;canvas.height=90;
       const ctx=canvas.getContext('2d');
