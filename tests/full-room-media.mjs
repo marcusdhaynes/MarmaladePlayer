@@ -93,8 +93,30 @@ try {
     ctx.drawImage(player,0,0,32,20);
     const rgb=Array.from(ctx.getImageData(16,10,1,1).data);
     const stream=player.srcObject;
+    // Inspect decoded PCM energy, not just a nominally live audio track.
+    // This catches an incoming silent stream that a track-count test misses.
+    let audioRms=0;
+    if(stream.getAudioTracks().length){
+      const probe=new AudioContext();
+      const source=probe.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
+      const analyser=probe.createAnalyser();analyser.fftSize=1024;
+      const sink=probe.createGain();sink.gain.value=0;
+      source.connect(analyser);analyser.connect(sink);sink.connect(probe.destination);
+      await Promise.race([probe.resume(),new Promise((_,reject)=>
+        setTimeout(()=>reject(Error('Audio analyzer could not resume')),2500))]);
+      const samples=new Float32Array(analyser.fftSize);
+      for(let i=0;i<35;i++){
+        await new Promise(resolve=>setTimeout(resolve,100));
+        analyser.getFloatTimeDomainData(samples);
+        const rms=Math.sqrt(samples.reduce((sum,x)=>sum+x*x,0)/samples.length);
+        audioRms=Math.max(audioRms,rms);
+        if(audioRms>0.002)break;
+      }
+      source.disconnect();analyser.disconnect();sink.disconnect();
+      await probe.close();
+    }
     return {
-      rgb,videoWidth:player.videoWidth,
+      rgb,audioRms,videoWidth:player.videoWidth,
       videoTracks:stream.getVideoTracks().map(t=>({state:t.readyState,muted:t.muted})),
       audioTracks:stream.getAudioTracks().map(t=>({state:t.readyState,muted:t.muted})),
       currentTime:player.currentTime,
@@ -105,6 +127,7 @@ try {
   assert(report.rgb[0]>125 && report.rgb[0]>report.rgb[1]*2,'Guest must see movie picture');
   assert(report.videoTracks.some(t=>t.state==='live'),'Guest video track must be live');
   assert(report.audioTracks.some(t=>t.state==='live'),'Guest audio track must be live');
+  assert(report.audioRms>0.002,'Decoded guest audio must contain an audible sine-wave signal, not silence');
   assert.deepEqual(errors,[],'Browser runtime errors');
   console.log('PASS actual two-browser Marmalade PeerJS movie + sound');
   await guest.close();await host.close();
