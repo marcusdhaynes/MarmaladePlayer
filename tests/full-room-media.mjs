@@ -82,7 +82,12 @@ try {
     null,{timeout:22000});
   console.log('E2E guest received media tracks');
   // Switch 480p -> 720p -> 540p, checking each retains actual WebRTC media.
-  await guest.locator('#qualitySelect').selectOption('720');
+  await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="720"]'),null,{timeout:8000});
+  // The selector is inside a closed settings palette. Drive the real change
+  // event rather than attempting to click an invisible control.
+  await guest.locator('#qualitySelect').evaluate(el=>{
+    el.value='720';el.dispatchEvent(new Event('change',{bubbles:true}));
+  });
   await guest.waitForFunction(()=>{
     const text=document.querySelector('#qualityHint')?.textContent||'';
     return /Receiving 720p/.test(text);
@@ -98,7 +103,9 @@ try {
   assert(highImage[0]>125 && highImage[0]>highImage[1]*2,
     '720p must transmit a visible movie after track replacement');
   console.log('PASS guest can manually switch to 720p with visible frames',highImage);
-  await guest.locator('#qualitySelect').selectOption('540');
+  await guest.locator('#qualitySelect').evaluate(el=>{
+    el.value='540';el.dispatchEvent(new Event('change',{bubbles:true}));
+  });
   await guest.waitForFunction(()=>/Receiving 540p/.test(
     document.querySelector('#qualityHint')?.textContent||''),null,{timeout:14000});
   console.log('PASS returning to proven 540p capture path');
