@@ -1509,6 +1509,7 @@ body.theater-open{overflow:hidden}
       const entry = { conn, call: null, mode: DEFAULT_LEVEL, recommendation: DEFAULT_LEVEL,
         mediaConfirmed: false, mediaOfferedAt: 0, lastMediaRetry: 0, mediaAttempt: 0,
         tier: 2, healthy: 0, warning: 0, tuning: false,
+        highBitrateFactor: 1, highStableSamples: 0,
         applied: '', lastTuneAt: 0, requestedLevel: DEFAULT_LEVEL, trackType: 'base' };
       state.connections.set(conn.peer, entry);
       conn.on('open', () => {
@@ -1530,6 +1531,8 @@ body.theater-open{overflow:hidden}
           const allowed = LEVELS.some(l => l.id === data.quality);
           if (allowed) {
             entry.mode = data.quality;
+            entry.highBitrateFactor = 1;
+            entry.highStableSamples = 0;
             entry.applied = '';
             void tuneAllGuests();
           }
@@ -1578,6 +1581,24 @@ body.theater-open{overflow:hidden}
           // Monitoring never selects a different resolution on the viewer's behalf.
           entry.lastLoss = Math.max(0, Math.min(1, data.loss));
           entry.lastFps = Math.max(0, Math.min(120, Number(data.decodeFps) || 0));
+          // Keep the resolution manually chosen by the viewer. At 720p+
+          // adapt only compression bitrate to favor usable 24 FPS over detail.
+          if (levelForGuest(entry).height > STREAM_HEIGHT) {
+            const loss=entry.lastLoss, freezes=Number(data.freezes)||0;
+            const fps=entry.lastFps, jitter=Number(data.jitter)||0;
+            const stressed=loss>.018 || freezes>0 || data.stalls>0 ||
+              (fps>0 && fps<21 && (jitter>70 || loss>.004));
+            if (stressed) {
+              entry.highStableSamples=0;
+              entry.highBitrateFactor=Math.max(.55,Math.round(
+                (entry.highBitrateFactor||1)*.84*100)/100);
+            } else if (++entry.highStableSamples>=5) {
+              entry.highStableSamples=0;
+              entry.highBitrateFactor=Math.min(1,Math.round(
+                ((entry.highBitrateFactor||1)+.05)*100)/100);
+            }
+            void tuneGuest(entry);
+          }
           send(conn, { type: 'health', loss: entry.lastLoss, fps: entry.lastFps });
         }
         if (data.type === 'hello' && state.outgoing && !entry.call && !entry.localMirror && state.source!=='hosted') callGuest(conn.peer);
@@ -1605,18 +1626,25 @@ body.theater-open{overflow:hidden}
   // High-quality capture is created lazily at the highest actual requested tier.
   // A 720p viewer never requires a 1080p canvas/encoder input. The proven 540p
   // base stream (and all smaller quality selections) remains completely untouched.
-  function getHighVideoTrack(requestedHeight = 720) {
+  function getHighVideoTrack(requestedHeight = 720, forceCanvas = false) {
     if (state.source === 'screen') return state.outgoing?.getVideoTracks()[0] || null;
     const requested = [...state.connections.values()]
       .filter(e => e.call && e.conn.open && !e.localMirror)
       .map(e => levelForGuest(e).height).filter(h => h > STREAM_HEIGHT);
     const height = Math.min(1080,sourceHeight(),Math.max(requestedHeight,...requested));
     if (!Number.isFinite(height) || height <= STREAM_HEIGHT) return null;
-    if (state.highTrack?.readyState === 'live' && state.highTierHeight >= height) return state.highTrack;
+    if (state.highTrack?.readyState === 'live' && state.highTierHeight >= height &&
+        (!forceCanvas || state.highTrack !== state.nativeCapture?.getVideoTracks()[0]))
+      return state.highTrack;
     const nativeTrack = state.nativeCapture?.getVideoTracks()[0];
     const prior = state.highTrack;
-    // Zero-copy when the actual movie already matches the desired tier.
-    if (nativeTrack?.readyState === 'live' && sourceHeight() <= height) {
+    // For 720p+, use the browser's native decoded video track when available.
+    // WebRTC's sender scaler can then downscale before encoding, potentially
+    // using hardware acceleration instead of duplicating full-HD canvas work.
+    // If the browser rejects sender scaling, tuneGuest() falls back to canvas.
+    if (!forceCanvas && nativeTrack?.readyState === 'live') {
+      state.highTrack = nativeTrack; state.highTierHeight = sourceHeight();
+    } else if (nativeTrack?.readyState === 'live' && sourceHeight() <= height) {
       state.highTrack = nativeTrack; state.highTierHeight = sourceHeight();
     } else {
       if (!media.videoWidth || !media.videoHeight) return null;
@@ -1693,7 +1721,8 @@ body.theater-open{overflow:hidden}
     const wantsHigh = current.height > STREAM_HEIGHT && sourceHeight() > STREAM_HEIGHT;
     const newTrack = wantsHigh ? getHighVideoTrack(current.height) : state.outgoing?.getVideoTracks()[0];
     if (!newTrack || newTrack.readyState !== 'live') return;
-    const bitrate = budgetForGuest(entry, current.bitrate);
+    const bitrate = budgetForGuest(entry,Math.round(current.bitrate *
+      (current.height > STREAM_HEIGHT ? (entry.highBitrateFactor ?? 1) : 1)));
     const naturalHeight = newTrack.getSettings?.().height || (wantsHigh ? sourceHeight() : STREAM_HEIGHT);
     const naturalWidth = newTrack.getSettings?.().width || (wantsHigh ? media.videoWidth : STREAM_WIDTH);
     const scale = Math.max(1, naturalHeight / Math.max(1, current.height),
@@ -1712,10 +1741,19 @@ body.theater-open{overflow:hidden}
       let scalingSupported = true;
       try { await sender.setParameters(params); }
       catch (error) {
+        // Some browsers implement WebRTC video encoding but reject the
+        // scaleResolutionDownBy parameter. Use the existing 720p canvas as an
+        // exact-resolution fallback rather than sending unscaled 1080p.
+        if (wantsHigh && sender.track === state.nativeCapture?.getVideoTracks()[0] &&
+            sourceHeight() > current.height) {
+          const fallbackTrack = getHighVideoTrack(current.height, true);
+          if (fallbackTrack?.readyState === 'live' && fallbackTrack !== sender.track)
+            await sender.replaceTrack(fallbackTrack);
+        }
         const fallback = sender.getParameters();
         if (!fallback.encodings?.length) throw error;
         fallback.encodings[0].maxBitrate = bitrate;
-        await sender.setParameters(fallback); // Browser may not support scaling.
+        await sender.setParameters(fallback);
         scalingSupported = false;
       }
       if (entry.call?.peerConnection === pc) {
