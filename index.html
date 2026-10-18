@@ -1843,23 +1843,32 @@ body.theater-open{overflow:hidden}
         showStage(true);
         badge('LIVE WITH HOST');
         el.network.textContent = 'P2P LIVE';
-        connection('Watching live', 'online');
+        // A MediaStream arriving does NOT mean playback has started.
+        // Never await AudioContext.resume() before media.play(): on Android
+        // resume() can remain unresolved until the next user interaction,
+        // leaving the movie element permanently paused and black.
+        connection('Starting movie…');
         try {
-          await ensureAudioPlayback();
-          await media.play();
+          await media.play(); // Native video and audio, independent of Web Audio.
+          if (state.guestCall !== call) return;
           needsTapToPlay(false);
-        } catch {
-          // Cross-network guests often receive a stream after the original
-          // paste/join gesture has expired. Audible autoplay is denied in
-          // Firefox, Safari and Chrome. Muted video may still autoplay.
+          connection('Watching live','online');
+        } catch (error) {
+          if (state.guestCall !== call) return;
+          // Audible autoplay may be blocked. Play the picture immediately
+          // without audio; a tap on the existing Play control unlocks sound.
           media.muted = true;
           try {
             await media.play();
+            if (state.guestCall !== call) return;
             needsTapToPlay(true);
-            notify('Video is playing muted. Press Play in the bottom controls to enable sound.');
+            connection('Video live · tap Play for sound','online');
+            notify('Video is playing muted. Tap Play below to enable sound.');
           } catch {
+            if (state.guestCall !== call) return;
             needsTapToPlay(true);
-            notify('Press Play in the bottom controls to start the movie.');
+            connection('Tap Play to start video','error');
+            notify('Tap Play below to start the movie on this device.');
           }
         }
       });
@@ -2108,7 +2117,8 @@ body.theater-open{overflow:hidden}
     });
   }
   async function joinRoom() {
-    void ensureAudioPlayback();
+    // Do not initialize Web Audio on joining: mobile browsers may leave its
+    // resume promise pending until a gesture, blocking subsequent playback.
     if (!requirePeerJS() || state.connecting) return;
     const code = parseCode(el.joinInput.value);
     if (!code) { notify('Enter a valid 8-character room code or invite link.'); el.joinInput.focus(); return; }
@@ -2261,11 +2271,13 @@ body.theater-open{overflow:hidden}
     state.volumePercent = next;
     if (next) { state.lastVolume = next / 100; state.soundMuted = false; }
     applyVolume();
-    // Every slider gesture unlocks the gain graph, not only values over 100.
-    // A fallback to native volume is retained when Web Audio is unsupported.
-    void ensureAudioPlayback().then(ok => {
-      if (!ok && next > 100) notify('This browser may limit volume above 100%.');
-    }).catch(()=>{});
+    // Guest playback must remain independent of Web Audio at normal volume.
+    // Create/resume the gain graph only on an explicit >100% user gesture;
+    // otherwise native <video> audio works on Android without a suspended context.
+    if (state.role === 'host' || next > 100 || state.audioContext)
+      void ensureAudioPlayback().then(ok => {
+        if (!ok && next > 100) notify('This browser may limit volume above 100%.');
+      }).catch(()=>{});
   }
   async function ensureAudioCapture() {
     await ensureAudioPlayback();
@@ -2417,16 +2429,20 @@ body.theater-open{overflow:hidden}
     applyTransport('toggle');
   }
   async function enableRemotePlayback() {
+    // Executed directly from a user gesture. Restore sound synchronously
+    // BEFORE calling play(), without waiting for the Web Audio context.
+    applyVolume();
+    if (state.audioContext?.state === 'suspended')
+      void state.audioContext.resume().catch(()=>{});
     try {
-      await ensureAudioPlayback();
-      applyVolume(); // Restore this guest's chosen volume after muted autoplay.
       await media.play();
       needsTapToPlay(false);
+      connection('Watching live','online');
     } catch {
       media.muted = true;
       try { await media.play(); } catch {}
       needsTapToPlay(true);
-      notify('Use Play in the bottom controls to enable video and sound.');
+      notify('Tap Play again to allow playback with sound.');
     }
   }
   async function copyInvite() {
@@ -2640,7 +2656,9 @@ body.theater-open{overflow:hidden}
     state.soundMuted = !state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = 100;
     applyVolume();
-    void ensureAudioPlayback();
+    // Native media element mute/unmute is sufficient for guest listening.
+    if (state.role === 'host' || state.audioContext)
+      void ensureAudioPlayback().catch(()=>{});
   });
   el.qualitySelect.addEventListener('change', () => {
     if (state.role !== 'guest') return;
