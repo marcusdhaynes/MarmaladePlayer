@@ -530,6 +530,7 @@ body.theater-open{overflow:hidden}
     peerCache: new Map(), peerCacheBytes: 0, peerTransfer: new Map(),
     peerAssistance: true, heldForBuffer:false, joinDebounce: null,
     joinTimeout: null, joinRetryTimer: null, joinAttempt: 0, joinFailure: false,
+    hostStreamLive: false, mediaRequestAt: 0, mediaAwaitingAt: 0,
     showStatus: true, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
@@ -1338,6 +1339,7 @@ body.theater-open{overflow:hidden}
     state.remoteFramesAvailable = false;
     state.remoteVideoFrameCount = 0;
     state.remoteFingerprint = null;state.remoteFileName = '';state.localVerified=false;
+    state.hostStreamLive = false;state.mediaRequestAt = 0;state.mediaAwaitingAt = 0;
     el.localCopyPanel.hidden = true;
     el.localCopyButton.disabled = true;
     el.localCopyStatus.textContent = 'Waiting for the host\'s movie…';
@@ -1546,9 +1548,9 @@ body.theater-open{overflow:hidden}
           }
         }
         if (data.type === 'media-received' && entry.call && !entry.localMirror) {
-          if (typeof data.id === 'number' && data.id === entry.mediaAttempt) {
+          // PeerJS versions without metadata can still confirm the active call.
+          if (data.id == null || data.id === entry.mediaAttempt)
             entry.mediaConfirmed = true;
-          }
         }
         if (data.type === 'requestmedia' && !entry.localMirror) {
           // A connected room is only the control channel. Make sure there is
@@ -1820,6 +1822,8 @@ body.theater-open{overflow:hidden}
       call.on('stream', async (stream) => {
         if (state.guestCall !== call) return;
         state.guestQualitySample = null;
+        state.mediaAwaitingAt = 0;
+        state.mediaRequestAt = 0;
         state.remoteVideoConnectedAt = performance.now();
         state.remoteLastFrameAt = 0;
         state.remoteVideoFrameCount = 0;
@@ -1884,7 +1888,20 @@ body.theater-open{overflow:hidden}
       call.answer(); // Receive-only call: guest never sends camera or microphone.
     });
   }
+  function requestMissingMedia(reason = 'waiting-for-video') {
+    if (state.role !== 'guest' || state.localVerified || state.bufferedMode ||
+        state.source === 'remote' || !state.guestConn?.open) return;
+    const now=performance.now();
+    if (now - state.mediaRequestAt < 6000) return;
+    state.mediaRequestAt = now;
+    send(state.guestConn,{type:'requestmedia',reason});
+  }
   function receiveState(data) {
+    if (typeof data.live === 'boolean' && data.mediaKind !== 'hosted') {
+      state.hostStreamLive = data.live;
+      if (data.live && state.source !== 'remote' && !state.mediaAwaitingAt)
+        state.mediaAwaitingAt = performance.now();
+    }
     if (data.mediaKind === 'file' && typeof data.fingerprint === 'string' &&
         data.fingerprint.length < 120 && typeof data.name === 'string' &&
         data.name.length > 0 && data.name.length <= 250) {
@@ -1941,7 +1958,7 @@ body.theater-open{overflow:hidden}
     updateTransport();
     if (!data.live && state.source !== 'remote' && !state.localVerified && !state.bufferedMode) {
       if (data.playing && state.guestConn?.open)
-        send(state.guestConn,{type:'requestmedia'});
+        requestMissingMedia('host-playing-without-media');
       setStage('Waiting for the host…', 'They’ll start the movie when they’re ready.', 'ROOM CONNECTED');
     }
     if (data.live && state.source !== 'remote' && !state.localVerified && !state.bufferedMode) {
@@ -1952,7 +1969,7 @@ body.theater-open{overflow:hidden}
           if (state.role !== 'guest' || state.source === 'remote' || !state.guestConn?.open) return;
           setStage('Video has not connected', 'Retrying the media connection. If this persists, your network may require a TURN relay.', 'CONNECTION TROUBLE');
           connection('Video reconnecting…', 'error');
-          send(state.guestConn, { type: 'requestmedia' });
+          requestMissingMedia('media-timeout');
         }, 10000);
       }
     }
@@ -2030,6 +2047,10 @@ body.theater-open{overflow:hidden}
           ? `Host movie: ${state.remoteFileName} · Choose the identically named file.`
           : 'Waiting for the host\'s movie…';
         send(conn,{type:'hello'});
+        // If the media connection raced ahead of the data channel, the
+        // earlier acknowledgment could not have been transmitted.
+        if (state.source === 'remote' && state.guestCall)
+          send(conn,{type:'media-received',id:state.guestCall.metadata?.mediaId});
         sendQualityPreference();
       });
       conn.on('data', (data) => {
@@ -2675,6 +2696,10 @@ body.theater-open{overflow:hidden}
   window.setInterval(() => { if (state.role === 'guest' && state.guestConn?.open && !state.seeking) updateTransport(); }, 250);
   window.setInterval(() => {
     if (state.role === 'guest' && state.guestConn?.open) {
+      if (state.hostStreamLive && state.source !== 'remote' &&
+          !state.localVerified && !state.bufferedMode &&
+          state.mediaAwaitingAt && performance.now() - state.mediaAwaitingAt > 6500)
+        requestMissingMedia('no-media-after-join');
       send(state.guestConn, { type: 'ping', at: performance.now() });
       void reportGuestQuality();
       recoveryCheck();
