@@ -257,6 +257,11 @@ body.theater-open{overflow:hidden}
 }
 .theater-popover.settings-popover.settings-floating[hidden]{display:none!important}
 @media(max-width:650px){.theater-popover.settings-popover.settings-floating{max-height:calc(100dvh - 24px)}}
+
+/* Autoplay permission fallback: make the existing bottom Play discoverable,
+   without restoring a floating central play icon. */
+.stage.needs-gesture.has-video .theater-controls{opacity:1;transform:translateY(0);pointer-events:auto}
+.stage.needs-gesture .theater-play{outline:1px solid rgba(255,190,118,.72);outline-offset:1px;background:rgba(255,176,96,.15)}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -1781,8 +1786,24 @@ body.theater-open{overflow:hidden}
         badge('LIVE WITH HOST');
         el.network.textContent = 'P2P LIVE';
         connection('Watching live', 'online');
-        try { await ensureAudioPlayback(); await media.play(); needsTapToPlay(false); }
-        catch { needsTapToPlay(true); notify('Use Play in the bottom controls to enable playback with sound.'); }
+        try {
+          await ensureAudioPlayback();
+          await media.play();
+          needsTapToPlay(false);
+        } catch {
+          // Cross-network guests often receive a stream after the original
+          // paste/join gesture has expired. Audible autoplay is denied in
+          // Firefox, Safari and Chrome. Muted video may still autoplay.
+          media.muted = true;
+          try {
+            await media.play();
+            needsTapToPlay(true);
+            notify('Video is playing muted. Press Play in the bottom controls to enable sound.');
+          } catch {
+            needsTapToPlay(true);
+            notify('Press Play in the bottom controls to start the movie.');
+          }
+        }
       });
       call.on('error', (error) => {
         console.error('Guest media call error', error);
@@ -2252,8 +2273,17 @@ body.theater-open{overflow:hidden}
     applyTransport('toggle');
   }
   async function enableRemotePlayback() {
-    try { await ensureAudioPlayback(); await media.play(); needsTapToPlay(false); }
-    catch { needsTapToPlay(true); notify('Use Play in the bottom controls to enable video and sound.'); }
+    try {
+      await ensureAudioPlayback();
+      applyVolume(); // Restore this guest's chosen volume after muted autoplay.
+      await media.play();
+      needsTapToPlay(false);
+    } catch {
+      media.muted = true;
+      try { await media.play(); } catch {}
+      needsTapToPlay(true);
+      notify('Use Play in the bottom controls to enable video and sound.');
+    }
   }
   async function copyInvite() {
     try { await navigator.clipboard.writeText(el.inviteLink.value); notify('Invite link copied!'); }
