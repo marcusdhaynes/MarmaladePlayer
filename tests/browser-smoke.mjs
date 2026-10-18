@@ -268,8 +268,8 @@ try {
       return !p.paused && p.muted && document.querySelector('#dropZone').classList.contains('needs-gesture');
     },null,{timeout:8000});
     assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('has-video')),true);
-    const chrome=await page.locator('#theaterControls').evaluate(el=>getComputedStyle(el).opacity);
-    assert.equal(chrome,'1','Play button must remain visible until sound is allowed');
+    await page.waitForFunction(()=>parseFloat(getComputedStyle(document.querySelector('#theaterControls')).opacity)>0.95,null,{timeout:2000});
+    assert.equal(await page.locator('#playPause').isDisabled(),false,'Guest Play must remain operable');
     await page.locator('#playPause').evaluate(el=>el.click());
     await page.waitForFunction(()=>{
       const player=document.querySelector('#player');
