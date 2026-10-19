@@ -958,8 +958,8 @@ body.theater-open{overflow:hidden}
     if (!state.diagnostics) return;
     const r = state.statsReport || {};
     const label = state.localVerified ? 'Verified local file' : state.bufferedMode ? 'Buffered HTTP/HLS' : 'Live P2P';
-    el.stabilityInfo.textContent = `${label} | ${state.stabilityMode} | FPS ${Math.round(r.fps || 0)} ` +
-      `| loss ${((r.loss || 0) * 100).toFixed(1)}% | jitter ${Math.round(r.jitter || 0)}ms ` +
+    el.stabilityInfo.textContent = `${label} | ${state.stabilityMode} | decoded FPS ${Math.round(r.fps || 0)} ` +
+      `| loss ${((r.loss || 0) * 100).toFixed(1)}% | network jitter ${Math.round(r.packetJitterMs ?? r.jitter ?? 0)}ms ` +
       `| RTT ${Math.round(state.latencyStats?.rttMs || state.observedRtt || 0)}ms | ahead ${bufferAhead().toFixed(1)}s ` +
       `| target ${state.bufferedMode || state.localVerified ? state.bufferTarget + 's' :
         Number(state.requestedQuality)>STREAM_HEIGHT ? (state.highPlayoutTarget||0)+'ms' : state.jitterTarget+'ms'}` +
@@ -1565,6 +1565,7 @@ body.theater-open{overflow:hidden}
       const prior = state.connections.get(conn.peer);
       if (prior) { try { prior.call?.close(); prior.conn.close(); } catch { /* no-op */ } }
       const entry = { conn, call: null, mode: DEFAULT_LEVEL, recommendation: DEFAULT_LEVEL,
+        previousEncoderStats: null, lastEncoderMeasureAt: 0,
         mediaConfirmed: false, mediaOfferedAt: 0, lastMediaRetry: 0, mediaAttempt: 0,
         tier: 2, healthy: 0, warning: 0, tuning: false,
         highBitrateFactor: 1, highStableSamples: 0,
@@ -1587,7 +1588,9 @@ body.theater-open{overflow:hidden}
         }
         if (data.type === 'quality-preference' && typeof data.quality === 'string') {
           const allowed = LEVELS.some(l => l.id === data.quality);
-          if (allowed) {
+          if (allowed && entry.mode !== data.quality) {
+            // A repeated preference must not reset congestion adaptation.
+            // Only a manual quality change resets the encoding budget.
             entry.mode = data.quality;
             entry.highBitrateFactor = 1;
             entry.highStableSamples = 0;
@@ -1657,7 +1660,9 @@ body.theater-open{overflow:hidden}
             }
             void tuneGuest(entry);
           }
-          send(conn, { type: 'health', loss: entry.lastLoss, fps: entry.lastFps });
+          send(conn,{type:'health',loss:entry.lastLoss,fps:entry.lastFps});
+          if (levelForGuest(entry).height>STREAM_HEIGHT)
+            void reportHostEncoder(entry);
         }
         if (data.type === 'hello' && state.outgoing && !entry.call && !entry.localMirror && state.source!=='hosted') callGuest(conn.peer);
       });
@@ -1763,6 +1768,39 @@ body.theater-open{overflow:hidden}
       },3500);
     }
     return state.highTrack;
+  }
+  async function reportHostEncoder(entry) {
+    const pc=entry.call?.peerConnection;
+    if(!pc?.getStats||!entry.conn?.open)return;
+    const now=performance.now();
+    if(now-entry.lastEncoderMeasureAt<2400)return;
+    entry.lastEncoderMeasureAt=now;
+    try{
+      const stats=await pc.getStats();
+      if(entry.call?.peerConnection!==pc)return;
+      let outbound=null;
+      stats.forEach(x=>{
+        if(x.type==='outbound-rtp'&&!x.isRemote &&
+          (x.kind==='video'||x.mediaType==='video'))outbound=x;
+      });
+      if(!outbound)return;
+      const previous=entry.previousEncoderStats;
+      const measured={at:now,frames:outbound.framesEncoded||0,
+        seconds:outbound.totalEncodeTime||0};
+      entry.previousEncoderStats=measured;
+      const secs=previous?Math.max(.01,(now-previous.at)/1000):0;
+      const fps=secs?Math.max(0,(measured.frames-previous.frames)/secs):0;
+      const delta=secs?(measured.seconds-previous.seconds):0;
+      const frameDelta=previous?measured.frames-previous.frames:0;
+      const report={
+        type:'encoder-diagnostics',fps:fps||outbound.framesPerSecond||0,
+        width:outbound.frameWidth||0,height:outbound.frameHeight||0,
+        limit:outbound.qualityLimitationReason||'unknown',
+        encodeMs:frameDelta>0?Math.max(0,1000*delta/frameDelta):0,
+        encoder:String(outbound.encoderImplementation||'unknown').slice(0,72)
+      };
+      send(entry.conn,report);
+    }catch(error){console.debug('Encoder diagnostics unavailable',error);}
   }
   function budgetForGuest(entry, desired) {
     // Global safety cap is for each room, not each viewer. Never invent a user's
@@ -2224,6 +2262,17 @@ body.theater-open{overflow:hidden}
         if(data.type==='segment-missing' && state.peerTransfer.has(data.id)){
           const t=state.peerTransfer.get(data.id);clearTimeout(t.timer);state.peerTransfer.delete(data.id);t.fail();
         }
+        if (data.type === 'encoder-diagnostics' && state.role === 'guest' &&
+            Number.isFinite(data.fps)) {
+          state.highEncoderStats={
+            fps:Math.max(0,Math.min(120,data.fps)),
+            width:Math.max(0,data.width||0),height:Math.max(0,data.height||0),
+            encoder:String(data.encoder||'unknown').slice(0,72),
+            limit:String(data.limit||'unknown').slice(0,36),
+            encodeMs:Math.max(0,data.encodeMs||0)
+          };
+          updateDiagnostics();
+        }
         if (data.type === 'quality-applied') {
           state.appliedQuality = data.level;
           updateQualityHint(data.limited ? 'Host bandwidth safety limit' : data.message || `Receiving ${data.height || '?'}p`);
@@ -2331,8 +2380,19 @@ body.theater-open{overflow:hidden}
        const poor = frozen > 0 || stall || (decodeFps < 20 && received > 10) ||
          lost / Math.max(1, lost + received) > 0.04;
       const jitterFrames = sample.jitterFrames - prev.jitterFrames;
-      const jitterMs = jitterFrames > 0 ?
+      const playoutMs = jitterFrames > 0 ?
         Math.max(0, (sample.jitterDelay - prev.jitterDelay) / jitterFrames * 1000) : 0;
+      // RTP jitter is the network interarrival statistic in seconds.
+      // jitterBufferDelay/jitterBufferEmittedCount measures OUR buffering,
+      // and cannot be treated as incoming network jitter.
+      const packetJitterMs = Math.max(0,Math.min(2000,(Number(v.jitter)||0)*1000));
+      let rttMs=0;
+      stats.forEach(x=>{
+        if(x.type==='candidate-pair' && x.state==='succeeded' && x.nominated &&
+           Number.isFinite(x.currentRoundTripTime))
+          rttMs=Math.max(rttMs,x.currentRoundTripTime*1000);
+      });
+      const codec = stats.get?.(v.codecId)?.mimeType || v.decoderImplementation || '';
       // Avoid judging packet loss from too few packets; packet counts reset on a new call.
       if (received + lost < 15) return;
        // Hysteresis: reduce promptly on stalls, increase only after six clean samples.
@@ -2366,12 +2426,24 @@ body.theater-open{overflow:hidden}
        state.recommendation = recommendedLevel(state.recommendation);
        if (before !== state.recommendation) buildQualitySelect();
        updateQualityHint();
+      const high = Number(state.requestedQuality)>STREAM_HEIGHT;
       state.statsReport={fps:decodeFps,loss:lost/Math.max(1,lost+received),
-        jitter:jitterMs,freezes:frozen,stalls:stall};
+        jitter:high?packetJitterMs:playoutMs,packetJitterMs,
+        playoutMs,freezes:frozen,stalls:stall};
+      state.latencyStats={
+        playoutMs,packetJitterMs,rttMs,
+        width:v.frameWidth || media.videoWidth || 0,
+        height:v.frameHeight || media.videoHeight || 0,
+        decoder:String(v.decoderImplementation||codec||'unknown').slice(0,72),
+        dropped:v.framesDropped||0,
+        freezeCount:v.freezeCount||0
+      };
       recomputeBufferTarget(state.statsReport);
       send(state.guestConn, {
-        type: 'quality', loss: lost / Math.max(1, lost + received),
-        jitter: Math.min(1000, jitterMs), freezes: frozen, stalls: stall, decodeFps,
+        type:'quality',loss:lost/Math.max(1,lost+received),
+        jitter:Math.min(1000,high?packetJitterMs:playoutMs),
+        packetJitterMs,playoutMs,freezes:frozen,stalls:stall,decodeFps,
+        decodedWidth:state.latencyStats.width,decodedHeight:state.latencyStats.height
       });
     } catch (error) { console.debug('Guest stream statistics unavailable', error); }
   }
