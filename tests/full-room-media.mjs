@@ -136,7 +136,13 @@ try {
   });
   assert(result1080.pix[0]>125 && result1080.pix[0]>result1080.pix[1]*2,
     '1080p must deliver real non-black frames');
-  console.log('PASS 1080p media after manual selection',JSON.stringify(result1080));
+  // A 1080p UI label with only a 270p transport is NOT a quality pass.
+  // Judge actual decoded dimensions, never the negotiated input track.
+  assert(result1080.height >= 1080 && result1080.width >= 1920,
+    '1080p selection must decode real full-HD frames, not silently downscale');
+  assert(encoder1080.outbound.some(x => x.height >= 1080 && (x.fps || 0) >= 21),
+    'Full-HD sender must encode at approximately 24 fps on the local healthy test link');
+  console.log('PASS real 1080p delivery at 24fps target',JSON.stringify(result1080));
   // Switch 1080p -> 720p -> 540p, checking each retains actual WebRTC media.
   await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="720"]'),null,{timeout:8000});
   // The selector is inside a closed settings palette. Drive the real change
@@ -158,7 +164,11 @@ try {
   });
   assert(highImage[0]>125 && highImage[0]>highImage[1]*2,
     '720p must transmit a visible movie after track replacement');
-  console.log('PASS guest can manually switch to 720p with visible frames',highImage);
+  await guest.waitForFunction(()=>{
+    const v=document.querySelector('#player');
+    return v.videoHeight >= 720 && v.videoWidth >= 1280;
+  },null,{timeout:8000});
+  console.log('PASS real 720p delivery with visible frames',highImage);
   await guest.locator('#qualitySelect').evaluate(el=>{
     el.value='540';el.dispatchEvent(new Event('change',{bubbles:true}));
   });
