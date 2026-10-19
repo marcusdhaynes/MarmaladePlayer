@@ -11,10 +11,10 @@ const WEB_PORT=38843,PEER_PORT=38844;
 const dir=mkdtempSync(join(tmpdir(),'marmalade-e2e-'));
 const video=join(dir,'full-stream.webm');
 execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi',
-  '-i','color=c=red:s=1280x720:r=24','-f','lavfi',
-  '-i','sine=frequency=440:sample_rate=48000','-t','12',
-  '-c:v','libvpx','-crf','24','-b:v','0','-c:a','libopus',
-  '-b:a','64k','-shortest','-y',video],{timeout:30000});
+  '-i','color=c=red:s=1920x1080:r=24','-f','lavfi',
+  '-i','sine=frequency=440:sample_rate=48000','-t','26',
+  '-c:v','libvpx','-deadline','realtime','-cpu-used','5','-crf','24','-b:v','0','-c:a','libopus',
+  '-b:a','64k','-shortest','-y',video],{timeout:60000});
 const bytes=readFileSync(video);
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const peerLib=readFileSync(new URL('../node_modules/peerjs/dist/peerjs.min.js',import.meta.url),'utf8');
@@ -81,7 +81,27 @@ try {
   await guest.waitForFunction(()=>document.querySelector('#player').srcObject?.getVideoTracks()?.length>0,
     null,{timeout:22000});
   console.log('E2E guest received media tracks');
-  // Switch 480p -> 720p -> 540p, checking each retains actual WebRTC media.
+  // 1080p must negotiate a real picture before testing 720p fallback.
+  await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="1080"]'),
+    null,{timeout:8000});
+  await guest.locator('#qualitySelect').evaluate(el=>{
+    el.value='1080';el.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+  await guest.waitForFunction(()=>/Receiving 1080p/.test(
+    document.querySelector('#qualityHint')?.textContent||''),null,{timeout:15000});
+  await guest.waitForTimeout(1100);
+  const result1080=await guest.evaluate(async()=>{
+    const v=document.querySelector('#player');
+    const c=document.createElement('canvas');c.width=24;c.height=16;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(v,0,0,24,16);
+    const pix=Array.from(ctx.getImageData(12,8,1,1).data);
+    return {pix,width:v.videoWidth,height:v.videoHeight};
+  });
+  assert(result1080.pix[0]>125 && result1080.pix[0]>result1080.pix[1]*2,
+    '1080p must deliver real non-black frames');
+  console.log('PASS 1080p media after manual selection',JSON.stringify(result1080));
+  // Switch 1080p -> 720p -> 540p, checking each retains actual WebRTC media.
   await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="720"]'),null,{timeout:8000});
   // The selector is inside a closed settings palette. Drive the real change
   // event rather than attempting to click an invisible control.
