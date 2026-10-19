@@ -50,6 +50,19 @@ try {
   const errors=[];
   const makePage=async()=>{
     const page=await browser.newPage();
+    await page.addInitScript(()=>{
+      window.__debugPeerConnections=[];
+      const native=RTCPeerConnection.prototype.setRemoteDescription;
+      RTCPeerConnection.prototype.setRemoteDescription=function(...args){
+        if(!window.__debugPeerConnections.includes(this))window.__debugPeerConnections.push(this);
+        return native.apply(this,args);
+      };
+      const nativeAdd=RTCPeerConnection.prototype.addTrack;
+      RTCPeerConnection.prototype.addTrack=function(...args){
+        if(!window.__debugPeerConnections.includes(this))window.__debugPeerConnections.push(this);
+        return nativeAdd.apply(this,args);
+      };
+    });
     page.on('pageerror',e=>errors.push(e.stack||String(e)));
     await page.route('**/npm/peerjs@*/**',route=>route.fulfill({
       status:200,contentType:'application/javascript',body:peerLib+shim}));
@@ -89,7 +102,27 @@ try {
   });
   await guest.waitForFunction(()=>/Receiving 1080p/.test(
     document.querySelector('#qualityHint')?.textContent||''),null,{timeout:15000});
-  await guest.waitForTimeout(1100);
+  await guest.waitForTimeout(3100);
+  const encoder1080=await host.evaluate(async()=>{
+    const pc=window.__debugPeerConnections.at(-1);
+    if(!pc)return {error:'No captured peer connection'};
+    const stats=await pc.getStats();
+    const video=[...stats.values()].filter(x=>x.type==='outbound-rtp'&&(x.kind==='video'||x.mediaType==='video'));
+    return {track:pc.getSenders().filter(x=>x.track?.kind==='video').map(s=>({
+      settings:s.track.getSettings(),params:s.getParameters().encodings})),
+      outbound:video.map(x=>({width:x.frameWidth,height:x.frameHeight,fps:x.framesPerSecond,
+        framesEncoded:x.framesEncoded,limit:x.qualityLimitationReason,encoder:x.encoderImplementation}))};
+  });
+  const decoder1080=await guest.evaluate(async()=>{
+    const pc=window.__debugPeerConnections.at(-1);
+    if(!pc)return {error:'No receiver PC'};
+    const stats=await pc.getStats();
+    return [...stats.values()].filter(x=>x.type==='inbound-rtp'&&(x.kind==='video'||x.mediaType==='video'))
+      .map(x=>({width:x.frameWidth,height:x.frameHeight,decoded:x.framesDecoded,
+        dropped:x.framesDropped,decoder:x.decoderImplementation,jitter:x.jitter}));
+  });
+  console.log('HIGH RESOLUTION ENCODER DIAGNOSTIC',JSON.stringify(encoder1080));
+  console.log('HIGH RESOLUTION DECODER DIAGNOSTIC',JSON.stringify(decoder1080));
   const result1080=await guest.evaluate(async()=>{
     const v=document.querySelector('#player');
     const c=document.createElement('canvas');c.width=24;c.height=16;
