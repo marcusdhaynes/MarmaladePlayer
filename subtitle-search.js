@@ -104,11 +104,7 @@
     '<div class="sub-note" id="subSearchStatus" role="status" aria-live="polite">Based on your video filename.</div>'+
     '<div id="subSearchResults" class="sub-results" aria-label="Subtitle results"></div>'+
     '<div id="subSearchCatalogs" class="sub-links" aria-label="SubDL website"></div>'+
-    '<details id="subSearchSources"><summary>SubDL API key</summary>'+
-    '<label>SubDL key<input class="sub-input" type="password" id="subSearchSubdlKey" autocomplete="off" placeholder="Enter your private key"></label>'+
-    '<label><input id="subSearchRemember" type="checkbox"> Remember on this browser</label>'+
-    '<div class="sub-note">Your key is sent only to SubDL for searches; never to other viewers. Remembering it saves it on this device.</div>'+
-    '<div class="sub-links"><a href="https://subdl.com/api-doc/" target="_blank" rel="noopener noreferrer">SubDL documentation ↗</a></div></details>';
+    '<div class="sub-note">Powered by SubDL · No API key needed</div>';
   find.append(form);
   const $=id=>form.querySelector('#'+id);
   const title=$('subSearchTitle'),year=$('subSearchYear'),lang=$('subSearchLanguage'),
@@ -116,17 +112,7 @@
     season=$('subSearchSeason'),episode=$('subSearchEpisode'),
     progress=$('subSearchStatus'),results=$('subSearchResults'),
     catalogs=$('subSearchCatalogs'),submit=$('subSearchSubmit'),
-    subdl=$('subSearchSubdlKey'),remember=$('subSearchRemember');
-  const KEY_STORAGE='marmalade-subtitle-search-keys-v1';
-  try{
-    const stored=JSON.parse(localStorage.getItem(KEY_STORAGE)||'null');
-    if(stored?.remember){subdl.value=stored.subdl||'';remember.checked=true;}
-  }catch{}
-  function keepKeys(){
-    try{if(remember.checked)localStorage.setItem(KEY_STORAGE,JSON.stringify({remember:true,subdl:subdl.value}));
-      else localStorage.removeItem(KEY_STORAGE);}catch{}
-  }
-  for(const item of [subdl,remember])item.addEventListener('change',keepKeys);
+    proxyUrl='https://marmalade-subdl-proxy-somnielsynchreaua-4637.vercel.app/api/subtitles';
   function videoFilename(){
     if(state.role==='host'&&state.file?.name)return state.file.name;
     if(state.role==='guest'&&state.remoteFileName)return state.remoteFileName;
@@ -240,12 +226,6 @@
     const seq=++sequence,signal=controller.signal,failures=[],tasks=[];
     results.replaceChildren();progress.textContent='Searching sources…';
     submit.disabled=true;
-    if(!subdl.value.trim()){
-      progress.textContent='Open SubDL API key above to enter your private key for in-player search.';
-      $('subSearchSources').open=true;
-      submit.disabled=false;
-      return;
-    }
     const p=new URLSearchParams({film_name:title.value.trim(),type:kind.value,unpack:'1',subs_per_page:'30'});
     if(year.value)p.set('year',year.value);
     if(lang.value)p.set('languages',lang.value);
@@ -255,8 +235,7 @@
     if(detectedFilename&&!edited&&title.value.trim()===parseFilename(detectedFilename).title){
       p.delete('film_name');p.set('file_name',detectedFilename);
     }
-    const requestSubdl=()=>get('https://api.subdl.com/api/v2/subtitles/search?'+p,
-      {headers:{Authorization:'Bearer '+subdl.value.trim(),Accept:'application/json'}},signal);
+    const requestSubdl=()=>get(proxyUrl+'?'+p,{headers:{Accept:'application/json'}},signal);
     tasks.push(requestSubdl().then(async data=>{
       if(data?.status===false)throw Error(String(data.error||'Search rejected'));
       if(p.has('file_name')&&(!Array.isArray(data?.subtitles)||!data.subtitles.length)){
@@ -267,7 +246,7 @@
       return subdlResults(data);
     }).catch(e=>{
       if(e.name!=='AbortError')failures.push(
-        e.name==='TypeError'?'Connection blocked by browser/network':String(e.message||'Search failed').slice(0,100));
+        e.name==='TypeError'?'Subtitle server unreachable':String(e.message||'Search failed').slice(0,100));
       return [];
     }));
     const settled=await Promise.all(tasks);
