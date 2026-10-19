@@ -35,6 +35,7 @@
     '.subtitle-studio .sub-result small,.subtitle-studio .sub-note{font-size:9px;color:#bfb1b9;line-height:1.4}',
     '.subtitle-studio .sub-result a,.subtitle-studio .sub-result button{font-size:10px;padding:5px 7px;text-decoration:none;border:1px solid #6a5548;border-radius:5px;background:#352c2b;color:#ffdaaa}',
     '.subtitle-studio .subtitle-style{border:0;padding:0;gap:8px}',
+    '.subtitle-studio .sub-setting-value{display:inline-block;min-width:32px;text-align:right;font-size:9px;color:#ffd8ac;font-variant-numeric:tabular-nums}',
     '.subtitle-studio .subtitle-style-row{grid-template-columns:minmax(63px,1fr) auto auto}',
     '.subtitle-studio input[type=checkbox]{accent-color:#ffa869}',
     '@media(max-width:450px){.subtitle-studio .sub-results{max-height:165px}}'
@@ -49,6 +50,18 @@
   find.id='subFindView';find.className='sub-view';find.setAttribute('role','tabpanel');
   style.id='subStyleView';style.className='sub-view';style.setAttribute('role','tabpanel');style.hidden=true;
   tabs.insertAdjacentElement('afterend',find);find.insertAdjacentElement('afterend',style);style.append(appearance);
+  // Show actual values next to every size/transparency control. Transparency
+  // is 0% (solid) to 100% (invisible), consistent with the labels.
+  for(const input of appearance.querySelectorAll('input[type=range][data-sub-key]')){
+    const out=document.createElement('output');
+    out.className='sub-setting-value';
+    input.insertAdjacentElement('afterend',out);
+    const update=()=>{out.textContent=input.value+
+      (input.dataset.subKey==='timing'?'s':input.dataset.subKey.endsWith('Alpha')?'%':'px');};
+    input.addEventListener('input',update);
+    update();
+  }
+
   function place(){
     if(panel.hidden)return;
     const parent=document.fullscreenElement===el.stage?el.stage:document.body;
@@ -156,9 +169,10 @@
   function catalogLinks(){
     catalogs.replaceChildren();
     const q=[title.value.trim(),year.value.trim()].filter(Boolean).join(' ');
+    const siteLanguage=({en:'eng',ar:'ara',id:'ind',es:'spa',fr:'fre',de:'ger',pt:'por',it:'ita',ru:'rus',tr:'tur',fa:'per',hi:'hin',ja:'jpn',ko:'kor',zh:'chi'})[lang.value]||'all';
     if(!q)return;
     catalogs.append(
-      a('OpenSubtitles ↗','https://www.opensubtitles.org/en/search/sublanguageid-'+encodeURIComponent(lang.value||'all')+'/moviename-'+encodeURIComponent(q)),
+      a('OpenSubtitles ↗','https://www.opensubtitles.org/en/search/sublanguageid-'+encodeURIComponent(siteLanguage)+'/moviename-'+encodeURIComponent(q)),
       a('SubDL ↗','https://subdl.com/'),
       a('Podnapisi ↗','https://www.podnapisi.net/subtitles/search/?keywords='+encodeURIComponent(q))
     );
@@ -196,7 +210,7 @@
       const x=item.attributes||{},name=String(x.release||x.files?.[0]?.file_name||'Subtitle');
       const language=String(x.language||'').toLowerCase();
       if(!matchQuality(name)||(lang.value&&language&&lang.value!==language))return[];
-      let site='https://www.opensubtitles.com/';
+      let site='https://www.opensubtitles.org/en/search/sublanguageid-all/moviename-'+encodeURIComponent(title.value.trim());
       try{const u=new URL(x.url||item.url);if(u.protocol==='https:'&&/(^|\.)opensubtitles\.com$/.test(u.hostname))site=u.href;}catch{}
       return [{source:'OpenSubtitles',name,lang:language,filename:String(x.files?.[0]?.file_name||''),
         url:'',site,direct:false}];
