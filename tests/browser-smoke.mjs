@@ -166,7 +166,7 @@ try {
     assert.equal(await page.locator('#subStyleTab').count(),1,'Appearance belongs in Subtitle window');
     assert.equal(await page.locator('#subSearchForm').count(),1,'Subtitle search and filters must be available');
     for(const id of ['subSearchTitle','subSearchYear','subSearchLanguage','subSearchQuality',
-      'subSearchType','subSearchSeason','subSearchEpisode','subSearchSubdlKey'])
+      'subSearchType','subSearchSeason','subSearchEpisode'])
       assert.equal(await page.locator('#'+id).count(),1,'Missing subtitle filter '+id);
     assert.deepEqual(await page.evaluate(()=>
       window.MarmaladeSubtitleFinder.parseFilename('Dune.2021.1080p.WEB-DL.mp4')),
@@ -175,11 +175,11 @@ try {
     assert.equal(await page.locator('#subStyleView').isVisible(),true,'Appearance settings are visible in subtitle window');
     assert.equal(await page.locator('#subFindView').isVisible(),false,'Only active tab occupies space');
     await page.locator('#subFindTab').click({force:true});
-    await page.route('https://api.subdl.com/**', route=>{
+    await page.route('https://marmalade-subdl-proxy-somnielsynchreaua-4637.vercel.app/api/subtitles**', route=>{
       const url=new URL(route.request().url());
-      assert.equal(url.pathname,'/api/v2/subtitles/search','Use documented SubDL v2 API');
+      assert.equal(url.pathname,'/api/subtitles','Search through private SubDL proxy');
       assert.equal(url.searchParams.has('api_key'),false,'Never put the private key in URL query');
-      assert.equal(route.request().headers().authorization,'Bearer test-key-1');
+      assert.equal(route.request().headers().authorization,undefined,'Browser never receives API key');
       return route.fulfill({status:200,contentType:'application/json',
         body:JSON.stringify({status:true,subtitles:[{
           release_name:'Dune 2021 1080p WEB-DL',language:'EN',
@@ -191,8 +191,6 @@ try {
     });
     await page.route('https://dl.subdl.com/subtitle/**',route=>route.fulfill({status:200,
       contentType:'text/plain',body:'1\n00:00:01,000 --> 00:00:03,000\nDownload works!\n'}));
-    await page.locator('#subSearchSources summary').click({force:true});
-    await page.locator('#subSearchSubdlKey').fill('test-key-1');
     await page.locator('#subSearchTitle').fill('Dune');
     await page.locator('#subSearchYear').fill('2021');
     await page.locator('#subSearchQuality').selectOption('1080p');
