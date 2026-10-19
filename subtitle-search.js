@@ -99,18 +99,16 @@
     '<details id="subSearchAdvanced"><summary>Episode filters</summary><div class="sub-pair">'+
     '<label>Season<input class="sub-input" type="number" id="subSearchSeason" min="1" max="999" placeholder="Any"></label>'+
     '<label>Episode<input class="sub-input" type="number" id="subSearchEpisode" min="1" max="9999" placeholder="Any"></label></div></details>'+
-    '<div class="sub-actions"><button id="subSearchSubmit" type="submit">Search sources</button>'+
+    '<div class="sub-actions"><button id="subSearchSubmit" type="submit">Search SubDL</button>'+
     '<button id="subSearchReset" type="button">↺ File</button></div>'+
     '<div class="sub-note" id="subSearchStatus" role="status" aria-live="polite">Based on your video filename.</div>'+
     '<div id="subSearchResults" class="sub-results" aria-label="Subtitle results"></div>'+
-    '<div id="subSearchCatalogs" class="sub-links" aria-label="Key-free catalogs"></div>'+
-    '<details id="subSearchSources"><summary>Sources / API keys</summary>'+
-    '<label>SubDL key<input class="sub-input" type="password" id="subSearchSubdlKey" autocomplete="off" placeholder="Free API key"></label>'+
-    '<label>OpenSubtitles key<input class="sub-input" type="password" id="subSearchOsKey" autocomplete="off" placeholder="API consumer key"></label>'+
-    '<label><input id="subSearchRemember" type="checkbox"> Remember keys on this browser</label>'+
-    '<div class="sub-note">Official APIs use private credentials; no key is sent to guests. Without keys, browse catalogs below.</div>'+
-    '<div class="sub-links"><a href="https://subdl.com/api-doc/" target="_blank" rel="noopener noreferrer">SubDL key ↗</a>'+
-    '<a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noopener noreferrer">OpenSubtitles key ↗</a></div></details>';
+    '<div id="subSearchCatalogs" class="sub-links" aria-label="SubDL website"></div>'+
+    '<details id="subSearchSources"><summary>SubDL API key</summary>'+
+    '<label>SubDL key<input class="sub-input" type="password" id="subSearchSubdlKey" autocomplete="off" placeholder="Enter your private key"></label>'+
+    '<label><input id="subSearchRemember" type="checkbox"> Remember on this browser</label>'+
+    '<div class="sub-note">Your key is sent only to SubDL for searches; never to other viewers. Remembering it saves it on this device.</div>'+
+    '<div class="sub-links"><a href="https://subdl.com/api-doc/" target="_blank" rel="noopener noreferrer">SubDL documentation ↗</a></div></details>';
   find.append(form);
   const $=id=>form.querySelector('#'+id);
   const title=$('subSearchTitle'),year=$('subSearchYear'),lang=$('subSearchLanguage'),
@@ -118,18 +116,17 @@
     season=$('subSearchSeason'),episode=$('subSearchEpisode'),
     progress=$('subSearchStatus'),results=$('subSearchResults'),
     catalogs=$('subSearchCatalogs'),submit=$('subSearchSubmit'),
-    subdl=$('subSearchSubdlKey'),os=$('subSearchOsKey'),remember=$('subSearchRemember');
+    subdl=$('subSearchSubdlKey'),remember=$('subSearchRemember');
   const KEY_STORAGE='marmalade-subtitle-search-keys-v1';
   try{
     const stored=JSON.parse(localStorage.getItem(KEY_STORAGE)||'null');
-    if(stored?.remember){subdl.value=stored.subdl||'';os.value=stored.os||'';remember.checked=true;}
-    if(!os.value)os.value=JSON.parse(localStorage.getItem('marmalade:media-info-keys:v1')||'{}').subtitles||'';
+    if(stored?.remember){subdl.value=stored.subdl||'';remember.checked=true;}
   }catch{}
   function keepKeys(){
-    try{if(remember.checked)localStorage.setItem(KEY_STORAGE,JSON.stringify({remember:true,subdl:subdl.value,os:os.value}));
+    try{if(remember.checked)localStorage.setItem(KEY_STORAGE,JSON.stringify({remember:true,subdl:subdl.value}));
       else localStorage.removeItem(KEY_STORAGE);}catch{}
   }
-  for(const item of [subdl,os,remember])item.addEventListener('change',keepKeys);
+  for(const item of [subdl,remember])item.addEventListener('change',keepKeys);
   function videoFilename(){
     if(state.role==='host'&&state.file?.name)return state.file.name;
     if(state.role==='guest'&&state.remoteFileName)return state.remoteFileName;
@@ -168,14 +165,8 @@
   };
   function catalogLinks(){
     catalogs.replaceChildren();
-    const q=[title.value.trim(),year.value.trim()].filter(Boolean).join(' ');
-    const siteLanguage=({en:'eng',ar:'ara',id:'ind',es:'spa',fr:'fre',de:'ger',pt:'por',it:'ita',ru:'rus',tr:'tur',fa:'per',hi:'hin',ja:'jpn',ko:'kor',zh:'chi'})[lang.value]||'all';
-    if(!q)return;
-    catalogs.append(
-      a('OpenSubtitles ↗','https://www.opensubtitles.org/en/search/sublanguageid-'+encodeURIComponent(siteLanguage)+'/moviename-'+encodeURIComponent(q)),
-      a('SubDL ↗','https://subdl.com/'),
-      a('Addic7ed ↗','https://www.addic7ed.com/')
-    );
+    if(!title.value.trim())return;
+    catalogs.append(a('Browse SubDL ↗','https://subdl.com/'));
   }
   function matchQuality(name){
     const q=quality.value;if(!q)return true;
@@ -204,17 +195,6 @@
       }
     }
     return found;
-  }
-  function openResults(raw){
-    return (Array.isArray(raw?.data)?raw.data:[]).flatMap(item=>{
-      const x=item.attributes||{},name=String(x.release||x.files?.[0]?.file_name||'Subtitle');
-      const language=String(x.language||'').toLowerCase();
-      if(!matchQuality(name)||(lang.value&&language&&lang.value!==language))return[];
-      let site='https://www.opensubtitles.org/en/search/sublanguageid-all/moviename-'+encodeURIComponent(title.value.trim());
-      try{const u=new URL(x.url||item.url);if(u.protocol==='https:'&&/(^|\.)opensubtitles\.com$/.test(u.hostname))site=u.href;}catch{}
-      return [{source:'OpenSubtitles',name,lang:language,filename:String(x.files?.[0]?.file_name||''),
-        url:'',site,direct:false}];
-    });
   }
   function row(item){
     const root=document.createElement('div');root.className='sub-result';
@@ -245,7 +225,7 @@
       });
       buttons.append(use);
     }
-    buttons.append(a(item.source==='SubDL'?'Download ↗':'Open ↗',item.url||item.site));
+    buttons.append(a(item.url?'Download ↗':'SubDL ↗',item.url||item.site));
     root.append(info,buttons);return root;
   }
   async function get(url,options,signal){
@@ -260,53 +240,45 @@
     const seq=++sequence,signal=controller.signal,failures=[],tasks=[];
     results.replaceChildren();progress.textContent='Searching sources…';
     submit.disabled=true;
-    if(subdl.value.trim()){
-      const p=new URLSearchParams({api_key:subdl.value.trim(),film_name:title.value.trim(),
-        type:kind.value,unpack:'1',subs_per_page:'30',client:'custom_integration'});
-      if(year.value)p.set('year',year.value);
-      if(lang.value)p.set('languages',lang.value.toUpperCase());
-      if(season.value)p.set('season_number',season.value);
-      if(episode.value)p.set('episode_number',episode.value);
-      // Start from the actual movie filename when it matches the title field.
-      // If the release-name lookup has no entries, retry by movie title.
-      const detectedFilename=videoFilename();
-      if(detectedFilename&&title.value.trim()===parseFilename(detectedFilename).title){
-        p.delete('film_name');p.set('file_name',detectedFilename);
+    if(!subdl.value.trim()){
+      progress.textContent='Open SubDL API key above to enter your private key for in-player search.';
+      $('subSearchSources').open=true;
+      submit.disabled=false;
+      return;
+    }
+    const p=new URLSearchParams({film_name:title.value.trim(),type:kind.value,unpack:'1',subs_per_page:'30'});
+    if(year.value)p.set('year',year.value);
+    if(lang.value)p.set('languages',lang.value);
+    if(kind.value==='tv'&&season.value)p.set('season',season.value);
+    if(kind.value==='tv'&&episode.value)p.set('episode',episode.value);
+    const detectedFilename=videoFilename();
+    if(detectedFilename&&!edited&&title.value.trim()===parseFilename(detectedFilename).title){
+      p.delete('film_name');p.set('file_name',detectedFilename);
+    }
+    const requestSubdl=()=>get('https://api.subdl.com/api/v2/subtitles/search?'+p,
+      {headers:{Authorization:'Bearer '+subdl.value.trim(),Accept:'application/json'}},signal);
+    tasks.push(requestSubdl().then(async data=>{
+      if(data?.status===false)throw Error(String(data.error||'Search rejected'));
+      if(p.has('file_name')&&(!Array.isArray(data?.subtitles)||!data.subtitles.length)){
+        p.delete('file_name');p.set('film_name',title.value.trim());
+        data=await requestSubdl();
+        if(data?.status===false)throw Error(String(data.error||'Search rejected'));
       }
-      const subdlFetch=()=>get('https://api.subdl.com/api/v1/subtitles?'+p,
-        {headers:{Accept:'application/json'}},signal);
-      tasks.push(subdlFetch()
-        .then(async x=>{
-          if(x.status===false)throw Error(String(x.error||'Search failed'));
-          if(p.has('file_name')&&(!Array.isArray(x.subtitles)||!x.subtitles.length)){
-            p.delete('file_name');p.set('film_name',title.value.trim());
-            x=await subdlFetch();
-            if(x.status===false)throw Error(String(x.error||'Search failed'));
-          }
-          return subdlResults(x);
-        })
-        .catch(e=>{if(e.name!=='AbortError')failures.push('SubDL: '+e.message);return[];}));
-    }
-    if(os.value.trim()){
-      const p=new URLSearchParams({query:title.value.trim()});
-      if(lang.value)p.set('languages',lang.value);
-      if(year.value)p.set('year',year.value);
-      if(season.value&&kind.value==='tv')p.set('season_number',season.value);
-      if(episode.value&&kind.value==='tv')p.set('episode_number',episode.value);
-      tasks.push(get('https://api.opensubtitles.com/api/v1/subtitles?'+p,{
-        headers:{'Api-Key':os.value.trim(),Accept:'application/json'}},signal)
-        .then(openResults).catch(e=>{if(e.name!=='AbortError')failures.push('OpenSubtitles: '+e.message);return[];}));
-    }
-    if(!tasks.length){progress.textContent='Add a key under Sources for inline results, or browse the catalogs below.';submit.disabled=false;return;}
+      return subdlResults(data);
+    }).catch(e=>{
+      if(e.name!=='AbortError')failures.push(
+        e.name==='TypeError'?'Connection blocked by browser/network':String(e.message||'Search failed').slice(0,100));
+      return [];
+    }));
     const settled=await Promise.all(tasks);
     if(seq!==sequence)return;
     const list=settled.flat().slice(0,20);
     results.replaceChildren(...list.map(row));
-    progress.textContent=(list.length?list.length+' subtitle matches': 'No matches')+
-      ' · '+tasks.length+' API source(s).'+(failures.length?' '+failures.join(' · '):'');
+    progress.textContent=(list.length?list.length+' SubDL subtitle matches': 'No SubDL matches')+
+      (failures.length?' · '+failures.join(' · '):'');
     submit.disabled=false;
   });
   defaultFromFile();
   window.setInterval(()=>{if(!panel.hidden){defaultFromFile();place();}},1200);
-  window.MarmaladeSubtitleFinder={parseFilename,subdlResults,openResults,defaultFromFile};
+  window.MarmaladeSubtitleFinder={parseFilename,subdlResults,defaultFromFile};
 })();
