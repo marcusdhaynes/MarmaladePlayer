@@ -114,7 +114,8 @@
         });
       }
       preview.currentTime=clamp(media.currentTime-delay,0,Number.isFinite(preview.duration)?preview.duration:media.currentTime);
-      if(!media.paused)await preview.play();
+      // A delayed preview must not run before the source reaches its delay.
+      if(!media.paused && media.currentTime>delay+0.05)await preview.play();
       const audioReady=await ensureAudioPlayback();
       if(!audioReady||!connectMonitorAudio())throw Error('Monitor audio unavailable');
       state.hostSyncActive=true;
