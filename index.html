@@ -531,6 +531,7 @@ body.theater-open{overflow:hidden}
     highStream: null, highTrack: null, highTimer: null, highCanvas: null,
     bitrateEstimate: 0, videoFrameHandle: null, fpsFrames: 0, fpsAt: 0,
     stabilityMode: 'smooth', strictSync: true, diagnostics: false, jitterTarget: 600,
+    highPlayoutTarget: 0, highPlayoutLastSampleAt: 0, latencyStats: null, highEncoderStats: null,
     bufferTarget: 30, mediaStallAt: 0, mediaRetryCount: 0, lastRecoverAt: 0,
     remoteVideoConnectedAt: 0, remoteLastFrameAt: 0, remoteVideoFrameCount: 0,
     remoteVideoQualityFrames: 0, remoteFramesAvailable: false,
@@ -959,8 +960,11 @@ body.theater-open{overflow:hidden}
     const label = state.localVerified ? 'Verified local file' : state.bufferedMode ? 'Buffered HTTP/HLS' : 'Live P2P';
     el.stabilityInfo.textContent = `${label} | ${state.stabilityMode} | FPS ${Math.round(r.fps || 0)} ` +
       `| loss ${((r.loss || 0) * 100).toFixed(1)}% | jitter ${Math.round(r.jitter || 0)}ms ` +
-      `| RTT ${Math.round(state.observedRtt || 0)}ms | ahead ${bufferAhead().toFixed(1)}s ` +
-      `| target ${state.bufferedMode || state.localVerified ? state.bufferTarget + 's' : state.jitterTarget + 'ms'}` +
+      `| RTT ${Math.round(state.latencyStats?.rttMs || state.observedRtt || 0)}ms | ahead ${bufferAhead().toFixed(1)}s ` +
+      `| target ${state.bufferedMode || state.localVerified ? state.bufferTarget + 's' :
+        Number(state.requestedQuality)>STREAM_HEIGHT ? (state.highPlayoutTarget||0)+'ms' : state.jitterTarget+'ms'}` +
+      (state.latencyStats ? ` | playout ${Math.round(state.latencyStats.playoutMs||0)}ms | receiver ${state.latencyStats.width||'?'}x${state.latencyStats.height||'?'} | decoder ${state.latencyStats.decoder||'unknown'}` : '') +
+      (state.highEncoderStats ? ` | encoded ${Math.round(state.highEncoderStats.fps||0)}fps | encoder ${state.highEncoderStats.encoder||'unknown'} | limit ${state.highEncoderStats.limit||'unknown'}` : '') +
       ((state.bufferedMode || state.localVerified) && media.duration ? ` | drift ${Math.round((expectedHostTime()-media.currentTime)*1000)}ms` : '');
   }
   function recomputeBufferTarget(report = {}) {
@@ -975,37 +979,50 @@ body.theater-open{overflow:hidden}
       state.hls.config.maxBufferLength = clamp(state.bufferTarget, 10, 120);
       state.hls.config.maxMaxBufferLength = 120;
     }
-    state.jitterTarget = clamp(Math.round((state.jitterTarget * .6) +
-      ((freezes || quality > .025 ? 2100 : selectedMode().rtcMs) * .4)), 130, 3000);
+    if(Number(state.requestedQuality)<=STREAM_HEIGHT)
+      state.jitterTarget = clamp(Math.round((state.jitterTarget * .6) +
+        ((freezes || quality > .025 ? 2100 : selectedMode().rtcMs) * .4)),130,3000);
     applyReceiverPlayout();
     updateDiagnostics();
   }
   function applyReceiverPlayout() {
-    const pc = state.guestCall?.peerConnection;
-    if (!pc?.getReceivers) return;
-    const wanted = Number(state.requestedQuality) || 0;
-    const high = wanted > STREAM_HEIGHT;
-    // 144–540p preserve their field-tested playout settings. For 720p/1080p
-    // give the decoder a little more jitter headroom only when telemetry
-    // justifies it; this adds delay, not a fictional future-movie buffer.
-    const extra = state.stabilityMode === 'smooth' ?
-      wanted >= 1080 ? 1700 : wanted >= 720 ? 1050 : 0 :
-      state.stabilityMode === 'balanced' ?
-      wanted >= 1080 ? 1000 : wanted >= 720 ? 700 : 0 : 0;
-    const quality = state.statsReport;
-    const stressed = high && quality &&
-      (quality.loss > .012 || quality.freezes > 0 || quality.jitter > 100);
-    const extraOnStress = stressed && state.stabilityMode !== 'fast'
-      ? (wanted >= 1080 ? 550 : 400) : 0;
-    const target = Math.min(2800,Math.max(state.jitterTarget, extra + extraOnStress));
-    for (const receiver of pc.getReceivers()) {
-      if (receiver.track?.kind !== 'video') continue;
-      if ('jitterBufferTarget' in receiver) {
-        try { receiver.jitterBufferTarget = target; } catch {}
+    const pc=state.guestCall?.peerConnection;
+    if(!pc?.getReceivers)return;
+    const height=Number(state.requestedQuality)||0;
+    if(height>STREAM_HEIGHT){
+      // Limit unnecessary buffering on healthy 720/1080p connections.
+      // Grow only on measured packet jitter, loss, freeze or stalls.
+      const mode=state.stabilityMode;
+      const base=mode==='fast'?(height>=1080?180:130):
+        mode==='balanced'?(height>=1080?380:280):(height>=1080?560:380);
+      const r=state.statsReport;
+      const loss=r?.loss||0,jitter=r?.packetJitterMs||0;
+      const stressed=loss>.024||jitter>95||(r?.freezes||0)>0||(r?.stalls||0)>0;
+      const mild=loss>.009||jitter>40;
+      const ceiling=mode==='fast'?420:mode==='balanced'?1050:1500;
+      const old=state.highPlayoutTarget||base;
+      const target=stressed?Math.min(ceiling,Math.max(base,old)+150):
+        mild?Math.min(ceiling,Math.max(base,old)+50):Math.max(base,old-45);
+      if(!state.highPlayoutTarget||performance.now()-state.highPlayoutLastSampleAt>2200){
+        state.highPlayoutTarget=Math.round(target);
+        state.highPlayoutLastSampleAt=performance.now();
       }
-      if ('playoutDelayHint' in receiver) {
-        try { receiver.playoutDelayHint = target / 1000; } catch {}
+      for(const receiver of pc.getReceivers()){
+        if(receiver.track?.kind!=='video')continue;
+        if('jitterBufferTarget' in receiver)
+          try{receiver.jitterBufferTarget=state.highPlayoutTarget;}catch{}
+        if('playoutDelayHint' in receiver)
+          try{receiver.playoutDelayHint=state.highPlayoutTarget/1000;}catch{}
       }
+      return;
+    }
+    // Leave the successful 144p–540p policy unchanged.
+    for(const receiver of pc.getReceivers()){
+      if(receiver.track?.kind!=='video')continue;
+      if('jitterBufferTarget' in receiver)
+        try{receiver.jitterBufferTarget=state.jitterTarget;}catch{}
+      if('playoutDelayHint' in receiver)
+        try{receiver.playoutDelayHint=state.jitterTarget/1000;}catch{}
     }
   }
   async function fileFingerprint(file) {
@@ -2734,6 +2751,8 @@ body.theater-open{overflow:hidden}
   el.localCopyButton.addEventListener('click',()=>el.localCopyInput.click());
   el.localCopyInput.addEventListener('change',(event)=>{if(event.target.files?.[0])void chooseLocalCopy(event.target.files[0]);event.target.value='';});
   el.stabilityMode.addEventListener('change',()=>{
+    state.highPlayoutTarget=0;
+    state.highPlayoutLastSampleAt=0;
     state.stabilityMode=el.stabilityMode.value;
     recomputeBufferTarget();
     applyReceiverPlayout();
@@ -2797,6 +2816,8 @@ body.theater-open{overflow:hidden}
     if (state.role !== 'guest') return;
     state.requestedQuality = el.qualitySelect.value;
     state.userChoseQuality = true;
+    state.highPlayoutTarget=0;
+    state.highPlayoutLastSampleAt=0;
     if(state.hls)lockHlsLevel();
     sendQualityPreference();
     applyReceiverPlayout();
