@@ -27,6 +27,14 @@ const shim=[
   ':new Actual({...idOrOptions,...local});};})();'
 ].join('');
 const web=createServer((req,res)=>{
+  if(req.url?.startsWith('/subtitle-search.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../subtitle-search.js',import.meta.url)));return;
+  }
+  if(req.url?.startsWith('/watch-sync-subtitles.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../watch-sync-subtitles.js',import.meta.url)));return;
+  }
   if(req.url?.startsWith('/movie-info.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../movie-info.js',import.meta.url)));return;
@@ -143,6 +151,28 @@ try {
   assert(encoder1080.outbound.some(x => x.height >= 1080 && (x.fps || 0) >= 21),
     'Full-HD sender must encode at approximately 24 fps on the local healthy test link');
   console.log('PASS real 1080p delivery at 24fps target',JSON.stringify(result1080));
+  // Presentation delay changes the host's local monitor ONLY. Guest gets
+  // exactly the original WebRTC track with the existing quality encodings.
+  await guest.evaluate(()=>{
+    window.MarmaladeAddonBridge.state.guestConn.send({type:'presentation-delay',ms:1200});
+  });
+  await host.waitForFunction(()=>window.MarmaladeAddonBridge?.state.hostSyncActive===true,
+    null,{timeout:14000});
+  const aligned=await host.evaluate(()=>{
+    const source=document.querySelector('#player');
+    const monitor=document.querySelector('#hostSyncPreview');
+    const sender=window.__debugPeerConnections.at(-1)?.getSenders()
+      .find(x=>x.track?.kind==='video');
+    return {active:document.querySelector('#dropZone').classList.contains('host-sync-active'),
+      sourceTime:source.currentTime,localTime:monitor.currentTime,
+      sourceTrackHeight:sender?.track?.getSettings()?.height||0};
+  });
+  assert(aligned.active && aligned.sourceTime>aligned.localTime+.35,
+    'Host must watch and hear a delayed local monitor rather than advancing ahead of guest');
+  assert(aligned.sourceTrackHeight>=720,
+    'Host monitor must not downscale or replace the working high-resolution WebRTC sender');
+  console.log('PASS host-only delayed A/V monitor without changing outgoing video',JSON.stringify(aligned));
+
   // Switch 1080p -> 720p -> 540p, checking each retains actual WebRTC media.
   await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="720"]'),null,{timeout:8000});
   // The selector is inside a closed settings palette. Drive the real change

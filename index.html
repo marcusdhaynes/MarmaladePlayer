@@ -633,8 +633,23 @@ body.theater-open{overflow:hidden}
   }
   function startFpsMeasurement() {
     if (typeof media.requestVideoFrameCallback === 'function') {
-      const frame = (now) => {
+      const frame = (now, metadata) => {
         if (state.role === 'guest' && state.source === 'remote') {
+          // Browser-estimated capture-to-display delay uses one local monotonic clock;
+          // no unreliable cross-device wall-clock synchronization is required.
+          // The guest reports timing only, never captions or picture content.
+          if (metadata && Number.isFinite(metadata.captureTime) &&
+              Number.isFinite(metadata.expectedDisplayTime)) {
+            const delay = metadata.expectedDisplayTime - metadata.captureTime;
+            if (delay >= 35 && delay <= 8000 &&
+                state.guestConn?.open &&
+                now-(state.lastFrameLatencyReportAt||0)>1900) {
+              state.lastFrameLatencyReportAt=now;
+              state.guestPresentationMs=state.guestPresentationMs ?
+                state.guestPresentationMs*.7+delay*.3:delay;
+              send(state.guestConn,{type:'presentation-delay',ms:state.guestPresentationMs});
+            }
+          }
           state.remoteLastFrameAt = now;
           state.remoteVideoFrameCount++;
           state.remoteFramesAvailable = true;
@@ -804,7 +819,9 @@ body.theater-open{overflow:hidden}
     const t = state.role === 'guest' ? Math.max(0, state.sharedTime +
       (state.hostPlaying ? (performance.now()-state.sharedAt)/1000 : 0)) :
       media.currentTime;
-    const cue=state.subtitles.find(c=>c.start<=t && c.end>=t);
+    const subtitleTime=window.MarmaladeSubtitleClock ?
+      window.MarmaladeSubtitleClock(t):t;
+    const cue=state.subtitles.find(c=>c.start<=subtitleTime && c.end>=subtitleTime);
     el.subtitleOverlay.hidden = !cue;
     if(cue && el.subtitleOverlay.textContent !== cue.text)el.subtitleOverlay.textContent=cue.text;
   }
@@ -1396,6 +1413,7 @@ body.theater-open{overflow:hidden}
     send(state.guestConn,{type:'buffer-status',ready});
   }
   function closeConnections() {
+    window.MarmaladeHostSyncCleanup?.();
     clearTimeout(state.joinTimeout);
     clearTimeout(state.joinRetryTimer);
     state.joinTimeout = state.joinRetryTimer = null;
@@ -1471,6 +1489,7 @@ body.theater-open{overflow:hidden}
     el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
   }
   function removeMedia() {
+    window.MarmaladeHostSyncCleanup?.();
     window.dispatchEvent(new Event('marmalade:media-cleared'));
     stopBroadcast();
     media.pause();
@@ -1601,6 +1620,11 @@ body.theater-open{overflow:hidden}
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
         if (data.type === 'ping') send(conn, { type: 'pong', at: data.at });
+        if (data.type === 'presentation-delay' && Number.isFinite(data.ms) &&
+            data.ms >= 35 && data.ms <= 8000) {
+          entry.hostPresentationDelayMs=data.ms;
+          entry.hostPresentationReportAt=performance.now();
+        }
         if(data.type==='segment-request' && state.source==='hosted' && state.peerAssistance){
           void shareCachedSegment(conn,data.id,data.url);
         }
@@ -3077,6 +3101,9 @@ body.theater-open{overflow:hidden}
   // 0–200% slider available and let join/play/volume taps unlock it.
   state.volumePercent = 100;
   applyVolume();
+  // Add-on uses only the local player and presentation-delay telemetry. It never
+  // changes capture tracks, sender parameters, quality selection or transport.
+  window.MarmaladeAddonBridge={state,media,el,ensureAudioPlayback};
   // Offline app shell is optional; room signaling and WebRTC require connectivity.
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
@@ -3091,5 +3118,7 @@ body.theater-open{overflow:hidden}
 
 </script>
 <script src="./movie-info.js" defer></script>
+<script src="./watch-sync-subtitles.js"></script>
+<script src="./subtitle-search.js"></script>
 </body>
 </html>
