@@ -153,15 +153,32 @@
     if(previewSource!==state.fileUrl){stopMonitor();void startMonitor(delay);return;}
     const target=clamp(media.currentTime-delay,0,Number.isFinite(preview.duration)?preview.duration:media.currentTime);
     const drift=target-preview.currentTime;
-    if(Math.abs(drift)>0.18 && performance.now()-lastPreviewSeek>400){
-      try{preview.currentTime=target;lastPreviewSeek=performance.now();}catch{}
+    if(media.paused){
+      // Let the local picture and audio play through exactly the frames
+      // still in the guest's receiving queue, then stop on the same frame.
+      preview.playbackRate=1;
+      if(preview.currentTime>=media.currentTime-.07){
+        if(!preview.paused)preview.pause();
+      }else if(preview.paused){
+        void preview.play().catch(()=>{stopMonitor();});
+      }
+      return;
+    }
+    if(drift < -.13){
+      // After a shared pause/resume, hold the local monitor until the guest's
+      // delayed movie catches up. Never seek backward and repeat a scene.
+      if(!preview.paused)preview.pause();
       preview.playbackRate=1;
     }else{
-      preview.playbackRate=Math.abs(drift)<.055?1:drift>0?1.02:.98;
+      if(drift>.18 && performance.now()-lastPreviewSeek>400){
+        try{preview.currentTime=target;lastPreviewSeek=performance.now();}catch{}
+        preview.playbackRate=1;
+      }else{
+        preview.playbackRate=Math.abs(drift)<.055?1:drift>0?1.02:.98;
+      }
+      if(preview.paused && target>0.05)
+        void preview.play().catch(()=>{stopMonitor();});
     }
-    if(media.paused && !preview.paused)preview.pause();
-    if(!media.paused && preview.paused && target>0.05)
-      void preview.play().catch(()=>{stopMonitor();});
     if(!previewAudioActive)connectMonitorAudio();
   }
   modeInput.addEventListener('change',()=>{syncMode=modeInput.value;stopMonitor();updateMonitor();});
