@@ -244,7 +244,7 @@
     if(key==='font'&&!Array.from(field.options).some(x=>x.value===prefs[key]))prefs[key]=presets.font;
     if(key.endsWith('Color')&&!/^#[0-9a-f]{6}$/i.test(prefs[key]))prefs[key]=presets[key];
     if(field.type==='range')prefs[key]=clamp(Number(prefs[key])||0,Number(field.min),Number(field.max));
-    field.value=String(prefs[key]);
+    field.value=String(key.endsWith('Alpha')?100-prefs[key]:prefs[key]);
   }
   function rgba(hex,alpha){
     const v=hex.replace('#','');
@@ -281,7 +281,7 @@
   }
   for(const field of fields)field.addEventListener('input',()=>{
     const key=field.dataset.subKey;
-    prefs[key]=field.type==='range'?Number(field.value):field.value;
+    prefs[key]=field.type==='range'?(key.endsWith('Alpha')?100-Number(field.value):Number(field.value)):field.value;
     applySubtitleStyle();saveStyle();
   });
   subStyle.querySelectorAll('[data-sub-position]').forEach(button=>button.addEventListener('click',()=>{
