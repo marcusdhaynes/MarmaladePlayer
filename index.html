@@ -957,6 +957,20 @@ body.theater-open{overflow:hidden}
         return Math.max(0, media.buffered.end(i) - media.currentTime);
     return 0;
   }
+  function performanceDiagnosis() {
+    if (state.localVerified) return 'local direct playback';
+    if (state.bufferedMode) return 'buffered file playback';
+    const r=state.statsReport, e=state.highEncoderStats;
+    if (!r && !e) return 'collecting measurements';
+    if (e?.limit==='cpu' || (e?.fps>0 && e.fps<22))
+      return 'host encoding constrained';
+    if (e?.limit==='bandwidth' ||
+        (r && (r.loss>.015 || (r.packetJitterMs||0)>65)))
+      return 'sender/network bandwidth constrained';
+    if (r?.fps>0 && r.fps<22)
+      return 'possible guest decoding/rendering limit';
+    return 'no detected bottleneck';
+  }
   function updateDiagnostics() {
     if (!state.diagnostics) return;
     const r = state.statsReport || {};
@@ -968,6 +982,7 @@ body.theater-open{overflow:hidden}
         Number(state.requestedQuality)>STREAM_HEIGHT ? (state.highPlayoutTarget||0)+'ms' : state.jitterTarget+'ms'}` +
       (state.latencyStats ? ` | playout ${Math.round(state.latencyStats.playoutMs||0)}ms | receiver ${state.latencyStats.width||'?'}x${state.latencyStats.height||'?'} | decoder ${state.latencyStats.decoder||'unknown'}` : '') +
       (state.highEncoderStats ? ` | encoded ${Math.round(state.highEncoderStats.fps||0)}fps | encoder ${state.highEncoderStats.encoder||'unknown'} | limit ${state.highEncoderStats.limit||'unknown'} | headroom x${(state.highEncoderStats.headroomFactor||1).toFixed(2)}` : '') +
+      ` | assessment ${performanceDiagnosis()}` +
       ((state.bufferedMode || state.localVerified) && media.duration ? ` | drift ${Math.round((expectedHostTime()-media.currentTime)*1000)}ms` : '');
   }
   function recomputeBufferTarget(report = {}) {
