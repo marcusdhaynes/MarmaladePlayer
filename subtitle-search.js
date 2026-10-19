@@ -36,7 +36,7 @@
     '.subtitle-studio .sub-result a,.subtitle-studio .sub-result button{font-size:10px;padding:5px 7px;text-decoration:none;border:1px solid #6a5548;border-radius:5px;background:#352c2b;color:#ffdaaa}',
     '.subtitle-studio .subtitle-style{border:0;padding:0;gap:8px}',
     '.subtitle-studio .sub-setting-value{display:inline-block;min-width:32px;text-align:right;font-size:9px;color:#ffd8ac;font-variant-numeric:tabular-nums}',
-    '.subtitle-studio .subtitle-style-row{grid-template-columns:minmax(63px,1fr) auto auto}',
+    '.subtitle-studio .subtitle-style-row{grid-template-columns:minmax(68px,1fr) auto auto auto}',
     '.subtitle-studio input[type=checkbox]{accent-color:#ffa869}',
     '@media(max-width:450px){.subtitle-studio .sub-results{max-height:165px}}'
   ].join('\n');
@@ -174,7 +174,7 @@
     catalogs.append(
       a('OpenSubtitles ↗','https://www.opensubtitles.org/en/search/sublanguageid-'+encodeURIComponent(siteLanguage)+'/moviename-'+encodeURIComponent(q)),
       a('SubDL ↗','https://subdl.com/'),
-      a('Podnapisi ↗','https://www.podnapisi.net/subtitles/search/?keywords='+encodeURIComponent(q))
+      a('Addic7ed ↗','https://www.addic7ed.com/')
     );
   }
   function matchQuality(name){
