@@ -102,7 +102,7 @@ try {
   });
   await guest.waitForFunction(()=>/Receiving 1080p/.test(
     document.querySelector('#qualityHint')?.textContent||''),null,{timeout:15000});
-  await guest.waitForTimeout(3100);
+  await guest.waitForTimeout(8200);
   const encoder1080=await host.evaluate(async()=>{
     const pc=window.__debugPeerConnections.at(-1);
     if(!pc)return {error:'No captured peer connection'};
@@ -111,7 +111,10 @@ try {
     return {track:pc.getSenders().filter(x=>x.track?.kind==='video').map(s=>({
       settings:s.track.getSettings(),params:s.getParameters().encodings})),
       outbound:video.map(x=>({width:x.frameWidth,height:x.frameHeight,fps:x.framesPerSecond,
-        framesEncoded:x.framesEncoded,limit:x.qualityLimitationReason,encoder:x.encoderImplementation}))};
+        framesEncoded:x.framesEncoded,limit:x.qualityLimitationReason,encoder:x.encoderImplementation})),
+      candidatePairs:[...stats.values()].filter(x=>x.type==='candidate-pair'&&x.state==='succeeded')
+        .map(x=>({outgoing:x.availableOutgoingBitrate,incoming:x.availableIncomingBitrate,
+          rtt:x.currentRoundTripTime,nominated:x.nominated}))};
   });
   const decoder1080=await guest.evaluate(async()=>{
     const pc=window.__debugPeerConnections.at(-1);
