@@ -146,6 +146,7 @@ try {
     await page.locator('#subtitlesBtn').click({force:true});
     assert.equal(await page.locator('#subtitlePanel').isVisible(),true);
     // Personal captions are local to this browser, with all nine placements.
+    await page.locator('#subStyleTab').click({force:true});
     assert.equal(await page.locator('#subtitlePositionGrid button').count(),9,
       'Subtitle position must offer a visual 3 by 3 grid');
     for(const key of ['textColor','textSize','textAlpha','outlineColor','outlineSize','outlineAlpha',
@@ -160,6 +161,7 @@ try {
     });
     assert.equal(await page.locator('#subtitleOverlay').evaluate(e=>e.style.fontSize),'34px');
     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade-subtitle-style-v1')).textSize),34);
+    await page.locator('#subFindTab').click({force:true});
     assert.equal(await page.locator('#subFindTab').count(),1,'Search belongs in Subtitle window');
     assert.equal(await page.locator('#subStyleTab').count(),1,'Appearance belongs in Subtitle window');
     assert.equal(await page.locator('#subSearchForm').count(),1,'Subtitle search and filters must be available');
