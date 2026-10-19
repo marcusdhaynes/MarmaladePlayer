@@ -616,7 +616,10 @@ body.theater-open{overflow:hidden}
     const net = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     const basis = state.bitrateEstimate > 0 ? 'live stream stability' :
       net?.downlink || net?.effectiveType ? 'connection estimate' : 'conservative starting profile';
-    el.qualityHint.textContent = `Recommended: ${rec}p (${basis})${bps} · Selected: ${selected}p. Quality changes only when you choose it.${extra ? ' · ' + extra : ''}`;
+    const actual = state.source === 'remote' && Number.isFinite(state.latencyStats?.height) &&
+      state.latencyStats.height > 0 ?
+      ` · Actually decoding: ${state.latencyStats.height}p` : '';
+    el.qualityHint.textContent = `Recommended: ${rec}p (${basis})${bps} · Selected: ${selected}p${actual}. Quality changes only when you choose it.${extra ? ' · ' + extra : ''}`;
   }
   function sendQualityPreference() {
     if (state.role !== 'guest' || !state.guestConn?.open) return;
@@ -964,7 +967,7 @@ body.theater-open{overflow:hidden}
       `| target ${state.bufferedMode || state.localVerified ? state.bufferTarget + 's' :
         Number(state.requestedQuality)>STREAM_HEIGHT ? (state.highPlayoutTarget||0)+'ms' : state.jitterTarget+'ms'}` +
       (state.latencyStats ? ` | playout ${Math.round(state.latencyStats.playoutMs||0)}ms | receiver ${state.latencyStats.width||'?'}x${state.latencyStats.height||'?'} | decoder ${state.latencyStats.decoder||'unknown'}` : '') +
-      (state.highEncoderStats ? ` | encoded ${Math.round(state.highEncoderStats.fps||0)}fps | encoder ${state.highEncoderStats.encoder||'unknown'} | limit ${state.highEncoderStats.limit||'unknown'}` : '') +
+      (state.highEncoderStats ? ` | encoded ${Math.round(state.highEncoderStats.fps||0)}fps | encoder ${state.highEncoderStats.encoder||'unknown'} | limit ${state.highEncoderStats.limit||'unknown'} | headroom x${(state.highEncoderStats.headroomFactor||1).toFixed(2)}` : '') +
       ((state.bufferedMode || state.localVerified) && media.duration ? ` | drift ${Math.round((expectedHostTime()-media.currentTime)*1000)}ms` : '');
   }
   function recomputeBufferTarget(report = {}) {
@@ -1568,7 +1571,7 @@ body.theater-open{overflow:hidden}
         previousEncoderStats: null, lastEncoderMeasureAt: 0,
         mediaConfirmed: false, mediaOfferedAt: 0, lastMediaRetry: 0, mediaAttempt: 0,
         tier: 2, healthy: 0, warning: 0, tuning: false,
-        highBitrateFactor: 1, highStableSamples: 0,
+        highBitrateFactor: 1, highStableSamples: 0, highHeadroomFactor: 1,
         applied: '', lastTuneAt: 0, requestedLevel: DEFAULT_LEVEL, trackType: 'base' };
       state.connections.set(conn.peer, entry);
       conn.on('open', () => {
@@ -1594,6 +1597,7 @@ body.theater-open{overflow:hidden}
             entry.mode = data.quality;
             entry.highBitrateFactor = 1;
             entry.highStableSamples = 0;
+            entry.highHeadroomFactor = 1;
             entry.applied = '';
             void tuneAllGuests();
           }
@@ -1792,12 +1796,44 @@ body.theater-open{overflow:hidden}
       const fps=secs?Math.max(0,(measured.frames-previous.frames)/secs):0;
       const delta=secs?(measured.seconds-previous.seconds):0;
       const frameDelta=previous?measured.frames-previous.frames:0;
+      let outgoingCapacity=0;
+      stats.forEach(x=>{
+        if(x.type==='candidate-pair' && x.state==='succeeded' &&
+           Number.isFinite(x.availableOutgoingBitrate))
+          outgoingCapacity=Math.max(outgoingCapacity,x.availableOutgoingBitrate);
+      });
+      const height=levelForGuest(entry).height;
+      if(height>STREAM_HEIGHT){
+        const healthy=(entry.lastHealth?.loss||0)<.006 &&
+          !(entry.lastHealth?.freezes||0) && !(entry.lastHealth?.stalls||0);
+        const target=levelForGuest(entry).bitrate*
+          (entry.highBitrateFactor||1)*(entry.highHeadroomFactor||1);
+        const allowance=height>=1080?1.7:1.45;
+        // If bandwidth is already being limited AND outbound estimates have
+        // substantial unused headroom, relax the app ceiling conservatively.
+        // Never push harder into already lossy or congested Wi-Fi.
+        if(healthy && outgoingCapacity>target*1.6 &&
+           outbound.qualityLimitationReason==='bandwidth' &&
+           (outbound.frameHeight||0)<height*.85) {
+          entry.highHeadroomFactor=Math.min(allowance,
+            Math.round(((entry.highHeadroomFactor||1)+.08)*100)/100);
+          if(entry.applied)entry.applied='';
+          void tuneGuest(entry);
+        }else if(!healthy && (entry.highHeadroomFactor||1)>1){
+          entry.highHeadroomFactor=Math.max(1,
+            Math.round(((entry.highHeadroomFactor||1)-.14)*100)/100);
+          entry.applied='';
+          void tuneGuest(entry);
+        }
+      }
       const report={
         type:'encoder-diagnostics',fps:fps||outbound.framesPerSecond||0,
         width:outbound.frameWidth||0,height:outbound.frameHeight||0,
         limit:outbound.qualityLimitationReason||'unknown',
         encodeMs:frameDelta>0?Math.max(0,1000*delta/frameDelta):0,
-        encoder:String(outbound.encoderImplementation||'unknown').slice(0,72)
+        encoder:String(outbound.encoderImplementation||'unknown').slice(0,72),
+        headroomFactor:entry.highHeadroomFactor||1,
+        outgoingCapacity
       };
       send(entry.conn,report);
     }catch(error){console.debug('Encoder diagnostics unavailable',error);}
@@ -1806,7 +1842,11 @@ body.theater-open{overflow:hidden}
     // Global safety cap is for each room, not each viewer. Never invent a user's
     // upload speed: WebRTC still lowers these maxima using real congestion control.
     const entries = [...state.connections.values()].filter(e => e.call && e.conn.open);
-    const wanted = entries.map(e => levelForGuest(e).bitrate);
+    const wanted = entries.map(e => {
+      const level=levelForGuest(e);
+      return level.bitrate*(level.height>STREAM_HEIGHT ?
+        (e.highBitrateFactor||1)*(e.highHeadroomFactor||1) : 1);
+    });
     const totalWanted = wanted.reduce((total, rate) => total + rate, 0);
     if (totalWanted <= MAX_TOTAL_VIDEO_BPS) return desired;
     // A per-room upload ceiling shared proportionally across ALL senders.
@@ -1826,7 +1866,8 @@ body.theater-open{overflow:hidden}
     const newTrack = wantsHigh ? getHighVideoTrack(current.height) : state.outgoing?.getVideoTracks()[0];
     if (!newTrack || newTrack.readyState !== 'live') return;
     const bitrate = budgetForGuest(entry,Math.round(current.bitrate *
-      (current.height > STREAM_HEIGHT ? (entry.highBitrateFactor ?? 1) : 1)));
+      (current.height > STREAM_HEIGHT ?
+        (entry.highBitrateFactor ?? 1)*(entry.highHeadroomFactor ?? 1) : 1)));
     const naturalHeight = newTrack.getSettings?.().height || (wantsHigh ? sourceHeight() : STREAM_HEIGHT);
     const naturalWidth = newTrack.getSettings?.().width || (wantsHigh ? media.videoWidth : STREAM_WIDTH);
     const scale = Math.max(1, naturalHeight / Math.max(1, current.height),
@@ -2288,7 +2329,9 @@ body.theater-open{overflow:hidden}
             width:Math.max(0,data.width||0),height:Math.max(0,data.height||0),
             encoder:String(data.encoder||'unknown').slice(0,72),
             limit:String(data.limit||'unknown').slice(0,36),
-            encodeMs:Math.max(0,data.encodeMs||0)
+            encodeMs:Math.max(0,data.encodeMs||0),
+            headroomFactor:Math.max(1,Math.min(2,data.headroomFactor||1)),
+            outgoingCapacity:Math.max(0,data.outgoingCapacity||0)
           };
           updateDiagnostics();
         }
@@ -2458,6 +2501,7 @@ body.theater-open{overflow:hidden}
         freezeCount:v.freezeCount||0
       };
       recomputeBufferTarget(state.statsReport);
+      updateQualityHint();
       send(state.guestConn, {
         type:'quality',loss:lost/Math.max(1,lost+received),
         jitter:Math.min(1000,high?packetJitterMs:playoutMs),
@@ -2907,6 +2951,8 @@ body.theater-open{overflow:hidden}
     if (state.role !== 'guest') return;
     state.requestedQuality = el.qualitySelect.value;
     state.userChoseQuality = true;
+    state.latencyStats=null;
+    state.highEncoderStats=null;
     state.highPlayoutTarget=0;
     state.highPlayoutLastSampleAt=0;
     if(state.hls)lockHlsLevel();
