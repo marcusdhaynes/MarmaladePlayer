@@ -1851,24 +1851,43 @@ body.theater-open{overflow:hidden}
       params.encodings[0].maxBitrate = bitrate;
       params.encodings[0].maxFramerate = 24;
       params.encodings[0].scaleResolutionDownBy = scale;
-      params.degradationPreference = 'maintain-framerate';
-      let scalingSupported = true;
-      try { await sender.setParameters(params); }
-      catch (error) {
-        // Some browsers implement WebRTC video encoding but reject the
-        // scaleResolutionDownBy parameter. Use the existing 720p canvas as an
-        // exact-resolution fallback rather than sending unscaled 1080p.
-        if (wantsHigh && sender.track === state.nativeCapture?.getVideoTracks()[0] &&
-            sourceHeight() > current.height) {
-          const fallbackTrack = getHighVideoTrack(current.height, true);
-          if (fallbackTrack?.readyState === 'live' && fallbackTrack !== sender.track)
-            await sender.replaceTrack(fallbackTrack);
+      // Preserve the manually selected high resolution AND 24fps as encoder
+      // targets. Reduce encoded picture detail if necessary, not the size.
+      params.degradationPreference = wantsHigh
+        ? 'maintain-framerate-and-resolution' : 'maintain-framerate';
+      let scalingSupported=true,applied=false;
+      try {
+        await sender.setParameters(params);applied=true;
+      } catch (error) {
+        // Some browsers reject the newer degradation preference. Retry
+        // their proven policy with the same encoder scaling first.
+        if (wantsHigh) {
+          try {
+            const compatible=sender.getParameters();
+            if (!compatible.encodings?.length) throw error;
+            compatible.encodings[0].maxBitrate=bitrate;
+            compatible.encodings[0].maxFramerate=24;
+            compatible.encodings[0].scaleResolutionDownBy=scale;
+            compatible.degradationPreference='maintain-framerate';
+            await sender.setParameters(compatible);
+            applied=true;
+          } catch { /* Existing fallback below. */ }
         }
-        const fallback = sender.getParameters();
-        if (!fallback.encodings?.length) throw error;
-        fallback.encodings[0].maxBitrate = bitrate;
-        await sender.setParameters(fallback);
-        scalingSupported = false;
+        if (!applied) {
+          // If scaling itself is unsupported, use a correctly sized high
+          // capture canvas instead of transmitting 1080p for a 720p choice.
+          if (wantsHigh && sender.track === state.nativeCapture?.getVideoTracks()[0] &&
+              sourceHeight()>current.height) {
+            const safe=getHighVideoTrack(current.height,true);
+            if (safe?.readyState==='live' && safe!==sender.track)
+              await sender.replaceTrack(safe);
+          }
+          const fallback=sender.getParameters();
+          if(!fallback.encodings?.length)throw error;
+          fallback.encodings[0].maxBitrate=bitrate;
+          await sender.setParameters(fallback);
+          scalingSupported=false;
+        }
       }
       if (entry.call?.peerConnection === pc) {
         entry.applied = signature;
