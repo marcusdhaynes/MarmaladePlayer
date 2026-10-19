@@ -142,6 +142,21 @@ try {
     assert.equal(await page.locator('#statusToggle').getAttribute('aria-pressed'),'false');
     await page.locator('#subtitlesBtn').click({force:true});
     assert.equal(await page.locator('#subtitlePanel').isVisible(),true);
+    // Personal captions are local to this browser, with all nine placements.
+    assert.equal(await page.locator('#subtitlePositionGrid button').count(),9,
+      'Subtitle position must offer a visual 3 by 3 grid');
+    for(const key of ['textColor','textSize','textAlpha','outlineColor','outlineSize','outlineAlpha',
+        'glowColor','glowSize','glowAlpha','shadowColor','shadowSize','shadowAlpha','font','alignment','timing'])
+      assert.equal(await page.locator('[data-sub-key="'+key+'"]').count(),1,
+        'Independent subtitle setting missing: '+key);
+    await page.locator('[data-sub-position="top-left"]').click({force:true});
+    assert.equal(await page.locator('[data-sub-position="top-left"]').getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('#subtitleOverlay').evaluate(e=>e.style.top),'8%');
+    await page.locator('[data-sub-key="textSize"]').evaluate(e=>{
+      e.value='34';e.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    assert.equal(await page.locator('#subtitleOverlay').evaluate(e=>e.style.fontSize),'34px');
+    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade-subtitle-style-v1')).textSize),34);
     await page.locator('#subtitleFile').setInputFiles({name:'test.vtt',mimeType:'text/vtt',buffer:Buffer.from('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello from subtitles!\n')});
     await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.includes('1 cues'),{timeout:3000});
     const overflow = await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2);
