@@ -267,8 +267,24 @@
       if(lang.value)p.set('languages',lang.value.toUpperCase());
       if(season.value)p.set('season_number',season.value);
       if(episode.value)p.set('episode_number',episode.value);
-      tasks.push(get('https://api.subdl.com/api/v1/subtitles?'+p,{headers:{Accept:'application/json'}},signal)
-        .then(x=>{if(x.status===false)throw Error(String(x.error||'Search failed'));return subdlResults(x);})
+      // Start from the actual movie filename when it matches the title field.
+      // If the release-name lookup has no entries, retry by movie title.
+      const detectedFilename=videoFilename();
+      if(detectedFilename&&title.value.trim()===parseFilename(detectedFilename).title){
+        p.delete('film_name');p.set('file_name',detectedFilename);
+      }
+      const subdlFetch=()=>get('https://api.subdl.com/api/v1/subtitles?'+p,
+        {headers:{Accept:'application/json'}},signal);
+      tasks.push(subdlFetch()
+        .then(async x=>{
+          if(x.status===false)throw Error(String(x.error||'Search failed'));
+          if(p.has('file_name')&&(!Array.isArray(x.subtitles)||!x.subtitles.length)){
+            p.delete('file_name');p.set('film_name',title.value.trim());
+            x=await subdlFetch();
+            if(x.status===false)throw Error(String(x.error||'Search failed'));
+          }
+          return subdlResults(x);
+        })
         .catch(e=>{if(e.name!=='AbortError')failures.push('SubDL: '+e.message);return[];}));
     }
     if(os.value.trim()){
