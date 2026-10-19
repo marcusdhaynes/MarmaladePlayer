@@ -1968,8 +1968,15 @@ body.theater-open{overflow:hidden}
     }
   }
   async function tuneAllGuests() {
-    await Promise.all([...state.connections.values()].map(entry => tuneGuest(entry)));
+    const active=[...state.connections.values()];
+    await Promise.all(active.map(entry=>tuneGuest(entry)));
     refreshCaptureWork();
+    // Measure encoder constraints regardless of whether the guest supplied
+    // quality telemetry. This discovers when the app's bitrate ceiling is
+    // unnecessarily forcing WebRTC down to 180/270p on a healthy connection.
+    await Promise.all(active.filter(entry=>
+      entry.call?.peerConnection && levelForGuest(entry).height>STREAM_HEIGHT &&
+      !entry.localMirror).map(entry=>reportHostEncoder(entry)));
   }
   function callGuest(peerId) {
     if (!state.peer || !state.outgoing || state.source==='hosted') return;
