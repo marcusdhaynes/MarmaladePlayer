@@ -166,7 +166,7 @@ try {
     assert.equal(await page.locator('#subStyleTab').count(),1,'Appearance belongs in Subtitle window');
     assert.equal(await page.locator('#subSearchForm').count(),1,'Subtitle search and filters must be available');
     for(const id of ['subSearchTitle','subSearchYear','subSearchLanguage','subSearchQuality',
-      'subSearchType','subSearchSeason','subSearchEpisode','subSearchSubdlKey','subSearchOsKey'])
+      'subSearchType','subSearchSeason','subSearchEpisode','subSearchSubdlKey'])
       assert.equal(await page.locator('#'+id).count(),1,'Missing subtitle filter '+id);
     assert.deepEqual(await page.evaluate(()=>
       window.MarmaladeSubtitleFinder.parseFilename('Dune.2021.1080p.WEB-DL.mp4')),
@@ -175,29 +175,33 @@ try {
     assert.equal(await page.locator('#subStyleView').isVisible(),true,'Appearance settings are visible in subtitle window');
     assert.equal(await page.locator('#subFindView').isVisible(),false,'Only active tab occupies space');
     await page.locator('#subFindTab').click({force:true});
-    await page.route('https://api.subdl.com/**', route=>route.fulfill({status:200,
-      contentType:'application/json',body:JSON.stringify({status:true,subtitles:[{
-        name:'Dune 2021 1080p WEB-DL',release_name:'Dune 2021 1080p WEB-DL',language:'EN',
-        url:'/subtitle/aaa.zip',unpack_files:[{name:'Dune.2021.1080p.srt',
-          release_name:'Dune 2021 1080p WEB-DL',language:'EN',format:'srt',
-          url:'/subtitle/abc/def'}]}]})}));
-    await page.route('https://api.opensubtitles.com/**', route=>route.fulfill({status:200,
-      contentType:'application/json',body:JSON.stringify({data:[{attributes:{
-        release:'Dune 2021 1080p BluRay',language:'en',
-        files:[{file_name:'Dune.2021.1080p.srt'}]}}]})}));
+    await page.route('https://api.subdl.com/**', route=>{
+      const url=new URL(route.request().url());
+      assert.equal(url.pathname,'/api/v2/subtitles/search','Use documented SubDL v2 API');
+      assert.equal(url.searchParams.has('api_key'),false,'Never put the private key in URL query');
+      assert.equal(route.request().headers().authorization,'Bearer test-key-1');
+      return route.fulfill({status:200,contentType:'application/json',
+        body:JSON.stringify({status:true,subtitles:[{
+          release_name:'Dune 2021 1080p WEB-DL',language:'EN',
+          url:'/subtitle/aaa.zip',unpack_files:[{
+            name:'Dune.2021.1080p.srt',release_name:'Dune 2021 1080p WEB-DL',
+            language:'EN',format:'srt',url:'/subtitle/abc/def'
+          }]
+        }]})});
+    });
     await page.route('https://dl.subdl.com/subtitle/**',route=>route.fulfill({status:200,
       contentType:'text/plain',body:'1\n00:00:01,000 --> 00:00:03,000\nDownload works!\n'}));
+    await page.locator('#subSearchSources summary').click({force:true});
     await page.locator('#subSearchSubdlKey').fill('test-key-1');
-    await page.locator('#subSearchOsKey').fill('test-key-2');
     await page.locator('#subSearchTitle').fill('Dune');
     await page.locator('#subSearchYear').fill('2021');
     await page.locator('#subSearchQuality').selectOption('1080p');
     await page.locator('#subSearchSubmit').click({force:true});
-    await page.waitForFunction(()=>document.querySelectorAll('#subSearchResults .sub-result').length===2);
-    assert.equal(await page.locator('#subSearchResults .sub-result').count(),2,
-      'Search must merge results from both independent subtitle providers');
+    await page.waitForFunction(()=>document.querySelectorAll('#subSearchResults .sub-result').length===1);
+    assert.equal(await page.locator('#subSearchResults .sub-result').count(),1,
+      'Search must render SubDL matches in the compact subtitle window');
     assert.equal(await page.locator('#subSearchResults .sub-result button').count(),1,
-      'Direct unpacked subtitle source must offer one-click loading');
+      'Direct unpacked SubDL subtitle must offer one-click loading');
     await page.locator('#subSearchResults .sub-result button').click({force:true});
     await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.includes('1 cues'));
     assert.equal(await page.locator('#subtitleOverlay').count(),1,'Local subtitle overlay is preserved');
