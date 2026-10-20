@@ -14,10 +14,10 @@ execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i',
 const fixture=readFileSync(videoPath);
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const server=createServer((req,res)=>{
-  if(req.url==='/subtitle-search.js'){
+  if(req.url?.startsWith('/subtitle-search.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-search.js',import.meta.url)));
-  }else   if(req.url==='/watch-sync-subtitles.js'){
+  }else   if(req.url?.startsWith('/watch-sync-subtitles.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../watch-sync-subtitles.js',import.meta.url)));
   }else if(req.url==='/movie-info.js' || req.url==='/movie-info.css'){
