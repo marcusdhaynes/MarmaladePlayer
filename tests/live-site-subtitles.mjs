@@ -28,7 +28,20 @@ try{
     }));
     console.log('INITIAL',url,JSON.stringify(initial));
     if(initial.buttons){
-      await page.locator('#subtitlesBtn').click({force:true});
+      // The theater toolbar is intentionally not interactive until media exists.
+      // Expose it exactly like the existing functional browser smoke test.
+      await page.locator('#dropZone').evaluate(stage=>{
+        stage.classList.add('has-video','controls-visible');
+      });
+      const button=page.locator('#subtitlesBtn');
+      console.log('TRIGGER',url,JSON.stringify(await button.evaluate(el=>{
+        const r=el.getBoundingClientRect();return {
+          visible:getComputedStyle(el).visibility,
+          pointerEvents:getComputedStyle(el).pointerEvents,
+          rect:r.toJSON(),hit:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.id
+        };
+      })));
+      await button.click();
       await page.waitForTimeout(200);
       console.log('CLICK',url,JSON.stringify(await page.evaluate(()=>{
         const panel=document.querySelector('#subtitlePanel');
@@ -37,6 +50,13 @@ try{
           cssDisplay:getComputedStyle(panel).display,
           tabs:[...panel.querySelectorAll('[role=tab]')].map(el=>el.textContent)};
       })));
+    }
+    if(initial.buttons){
+      await page.locator('#subStyleTab').click();
+      console.log('STYLE VISIBLE',url,JSON.stringify(await page.evaluate(()=>({
+        styleVisible:!!document.querySelector('#subStyleView')?.offsetParent,
+        positionCount:document.querySelectorAll('[data-sub-position]').length
+      }))));
     }
     console.log('ERRORS',url,JSON.stringify(errors).slice(0,1500));
     await page.close();
