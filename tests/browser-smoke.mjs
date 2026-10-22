@@ -262,6 +262,57 @@ try {
     await page.goto('http://127.0.0.1:'+port+path,{waitUntil:'load'});
     return {page,errors};
   }
+  // Real decoded video (not just a MediaStream connection) must be visible,
+  // and the video surface must toggle both directions without double-firing
+  // the dedicated transport button.
+  {
+    const directory=mkdtempSync(join(tmpdir(),'marmalade-video-click-'));
+    let fixture;
+    try {
+      const filename=join(directory,'visible.webm');
+      execFileSync('ffmpeg',['-hide_banner','-loglevel','error',
+        '-f','lavfi','-i','color=c=red:s=160x90:r=15','-t','3',
+        '-an','-c:v','libvpx','-pix_fmt','yuv420p',
+        '-deadline','realtime','-cpu-used','5','-crf','26','-b:v','0','-y',filename],
+        {timeout:20000});
+      fixture=readFileSync(filename);
+    } finally {rmSync(directory,{recursive:true,force:true});}
+    const {page,errors}=await launchRoomPage();
+    await page.locator('#fileInput').setInputFiles({
+      name:'visible.webm',mimeType:'video/webm',buffer:fixture
+    });
+    await page.waitForFunction(()=>{
+      const video=document.querySelector('#player'),stage=document.querySelector('#dropZone');
+      return stage.classList.contains('has-video') && video.videoWidth===160 &&
+        video.videoHeight===90 && !document.querySelector('#playPause').disabled;
+    },null,{timeout:14000});
+    assert.equal(await page.locator('#player').isVisible(),true,
+      'The selected movie must appear in the theater');
+    assert.equal(await page.locator('#stageEmpty').isVisible(),false,
+      'The placeholder must not cover a loaded movie');
+    await page.locator('#player').click({position:{x:100,y:80},force:true});
+    await page.waitForFunction(()=>!document.querySelector('#player').paused,null,{timeout:5000});
+    await page.waitForFunction(()=>{
+      const video=document.querySelector('#player');
+      return video.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime>0;
+    },null,{timeout:5000});
+    const pixel=await page.locator('#player').evaluate(video=>{
+      const canvas=document.createElement('canvas');canvas.width=2;canvas.height=2;
+      const context=canvas.getContext('2d');context.drawImage(video,0,0,2,2);
+      return [...context.getImageData(0,0,1,1).data];
+    });
+    assert(pixel[0]>120 && pixel[1]<80 && pixel[2]<80,
+      'The theater must decode and display a real colored movie frame');
+    await page.locator('#player').click({position:{x:100,y:80},force:true});
+    await page.waitForFunction(()=>document.querySelector('#player').paused,null,{timeout:5000});
+    await page.locator('#playPause').click({force:true});
+    await page.waitForFunction(()=>!document.querySelector('#player').paused,null,{timeout:5000});
+    await page.locator('#playPause').click({force:true});
+    await page.waitForFunction(()=>document.querySelector('#player').paused,null,{timeout:5000});
+    assert.deepEqual(errors,[], 'Playable video and stage clicks must not throw runtime errors');
+    await page.close();
+    console.log('PASS real visible frame + click video play/pause + control buttons');
+  }
   {
     const {page,errors}=await launchRoomPage();
     await page.locator('#fileInput').setInputFiles({

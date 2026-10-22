@@ -27,6 +27,10 @@ const shim=[
   ':new Actual({...idOrOptions,...local});};})();'
 ].join('');
 const web=createServer((req,res)=>{
+  if(req.url?.startsWith('/subtitle-match.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../subtitle-match.js',import.meta.url)));return;
+  }
   if(req.url?.startsWith('/subtitle-search.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-search.js',import.meta.url)));return;
