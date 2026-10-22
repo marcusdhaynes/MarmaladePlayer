@@ -28,7 +28,10 @@ const server = createServer((req,res) => {
   if (req.url?.startsWith('/subtitle-search.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-search.js', import.meta.url), 'utf8'));
-  } else   if (req.url?.startsWith('/watch-sync-subtitles.js')) {
+  } else if (req.url?.startsWith('/subtitle-match.js')) {
+    res.writeHead(200, {'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../subtitle-match.js', import.meta.url), 'utf8'));
+  } else if (req.url?.startsWith('/watch-sync-subtitles.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../watch-sync-subtitles.js', import.meta.url), 'utf8'));
   } else if (req.url?.startsWith('/manifest.webmanifest')) {
@@ -189,6 +192,8 @@ try {
           }]
         }]})});
     });
+    await page.route('https://v3-cinemeta.strem.io/catalog/**',route=>route.fulfill({
+      status:200,contentType:'application/json',body:'{"metas":[]}'}));
     await page.route('https://dl.subdl.com/subtitle/**',route=>route.fulfill({status:200,
       contentType:'text/plain',body:'1\n00:00:01,000 --> 00:00:03,000\nDownload works!\n'}));
     await page.locator('#subSearchTitle').fill('Dune');
