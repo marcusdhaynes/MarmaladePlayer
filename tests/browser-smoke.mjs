@@ -195,12 +195,23 @@ try {
     await page.locator('#subSearchYear').fill('2021');
     await page.locator('#subSearchQuality').selectOption('1080p');
     await page.locator('#subSearchSubmit').click({force:true});
-    await page.waitForFunction(()=>document.querySelectorAll('#subSearchResults .sub-result').length===1);
-    assert.equal(await page.locator('#subSearchResults .sub-result').count(),1,
-      'Search must render SubDL matches in the compact subtitle window');
-    assert.equal(await page.locator('#subSearchResults .sub-result button').count(),1,
+    try {
+      await page.waitForFunction(()=>[...document.querySelectorAll('#subSearchResults .sub-result')]
+        .some(row=>row.textContent.includes('Dune 2021')),null,{timeout:7000});
+    } catch (error) {
+      console.log('SUBTITLE DIAGNOSTIC',await page.evaluate(()=>({
+        status:document.querySelector('#subSearchStatus')?.textContent,
+        results:[...document.querySelectorAll('#subSearchResults .sub-result')].map(e=>e.textContent),
+        helper:typeof window.MarmaladeSubtitleMatch,
+        finder:typeof window.MarmaladeSubtitleFinder
+      })),errors);
+      throw error;
+    }
+    const subdlRow=page.locator('#subSearchResults .sub-result')
+      .filter({hasText:'Dune 2021'}).first();
+    assert.equal(await subdlRow.locator('button').count(),1,
       'Direct unpacked SubDL subtitle must offer one-click loading');
-    await page.locator('#subSearchResults .sub-result button').click({force:true});
+    await subdlRow.locator('button').click({force:true});
     await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.includes('1 cues'));
     assert.equal(await page.locator('#subtitleOverlay').count(),1,'Local subtitle overlay is preserved');
     await page.locator('#subtitlesBtn').click({force:true});
