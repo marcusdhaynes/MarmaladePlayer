@@ -113,6 +113,7 @@
     progress=$('subSearchStatus'),results=$('subSearchResults'),
     catalogs=$('subSearchCatalogs'),submit=$('subSearchSubmit'),
     proxyUrl='https://marmalade-subdl-proxy-somnielsynchreaua-4637.vercel.app/api/subtitles';
+  const matcher=window.MarmaladeSubtitleMatch;
   function videoFilename(){
     if(state.role==='host'&&state.file?.name)return state.file.name;
     if(state.role==='guest'&&state.remoteFileName)return state.remoteFileName;
@@ -155,10 +156,7 @@
     catalogs.append(a('Browse SubDL ↗','https://subdl.com/'));
   }
   function matchQuality(name){
-    const q=quality.value;if(!q)return true;
-    if(q==='WEB')return /\bWEB[- .]?DL\b|\bWEBRip\b/i.test(name);
-    if(q==='BluRay')return /\bBluRay\b|\bBDRip\b/i.test(name);
-    return new RegExp('(?:^|\\D)'+q+'(?:\\D|$)','i').test(String(name));
+    return matcher.matchesQuality(name,quality.value);
   }
   function dlUrl(path){
     try{
@@ -169,15 +167,18 @@
   function subdlResults(raw){
     const found=[];
     for(const s of Array.isArray(raw?.subtitles)?raw.subtitles:[]){
-      const files=s.unpack_files?.length?s.unpack_files:[s];
+      const files=Array.isArray(s.unpack_files)&&s.unpack_files.length?s.unpack_files:[s];
       for(const file of files){
         const release=String(file.release_name||s.release_name||file.name||s.name||'Subtitle');
         const filename=String(file.name||s.name||'');
-        const language=String(file.language||s.language||'').toLowerCase();
-        if(!matchQuality(release+' '+filename)||(lang.value&&language&&lang.value!==language))continue;
-        found.push({source:'SubDL',name:release,lang:language,filename,
-          url:dlUrl(file.url||s.url),site:'https://subdl.com/',
-          direct:file!==s&&/^(srt|vtt)$/i.test(file.format||'')||/\.(srt|vtt)$/i.test(filename)&&file!==s});
+        const language=String(file.language||file.lang||s.language||s.lang||'').toLowerCase();
+        if(!matchQuality(release+' '+filename)||
+           !matcher.matchesLanguage(language,lang.value)||
+           !matcher.matchesEpisode(file,s,kind.value,season.value,episode.value))continue;
+        const url=dlUrl(file.url||s.url);
+        found.push({source:'SubDL',name:release,lang:language,filename,url,
+          site:'https://subdl.com/',
+          direct:file!==s&&(/^(srt|vtt)$/i.test(file.format||'')||/\.(srt|vtt)$/i.test(filename))});
       }
     }
     return found;
@@ -216,48 +217,66 @@
   }
   async function get(url,options,signal){
     const r=await fetch(url,{...options,signal});
-    if(!r.ok)throw Error(r.status===401||r.status===403?'API key rejected':'HTTP '+r.status);
+    if(!r.ok)throw Error(r.status===429?'Too many requests; try again shortly':'Subtitle service HTTP '+r.status);
     return r.json();
+  }
+  async function findSubdl(params,signal){
+    let data=await get(proxyUrl+'?'+params,{headers:{Accept:'application/json'}},signal);
+    if(data?.status===false)throw Error(String(data.error||'Search rejected'));
+    let selected=matcher.selectTitle(data,title.value.trim(),year.value,kind.value);
+    if(!selected)return {items:[],reason:
+      'No verified '+kind.value+' match for '+title.value.trim()+
+      (year.value?' ('+year.value+')':'')+'. Other releases are excluded.'};
+    // SubDL returns subtitle files ONLY for results[0]. Never present files
+    // for a different film just because its name resembles the requested film.
+    if(selected.index!==0){
+      const exact=matcher.lookupParams(params,selected.title);
+      if(!exact)return {items:[],reason:'The matching title has no usable identifier. Cannot verify subtitle files.'};
+      data=await get(proxyUrl+'?'+exact,{headers:{Accept:'application/json'}},signal);
+      if(data?.status===false)throw Error(String(data.error||'Exact-title lookup rejected'));
+      selected=matcher.selectTitle(data,title.value.trim(),year.value,kind.value);
+      if(!selected||selected.index!==0)return {items:[],
+        reason:'SubDL could not verify the requested edition. No subtitles from another release were shown.'};
+    }
+    return {items:subdlResults(data),media:selected.title};
   }
   form.addEventListener('submit',async ev=>{
     ev.preventDefault();
-    if(!title.value.trim())return;
-    controller?.abort();controller=new AbortController();
-    const seq=++sequence,signal=controller.signal,failures=[],tasks=[];
-    results.replaceChildren();progress.textContent='Searching sources…';
+    if(!title.value.trim()||!form.reportValidity())return;
+    controller?.abort();
+    controller=new AbortController();
+    const seq=++sequence,signal=controller.signal;
+    results.replaceChildren();
+    progress.textContent='Checking exact movie, year and subtitle filters…';
     submit.disabled=true;
-    const p=new URLSearchParams({film_name:title.value.trim(),type:kind.value,unpack:'1',subs_per_page:'30'});
-    if(year.value)p.set('year',year.value);
-    if(lang.value)p.set('languages',lang.value);
-    if(kind.value==='tv'&&season.value)p.set('season',season.value);
-    if(kind.value==='tv'&&episode.value)p.set('episode',episode.value);
-    const detectedFilename=videoFilename();
-    if(detectedFilename&&!edited&&title.value.trim()===parseFilename(detectedFilename).title){
-      p.delete('film_name');p.set('file_name',detectedFilename);
+    if(!matcher){
+      progress.textContent='Subtitle search module unavailable. Reload the app.';
+      submit.disabled=false;return;
     }
-    const requestSubdl=()=>get(proxyUrl+'?'+p,{headers:{Accept:'application/json'}},signal);
-    tasks.push(requestSubdl().then(async data=>{
-      if(data?.status===false)throw Error(String(data.error||'Search rejected'));
-      if(p.has('file_name')&&(!Array.isArray(data?.subtitles)||!data.subtitles.length)){
-        p.delete('file_name');p.set('film_name',title.value.trim());
-        data=await requestSubdl();
-        if(data?.status===false)throw Error(String(data.error||'Search rejected'));
-      }
-      return subdlResults(data);
-    }).catch(e=>{
-      if(e.name!=='AbortError')failures.push(
-        e.name==='TypeError'?'Subtitle server unreachable':String(e.message||'Search failed').slice(0,100));
-      return [];
-    }));
-    const settled=await Promise.all(tasks);
-    if(seq!==sequence)return;
-    const list=settled.flat().slice(0,20);
-    results.replaceChildren(...list.map(row));
-    progress.textContent=(list.length?list.length+' SubDL subtitle matches': 'No SubDL matches')+
-      (failures.length?' · '+failures.join(' · '):'');
-    submit.disabled=false;
+    const params=matcher.searchParams({
+      title:title.value.trim(),year:year.value,language:lang.value,
+      type:kind.value,season:season.value,episode:episode.value
+    });
+    try{
+      const result=await findSubdl(params,signal);
+      if(seq!==sequence)return;
+      const list=result.items.slice(0,30);
+      results.replaceChildren(...list.map(row));
+      const identified=result.media
+        ?' · '+String(result.media.name||result.media.title||title.value).slice(0,100)+
+          (matcher.resultYear(result.media)?' ('+matcher.resultYear(result.media)+')':''):'';
+      progress.textContent=result.reason||((list.length
+        ?list.length+' matching subtitles'
+        :'No subtitles match the selected language, quality, season or episode')+identified);
+    }catch(e){
+      if(seq!==sequence||e.name==='AbortError')return;
+      progress.textContent=e.name==='TypeError'?'Subtitle service unreachable':
+        String(e.message||'Subtitle search failed').slice(0,180);
+    }finally{
+      if(seq===sequence)submit.disabled=false;
+    }
   });
   defaultFromFile();
   window.setInterval(()=>{if(!panel.hidden){defaultFromFile();place();}},1200);
-  window.MarmaladeSubtitleFinder={parseFilename,subdlResults,defaultFromFile};
+  window.MarmaladeSubtitleFinder={parseFilename,subdlResults,defaultFromFile,findSubdl};
 })();
