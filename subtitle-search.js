@@ -99,12 +99,12 @@
     '<details id="subSearchAdvanced"><summary>Episode filters</summary><div class="sub-pair">'+
     '<label>Season<input class="sub-input" type="number" id="subSearchSeason" min="1" max="999" placeholder="Any"></label>'+
     '<label>Episode<input class="sub-input" type="number" id="subSearchEpisode" min="1" max="9999" placeholder="Any"></label></div></details>'+
-    '<div class="sub-actions"><button id="subSearchSubmit" type="submit">Search SubDL</button>'+
+    '<div class="sub-actions"><button id="subSearchSubmit" type="submit">Search subtitles</button>'+
     '<button id="subSearchReset" type="button">↺ File</button></div>'+
     '<div class="sub-note" id="subSearchStatus" role="status" aria-live="polite">Based on your video filename.</div>'+
     '<div id="subSearchResults" class="sub-results" aria-label="Subtitle results"></div>'+
     '<div id="subSearchCatalogs" class="sub-links" aria-label="SubDL website"></div>'+
-    '<div class="sub-note">Powered by SubDL · No API key needed</div>';
+    '<div class="sub-note">SubDL + OpenSubtitles · No API key needed</div>';
   find.append(form);
   const $=id=>form.querySelector('#'+id);
   const title=$('subSearchTitle'),year=$('subSearchYear'),lang=$('subSearchLanguage'),
@@ -161,10 +161,14 @@
   function dlUrl(path){
     try{
       const url=new URL(path,'https://dl.subdl.com');
-      return url.protocol==='https:'&&url.hostname==='dl.subdl.com'&&url.pathname.startsWith('/subtitle/')?url.href:'';
+      if(url.protocol!=='https:'||url.hostname!=='dl.subdl.com'||!url.pathname.startsWith('/subtitle/'))return '';
+      // SubDL sometimes embeds the server API key in a returned download URL.
+      // Anonymous subtitle downloads must not propagate those credentials.
+      for(const key of ['api_key','token','key'])url.searchParams.delete(key);
+      return url.href;
     }catch{return '';}
   }
-  function subdlResults(raw){
+  function subdlResults(raw,{ignoreQuality=false}={}){
     const found=[];
     for(const s of Array.isArray(raw?.subtitles)?raw.subtitles:[]){
       const files=Array.isArray(s.unpack_files)&&s.unpack_files.length?s.unpack_files:[s];
@@ -172,7 +176,7 @@
         const release=String(file.release_name||s.release_name||file.name||s.name||'Subtitle');
         const filename=String(file.name||s.name||'');
         const language=String(file.language||file.lang||s.language||s.lang||'').toLowerCase();
-        if(!matchQuality(release+' '+filename)||
+        if((!ignoreQuality&&!matchQuality(release+' '+filename))||
            !matcher.matchesLanguage(language,lang.value)||
            !matcher.matchesEpisode(file,s,kind.value,season.value,episode.value))continue;
         const url=dlUrl(file.url||s.url);
@@ -220,25 +224,71 @@
     if(!r.ok)throw Error(r.status===429?'Too many requests; try again shortly':'Subtitle service HTTP '+r.status);
     return r.json();
   }
-  async function findSubdl(params,signal){
-    let data=await get(proxyUrl+'?'+params,{headers:{Accept:'application/json'}},signal);
-    if(data?.status===false)throw Error(String(data.error||'Search rejected'));
-    let selected=matcher.selectTitle(data,title.value.trim(),year.value,kind.value);
-    if(!selected)return {items:[],reason:
-      'No verified '+kind.value+' match for '+title.value.trim()+
-      (year.value?' ('+year.value+')':'')+'. Other releases are excluded.'};
-    // SubDL returns subtitle files ONLY for results[0]. Never present files
-    // for a different film just because its name resembles the requested film.
-    if(selected.index!==0){
-      const exact=matcher.lookupParams(params,selected.title);
-      if(!exact)return {items:[],reason:'The matching title has no usable identifier. Cannot verify subtitle files.'};
-      data=await get(proxyUrl+'?'+exact,{headers:{Accept:'application/json'}},signal);
-      if(data?.status===false)throw Error(String(data.error||'Exact-title lookup rejected'));
-      selected=matcher.selectTitle(data,title.value.trim(),year.value,kind.value);
-      if(!selected||selected.index!==0)return {items:[],
-        reason:'SubDL could not verify the requested edition. No subtitles from another release were shown.'};
+  // SubDL currently returns only a subtitles array for its first result.
+  // Never assume the upstream year parameter disambiguated similarly named films.
+  function selectedSubdlRelease(data) {
+    const selected=matcher.selectTitle(data,title.value.trim(),year.value,kind.value);
+    if(selected?.index===0)return {items:subdlResults(data),media:selected.title};
+    const requested=Number(year.value||0);
+    if(requested) {
+      const confirmed=(Array.isArray(data?.subtitles)?data.subtitles:[]).filter(sub=>{
+        const label=[sub.release_name,sub.name].filter(Boolean).join(' ');
+        return matcher.releaseYear(label)===requested;
+      });
+      if(confirmed.length)return {items:subdlResults({subtitles:confirmed}),
+        media:{name:title.value.trim(),year:requested},validatedBy:'subtitle release year'};
+      return {items:[],reason:'SubDL returned a different edition; its subtitles were excluded.'};
     }
-    return {items:subdlResults(data),media:selected.title};
+    // No release year was specified: display provider matches as before.
+    return {items:subdlResults(data),media:{name:title.value.trim()}};
+  }
+  async function findSubdl(params,signal){
+    const data=await get(proxyUrl+'?'+params,{headers:{Accept:'application/json'}},signal);
+    if(data?.status===false)throw Error(String(data.error||'SubDL search rejected'));
+    return selectedSubdlRelease(data);
+  }
+  function trustedSubtitleUrl(raw) {
+    try {
+      const url=new URL(raw);
+      const host=url.hostname.toLowerCase();
+      if(url.protocol!=='https:'||(!host.endsWith('.strem.io')&&host!=='strem.io'&&
+        !host.endsWith('.opensubtitles.org')&&!host.endsWith('.opensubtitles.com')))return '';
+      return url.href;
+    }catch{return '';}
+  }
+  function fromOpenSubtitles(data,ignoreQuality=false) {
+    const seen=new Set(),found=[];
+    for(const sub of Array.isArray(data?.subtitles)?data.subtitles:[]){
+      const language=matcher.canonicalLanguage(sub.lang||sub.language||'');
+      const filename=String(sub.subtitleFileName||sub.fileName||'');
+      const name=String(sub.movieReleaseName||sub.releaseName||filename||'Subtitle');
+      const url=trustedSubtitleUrl(sub.url);
+      if(!url||seen.has(url)||!matcher.matchesLanguage(language,lang.value)||
+         (!ignoreQuality&&!matchQuality(name+' '+filename))||
+         !matcher.matchesEpisode(sub,sub,kind.value,season.value,episode.value))continue;
+      seen.add(url);
+      found.push({source:'OpenSubtitles',name,filename,lang:language,
+        url,site:'https://www.opensubtitles.org/',direct:true});
+    }
+    return found;
+  }
+  async function findOpenSubtitles(signal) {
+    const series=kind.value==='tv',type=series?'series':'movie',term=title.value.trim();
+    const catalog=await get('https://v3-cinemeta.strem.io/catalog/'+type+
+      '/top/search='+encodeURIComponent(term)+'.json',{headers:{Accept:'application/json'}},signal);
+    const media=matcher.selectCatalogTitle(catalog?.metas,term,year.value,kind.value);
+    if(!media)return {items:[],reason:'No exact title/year identity found in the movie catalog.'};
+    if(series&&(!season.value||!episode.value))return {items:[],
+      reason:'Enter a season and episode for TV subtitle searches.',media};
+    const id=String(media.id)+(series?':'+Number(season.value)+':'+Number(episode.value):'');
+    const data=await get('https://opensubtitles-v3.strem.io/subtitles/'+type+'/'+
+      encodeURIComponent(id)+'.json',{headers:{Accept:'application/json'}},signal);
+    const filtered=fromOpenSubtitles(data);
+    if(!filtered.length&&quality.value) {
+      const relaxed=fromOpenSubtitles(data,true);
+      if(relaxed.length)return {items:relaxed,media,qualityFallback:true};
+    }
+    return {items:filtered,media};
   }
   form.addEventListener('submit',async ev=>{
     ev.preventDefault();
@@ -247,7 +297,7 @@
     controller=new AbortController();
     const seq=++sequence,signal=controller.signal;
     results.replaceChildren();
-    progress.textContent='Checking exact movie, year and subtitle filters…';
+    progress.textContent='Searching and verifying the correct movie edition…';
     submit.disabled=true;
     if(!matcher){
       progress.textContent='Subtitle search module unavailable. Reload the app.';
@@ -258,25 +308,38 @@
       type:kind.value,season:season.value,episode:episode.value
     });
     try{
-      const result=await findSubdl(params,signal);
+      const outcome=await Promise.allSettled([findSubdl(params,signal),findOpenSubtitles(signal)]);
       if(seq!==sequence)return;
-      const list=result.items.slice(0,30);
+      const completed=outcome.filter(x=>x.status==='fulfilled').map(x=>x.value);
+      const failures=outcome.filter(x=>x.status==='rejected')
+        .map(x=>String(x.reason?.message||'Subtitle source unavailable').slice(0,110));
+      const combined=[],seen=new Set();
+      for(const source of completed)for(const item of source.items||[]){
+        const identity=item.source+'|'+item.url;
+        if(seen.has(identity))continue;
+        seen.add(identity);combined.push(item);
+      }
+      const list=combined.slice(0,40);
       results.replaceChildren(...list.map(row));
-      const identified=result.media
-        ?' · '+String(result.media.name||result.media.title||title.value).slice(0,100)+
-          (matcher.resultYear(result.media)?' ('+matcher.resultYear(result.media)+')':''):'';
-      progress.textContent=result.reason||((list.length
-        ?list.length+' matching subtitles'
-        :'No subtitles match the selected language, quality, season or episode')+identified);
+      const verified=completed.find(x=>x.media)?.media;
+      const edition=verified?.year||matcher.resultYear(verified);
+      const identity=verified?' · '+String(verified.name||verified.title||title.value).slice(0,70)+
+        (edition?' ('+edition+')':''):'';
+      const qualityNote=completed.some(x=>x.qualityFallback)?
+        ' · No exact quality match; showing alternative releases.':'';
+      const errors=failures.length?' · '+failures.join(' · '):'';
+      progress.textContent=list.length
+        ?list.length+' verified subtitle matches'+identity+qualityNote+errors
+        :['No matching subtitle files found.',
+          ...completed.map(x=>x.reason).filter(Boolean),...failures].join(' ');
     }catch(e){
       if(seq!==sequence||e.name==='AbortError')return;
-      progress.textContent=e.name==='TypeError'?'Subtitle service unreachable':
-        String(e.message||'Subtitle search failed').slice(0,180);
+      progress.textContent=String(e.message||'Subtitle search failed').slice(0,180);
     }finally{
       if(seq===sequence)submit.disabled=false;
     }
   });
   defaultFromFile();
   window.setInterval(()=>{if(!panel.hidden){defaultFromFile();place();}},1200);
-  window.MarmaladeSubtitleFinder={parseFilename,subdlResults,defaultFromFile,findSubdl};
+  window.MarmaladeSubtitleFinder={parseFilename,subdlResults,defaultFromFile,findSubdl,findOpenSubtitles,fromOpenSubtitles};
 })();

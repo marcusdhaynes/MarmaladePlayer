@@ -8,7 +8,7 @@
   function resultYear(result) {
     const direct = String(result?.year ?? '').match(/^(18|19|20|21)\d{2}$/);
     if (direct) return Number(direct[0]);
-    const date = String(result?.release_date || result?.first_air_date || result?.air_date || '');
+    const date = String(result?.release_date || result?.first_air_date || result?.air_date || result?.releaseInfo || result?.released || '');
     const match = date.match(/^(18|19|20|21)\d{2}/);
     return match ? Number(match[0]) : null;
   }
@@ -65,10 +65,34 @@
     if (selected === 'BluRay') return /\bBlu[- .]?Ray\b|\bBDRip\b|\bBRRip\b/i.test(text);
     return new RegExp('(?:^|\\D)' + selected + '(?:\\D|$)', 'i').test(text);
   }
+  const iso3={eng:'en',ara:'ar',ind:'id',spa:'es',fra:'fr',fre:'fr',
+    deu:'de',ger:'de',por:'pt',ita:'it',rus:'ru',tur:'tr',
+    fas:'fa',per:'fa',hin:'hi',jpn:'ja',kor:'ko',zho:'zh',chi:'zh'};
+  function canonicalLanguage(value) {
+    const normalized=String(value||'').toLowerCase().split(/[-_]/)[0];
+    return iso3[normalized]||normalized;
+  }
   function matchesLanguage(value, selected) {
-    if (!selected || !value) return true; // SubDL sometimes omits a language on unpacked files.
-    const actual = String(value).toLowerCase().split(/[-_]/)[0];
-    return actual === String(selected).toLowerCase();
+    if (!selected || !value) return true;
+    return canonicalLanguage(value) === canonicalLanguage(selected);
+  }
+  function selectCatalogTitle(metas, searched, requestedYear, requestedType) {
+    const expectedType=requestedType==='tv'?'series':'movie';
+    const year=requestedYear?Number(requestedYear):null;
+    const found=(Array.isArray(metas)?metas:[]).filter(candidate=>{
+      if(!/^tt\d{5,12}$/.test(String(candidate?.id||'')))return false;
+      if(candidate?.type && candidate.type!==expectedType)return false;
+      if(!matchesTitle(candidate?.name,searched))return false;
+      if(year!==null && resultYear(candidate)!==year)return false;
+      return true;
+    });
+    found.sort((a,b)=>(normalizeTitle(b.name)===normalizeTitle(searched)?1:0)-
+      (normalizeTitle(a.name)===normalizeTitle(searched)?1:0));
+    return found[0]||null;
+  }
+  function releaseYear(value) {
+    const candidates=String(value||'').match(/(?:18|19|20|21)\d{2}/g)||[];
+    return candidates.length?Number(candidates[0]):null;
   }
   function matchesEpisode(file, subtitle, type, season, episode) {
     if (type !== 'tv') return true;
@@ -87,7 +111,7 @@
     return true;
   }
   const api = {normalizeTitle,resultYear,matchesTitle,selectTitle,lookupParams,searchParams,
-    matchesQuality,matchesLanguage,matchesEpisode};
+    matchesQuality,matchesLanguage,canonicalLanguage,matchesEpisode,selectCatalogTitle,releaseYear};
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.MarmaladeSubtitleMatch = api;
 })(typeof window !== 'undefined' ? window : globalThis);

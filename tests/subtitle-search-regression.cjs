@@ -79,3 +79,28 @@ test('season/episode metadata filters out mismatches',()=>{
   assert.ok(match.matchesEpisode({}, {season:2,episode_from:1,episode_end:8},'tv','2','5'));
   assert.ok(!match.matchesEpisode({}, {season:2,episode_from:6,episode_end:8},'tv','2','5'));
 });
+
+test('Cinemeta returns exact 1991 title despite ranking 2017 first',()=>{
+  const metas=[
+    {name:'Beauty and the Beast',type:'movie',id:'tt2771200',releaseInfo:'2017'},
+    {name:'Beauty and the Beast',type:'movie',id:'tt0101414',releaseInfo:'1991'},
+    {name:'Beauty and the Beast',type:'series',id:'tt0092626',releaseInfo:'1987'}
+  ];
+  assert.equal(match.selectCatalogTitle(metas,'Beauty and the Beast',1991,'movie').id,'tt0101414');
+  assert.equal(match.selectCatalogTitle(metas,'Beauty and the Beast',2017,'movie').id,'tt2771200');
+  assert.equal(match.selectCatalogTitle(metas,'Beauty and the Beast',2001,'movie'),null);
+  assert.equal(match.resultYear(metas[1]),1991);
+});
+test('OpenSubtitles three-letter codes obey language choices',()=>{
+  assert.ok(match.matchesLanguage('eng','en'));
+  assert.ok(match.matchesLanguage('ara','ar'));
+  assert.ok(match.matchesLanguage('jpn','ja'));
+  assert.ok(!match.matchesLanguage('est','en'));
+  assert.ok(!match.matchesLanguage('fra','en'));
+});
+test('SubDL subtitle release year does not confuse the 2017 remake',()=>{
+  assert.equal(match.releaseYear('Beauty.and.the.Beast.2017.1080p.WEB'),2017);
+  assert.equal(match.releaseYear('Beauty.and.the.Beast.1991.720p.BluRay'),1991);
+  assert.notEqual(match.releaseYear('Beauty.and.the.Beast.2017.1080p.WEB'),1991);
+  assert.equal(match.releaseYear('Unlabelled release'),null);
+});
