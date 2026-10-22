@@ -16,7 +16,8 @@ for (const [name, url, proxy] of probes) {
       ok:payload?.status,err:payload?.error,
       results:payload?.results?.slice(0,6).map(x=>({name:x.name,year:x.year,type:x.type,sd_id:x.sd_id,imdb_id:x.imdb_id})),
       subtitleCount:payload?.subtitles?.length,
-      sampleSubtitle:payload?.subtitles?.[0]&&{release_name:payload.subtitles[0].release_name,language:payload.subtitles[0].language},
+      sampleSubtitle:payload?.subtitles?.[0]&&JSON.stringify(payload.subtitles[0]).slice(0,1300),
+      responseKeys:payload?Object.keys(payload).slice(0,18):[],
       metas:payload?.metas?.filter(x=>/beauty and the beast/i.test(x.name||'')).slice(0,8).map(x=>({name:x.name,id:x.id,year:x.releaseInfo})),
       preview:!payload?str.slice(0,170):undefined
     }));
