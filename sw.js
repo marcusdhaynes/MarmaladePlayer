@@ -1,5 +1,5 @@
 /* Offline shell only. Rooms and WebRTC streaming require connectivity. */
-const CACHE = 'marmalade-shell-v7';
+const CACHE = 'marmalade-shell-v8-host-video';
 const FILES = ['./', './index.html', './manifest.webmanifest', './favicon.svg', './movie-info.js', './movie-info.css', './watch-sync-subtitles.js', './subtitle-match.js', './subtitle-search.js', './watch-sync-subtitles.js?v=20261020-substudio', './subtitle-match.js?v=20261022-multisource2', './subtitle-search.js?v=20261022-multisource2'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
