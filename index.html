@@ -2132,8 +2132,13 @@ body.theater-open{overflow:hidden}
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
         applyReceiverPlayout();
+        // Clear any old file/hosted source and force the remote stream to
+        // become the current video resource before attempting playback.
+        media.pause();
+        media.removeAttribute('src');
         media.srcObject = stream;
         media.autoplay = true;
+        media.playsInline = true;
         media.muted = state.soundMuted || state.volumePercent === 0;
         state.source = 'remote';
         state.fileReady = false;
@@ -2659,10 +2664,17 @@ body.theater-open{overflow:hidden}
       } catch (error) { console.warn('Using Web Audio capture fallback', error); }
     }
     if (media.videoWidth && media.videoHeight) {
-      try { track = canvasCapture(); }
-      catch (error) {
-        console.warn('Canvas capture unavailable; trying native video capture', error);
-        track = state.nativeCapture?.getVideoTracks()[0] || null;
+      // Prefer the decoded video element's native track. Previously we always
+      // streamed a canvas copy, which can stay black on some GPU/browser paths
+      // even while the host's own video visibly plays.
+      const nativeVideoTrack = state.nativeCapture?.getVideoTracks()
+        .find(t => t.readyState === 'live' && t.enabled) || null;
+      if (nativeVideoTrack) {
+        track = nativeVideoTrack;
+        try { track.contentHint = 'motion'; } catch {}
+      } else {
+        try { track = canvasCapture(); }
+        catch (error) { console.warn('Unable to capture decoded video', error); }
       }
     }
     // Send a PRE-volume audio track: personal gain (including 200%) cannot
