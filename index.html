@@ -298,6 +298,7 @@ body.theater-open{overflow:hidden}
       <section class="screen-column" aria-label="Video player">
         <div class="stage" id="dropZone" tabindex="0" aria-label="Video theater, tap to reveal controls">
           <video id="player" playsinline preload="metadata"></video>
+          <div id="hostVideoDiagnostic" role="status" aria-live="polite" hidden style="position:absolute;z-index:7;left:12px;right:12px;top:54px;max-width:520px;background:#1a1518ed;color:#ffe6cb;border:1px solid #bc8660;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;pointer-events:none"></div>
           <div class="stage-empty" id="stageEmpty">
             <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="m12 8 13 8-13 8V8Z" fill="currentColor"/></svg></span></div>
             <span class="eyebrow" id="stageEyebrow">CLICK TO HOST</span>
@@ -3061,6 +3062,57 @@ body.theater-open{overflow:hidden}
   };
   for (const event of ['loadeddata','canplay','timeupdate','playing','resize'])
     media.addEventListener(event, revealPlayableVideo);
+  // Host-local playback diagnosis. Never report a black player as healthy
+  // merely because metadata arrived or audio plays.
+  const hostVideoDiagnostic = document.getElementById('hostVideoDiagnostic');
+  let hostLastFrameAt = 0;
+  let hostDecodedFrames = 0;
+  let hostProbeStartedAt = 0;
+  function updateHostVideoDiagnostic() {
+    const active = state.role === 'host' && state.source === 'file' && !!state.file;
+    hostVideoDiagnostic.hidden = !active;
+    if (!active) return;
+    const error = media.error;
+    const status = error ? ({
+      1:'Playback was cancelled.', 2:'The media file could not be read.',
+      3:'Your browser could not decode this video codec.',
+      4:'The video format or codec is not supported by this browser.'
+    }[error.code] || 'Video playback failed.') :
+      !media.videoWidth || !media.videoHeight ?
+        (media.readyState >= 1 ? 'No decodable video track detected. Your browser may support its audio but not the video codec.' : 'Reading the video file…') :
+      media.paused ? 'Video loaded but paused — press Play.' :
+      media.readyState < 2 ? 'Waiting for decoded video frames…' :
+      hostDecodedFrames > 0 ? 'Video decoded. If the picture is still black, the rendering layer or the actual frames are black.' :
+      performance.now() - hostProbeStartedAt > 3000 ?
+        'Video metadata loaded, but no displayed frames confirmed. Try another browser or a different video codec.' :
+        'Waiting for the first displayed frame…';
+    const suffix = media.videoWidth ? ' · '+media.videoWidth+'×'+media.videoHeight : '';
+    hostVideoDiagnostic.textContent = status + suffix;
+    // Keep normal movie viewing clean when frames are confirmed.
+    if (!error && hostDecodedFrames > 0 && !media.paused &&
+        performance.now() - hostLastFrameAt < 3000) hostVideoDiagnostic.hidden = true;
+  }
+  if (typeof media.requestVideoFrameCallback === 'function') {
+    const probe = () => {
+      if (state.role === 'host' && state.source === 'file') {
+        hostDecodedFrames++;
+        hostLastFrameAt = performance.now();
+        updateHostVideoDiagnostic();
+      }
+      media.requestVideoFrameCallback(probe);
+    };
+    media.requestVideoFrameCallback(probe);
+  }
+  media.addEventListener('loadstart', () => {
+    if (state.role === 'host' && state.source === 'file') {
+      hostProbeStartedAt=performance.now();
+      hostDecodedFrames=0;
+      updateHostVideoDiagnostic();
+    }
+  });
+  for (const event of ['loadedmetadata','loadeddata','playing','pause','waiting','stalled','error','resize'])
+    media.addEventListener(event, updateHostVideoDiagnostic);
+  window.setInterval(updateHostVideoDiagnostic, 1500);
   media.addEventListener('loadedmetadata', () => {
     if(state.role==='guest' && (state.localVerified || state.bufferedMode)){void syncSeekablePlayback(true);return;}
     if (state.role !== 'host' || !['file','hosted'].includes(state.source)) return;
