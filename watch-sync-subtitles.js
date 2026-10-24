@@ -8,7 +8,7 @@
   const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
   const style=document.createElement('style');
   style.textContent=[
-    '.host-sync-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#050506;z-index:2;pointer-events:none;display:none}',
+    '.host-sync-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent;z-index:2;pointer-events:none;display:none}',
     '#dropZone.host-sync-active .host-sync-preview{display:block}',
     '.subtitle-popover{width:min(355px,calc(100% - 24px));max-height:min(75%,560px)}',
     '.subtitle-style{border-top:1px solid #ffffff24;padding-top:10px;display:flex;flex-direction:column;gap:9px}',
@@ -45,7 +45,9 @@
   let previewNode=null,previewAudioActive=false,previewBusy=false;
   let previewSource='',lastPreviewSeek=0,lastAutoDelay=0;
   let manualSeconds=2;
-  let syncMode='auto';
+  // Default to the original decoded picture. Delayed monitoring is opt-in.
+  let syncMode='off';
+  modeInput.value='off';
   const syncSettings=document.createElement('section');
   syncSettings.className='host-sync-settings';
   syncSettings.id='hostSyncSettings';
@@ -118,6 +120,10 @@
       if(!media.paused && media.currentTime>delay+0.05)await preview.play();
       const audioReady=await ensureAudioPlayback();
       if(!audioReady||!connectMonitorAudio())throw Error('Monitor audio unavailable');
+      // Do not cover the host picture with a secondary playback head until
+      // this browser has actually decoded a frame into the preview.
+      if (preview.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !preview.videoWidth)
+        throw Error('Delayed preview has no decoded video frame');
       state.hostSyncActive=true;
       el.stage.classList.add('host-sync-active');
       lastPreviewSeek=performance.now();
