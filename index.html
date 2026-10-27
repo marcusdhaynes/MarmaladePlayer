@@ -3117,7 +3117,12 @@ body.theater-open{overflow:hidden}
     if(state.role==='guest' && (state.localVerified || state.bufferedMode)){void syncSeekablePlayback(true);return;}
     if (state.role !== 'host' || !['file','hosted'].includes(state.source)) return;
     state.fileReady = true;
-    showStage(true);
+    // Metadata can arrive when a browser has decoded only audio, or while
+    // video decoding is stalled. Keep the informative loading stage visible
+    // until loadeddata/playing confirms an actual playable frame.
+    // Otherwise an empty <video> replaces the loading message with black.
+    if (media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && !media.error)
+      showStage(true);
     el.startBroadcast.disabled = !state.peer?.open;
     buildQualitySelect();
     updateTransport();
