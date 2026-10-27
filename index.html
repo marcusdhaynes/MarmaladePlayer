@@ -2924,7 +2924,13 @@ body.theater-open{overflow:hidden}
   // Controls and popovers retain their own actions; do not double-toggle them.
   function playPauseFromStage() {
     if (el.stage.classList.contains('is-pickable')) { openMoviePicker(); return; }
-    if (!el.stage.classList.contains('has-video')) return;
+    // Some mobile browsers provide metadata but defer the first frame until
+    // a tap. Allow that tap to begin decoding while the loading poster shows.
+    if (!el.stage.classList.contains('has-video')) {
+      if (state.role === 'host' && state.source === 'file' && state.fileReady)
+        void togglePlay();
+      return;
+    }
     if (state.role === 'guest' &&
         (state.localVerified || state.bufferedMode || state.guestConn?.open ||
          el.stage.classList.contains('needs-gesture'))) {
