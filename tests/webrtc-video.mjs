@@ -60,7 +60,7 @@ async function test(browserType,name){
     await page.locator('#fileInput').setInputFiles({name:'red-test.webm',mimeType:'video/webm',buffer:fixture});
     await page.waitForFunction(()=>!document.querySelector('#hostActive').hidden && !document.querySelector('#playPause').disabled,null,{timeout:12000});
     await page.locator('#playPause').evaluate(button=>button.click());
-    await page.waitForFunction(()=>window.__outgoingCanvas?.stream?.getVideoTracks?.()[0]?.readyState==='live',null,{timeout:12000});
+    await page.waitForFunction(()=>window.MarmaladeAddonBridge?.state.outgoing?.getVideoTracks?.()[0]?.readyState==='live',null,{timeout:12000});
     const samples=await page.evaluate(async()=>{
       const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       const screenshotSample=(source)=>{
@@ -70,15 +70,16 @@ async function test(browserType,name){
         return Array.from(cx.getImageData(32,18,1,1).data);
       };
       const from=window.__outgoingCanvas;
+      const outgoing=window.MarmaladeAddonBridge.state.outgoing;
       await delay(700);
       const host=screenshotSample(document.getElementById('player'));
-      const canvas=screenshotSample(from.canvas);
+      const canvas=from?.canvas?screenshotSample(from.canvas):null;
       const a=new RTCPeerConnection({iceServers:[]}),b=new RTCPeerConnection({iceServers:[]});
       a.onicecandidate=e=>{if(e.candidate)void b.addIceCandidate(e.candidate).catch(()=>{});};
       b.onicecandidate=e=>{if(e.candidate)void a.addIceCandidate(e.candidate).catch(()=>{});};
       const streamPromise=new Promise(resolve=>{b.ontrack=e=>resolve(e.streams[0]||new MediaStream([e.track]));});
-      const videoTrack=from.stream.getVideoTracks()[0];
-      a.addTrack(videoTrack,from.stream);
+      const videoTrack=outgoing.getVideoTracks()[0];
+      a.addTrack(videoTrack,outgoing);
       await a.setLocalDescription(await a.createOffer());
       await b.setRemoteDescription(a.localDescription);
       await b.setLocalDescription(await b.createAnswer());
@@ -105,7 +106,7 @@ async function test(browserType,name){
     });
     console.log('REAL WEBRTC CAPTURE',name,JSON.stringify(samples));
     assert(samples.host[0]>125 && samples.host[0]>samples.host[1]*2,'Host is red');
-    assert(samples.canvas[0]>125 && samples.canvas[0]>samples.canvas[1]*2,'Canvas source must be red');
+    if(samples.canvas)assert(samples.canvas[0]>125 && samples.canvas[0]>samples.canvas[1]*2,'Canvas fallback must be red');
     assert(samples.received?.[0]>125 && samples.received[0]>samples.received[1]*2,'WebRTC receiver must not be black');
     assert.deepEqual(errors,[]);
     console.log('PASS real WebRTC decoded nonblack video on '+name);
