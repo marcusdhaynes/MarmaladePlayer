@@ -3234,7 +3234,12 @@ body.theater-open{overflow:hidden}
           if(reference && now-reference.at<5500 &&
              reference.brightness>45 && brightness<12)
             state.guestDarkStreak++;
-          else state.guestDarkStreak=0;
+          else {
+            state.guestDarkStreak=0;
+            if(brightness>=12 && state.pictureRepairAsked &&
+               el.connectionText.textContent==='Repairing black video…')
+              connection('Watching live','online');
+          }
           if(state.guestDarkStreak>=3 && !state.pictureRepairAsked){
             state.pictureRepairAsked=true;
             send(state.guestConn,{type:'black-video'});
