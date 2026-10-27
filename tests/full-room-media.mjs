@@ -161,6 +161,10 @@ try {
   assert.equal(defaultSync,'off','Host video monitor starts disabled to protect local picture');
   assert.equal(await host.locator('#dropZone').evaluate(el=>el.classList.contains('host-sync-active')),
     false,'Secondary monitor must not cover the host video by default');
+  assert.equal(await host.locator('#hostSyncPreview').evaluate(el=>getComputedStyle(el).display),
+    'none','Inactive monitor must actually be hidden by the CSS cascade');
+  assert.equal(await guest.locator('#hostSyncPreview').evaluate(el=>getComputedStyle(el).display),
+    'none','Empty monitor must not cover the guest picture');
   // Exercise opt-in alignment separately; it never replaces the outgoing track.
   await host.locator('#hostSyncMode').evaluate(select=>{
     select.value='auto';
@@ -306,3 +310,4 @@ try {
   rmSync(dir,{recursive:true,force:true});
   process.exit(process.exitCode || 0);
 }
+
