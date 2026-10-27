@@ -2620,7 +2620,12 @@ body.theater-open{overflow:hidden}
       }).catch(()=>{});
   }
   async function ensureAudioCapture() {
-    await ensureAudioPlayback();
+    // Firefox (and some mobile browsers) can leave AudioContext.resume()
+    // pending until another trusted gesture, even when video is playing.
+    // Creating the nodes is synchronous inside ensureAudioPlayback(), so
+    // never hold the WebRTC video track hostage while waiting for audio.
+    const resume = ensureAudioPlayback();
+    void resume.catch(error => console.debug('Audio will resume on user gesture', error));
     if (!state.audioContext || !state.audioSourceNode) throw new Error('Web Audio unavailable');
     if (!state.audioDestination) {
       state.audioDestination = state.audioContext.createMediaStreamDestination();
@@ -2683,7 +2688,8 @@ body.theater-open{overflow:hidden}
     let audioTracks = nativeAudioTracks;
     try {
       await ensureAudioCapture();
-      if (state.audioDestination?.stream.getAudioTracks().length)
+      if (state.audioDestination?.stream.getAudioTracks().length &&
+          (state.audioContext?.state === 'running' || !nativeAudioTracks.length))
         audioTracks = state.audioDestination.stream.getAudioTracks();
     } catch (error) { console.debug('Using native media audio capture', error); }
     if (!track && !audioTracks.length) throw new Error('No capturable audio or video tracks.');
