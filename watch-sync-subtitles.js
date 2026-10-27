@@ -47,7 +47,6 @@
   let manualSeconds=2;
   // Default to the original decoded picture. Delayed monitoring is opt-in.
   let syncMode='off';
-  modeInput.value='off';
   const syncSettings=document.createElement('section');
   syncSettings.className='host-sync-settings';
   syncSettings.id='hostSyncSettings';
@@ -59,6 +58,7 @@
     '<small id="hostSyncInfo" role="status">Waiting for guest video timing. Auto mode leaves the original player unchanged until accurate timing is available.</small>';
   el.settingsPanel.insertBefore(syncSettings,el.settingsPanel.querySelector('.settings-tools'));
   const modeInput=syncSettings.querySelector('#hostSyncMode');
+  modeInput.value='off';
   const delayInput=syncSettings.querySelector('#hostSyncSeconds');
   const delayOutput=syncSettings.querySelector('#hostSyncSecondsValue');
   const info=syncSettings.querySelector('#hostSyncInfo');
