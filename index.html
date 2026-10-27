@@ -298,7 +298,7 @@ body.theater-open{overflow:hidden}
       <section class="screen-column" aria-label="Video player">
         <div class="stage" id="dropZone" tabindex="0" aria-label="Video theater, tap to reveal controls">
           <video id="player" playsinline preload="metadata"></video>
-          <div id="hostVideoDiagnostic" role="status" aria-live="polite" hidden style="position:absolute;z-index:7;left:12px;right:12px;top:54px;max-width:520px;background:#1a1518ed;color:#ffe6cb;border:1px solid #bc8660;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;pointer-events:none"></div>
+          <div id="hostVideoDiagnostic" role="status" aria-live="polite" hidden style="position:absolute;z-index:7;left:12px;right:12px;top:54px;max-width:520px;background:#1a1518ed;color:#ffe6cb;border:1px solid #bc8660;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-start;gap:8px"><span id="videoDiagnosticText"></span><button type="button" id="videoRecoveryAction" hidden style="background:#ffb86b;color:#2b1a11;border:0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12px">Retry picture</button></div>
           <div class="stage-empty" id="stageEmpty">
             <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="m12 8 13 8-13 8V8Z" fill="currentColor"/></svg></span></div>
             <span class="eyebrow" id="stageEyebrow">CLICK TO HOST</span>
@@ -1674,6 +1674,13 @@ body.theater-open{overflow:hidden}
             entry.mediaConfirmed = true;
         }
         if (data.type === 'requestmedia' && !entry.localMirror) {
+          if(data.reason==='no-decoded-video-frames' && state.source==='file' &&
+             state.broadcasting && !entry.compatCanvas){
+            entry.stallRequests=(entry.stallRequests||0)+1;
+            if(entry.stallRequests>=2){
+              entry.compatCanvas=true;entry.applied='';
+            }
+          }
           // A connected room is only the control channel. Make sure there is
           // actually a movie stream, including when the first capture failed.
           if (!state.outgoing) {
@@ -3108,6 +3115,27 @@ body.theater-open{overflow:hidden}
   // receive/encode frames but display black, while a codec can decode audio
   // without ever producing a video frame. Neither is a successful picture.
   const hostVideoDiagnostic = document.getElementById('hostVideoDiagnostic');
+  const videoDiagnosticText=document.getElementById('videoDiagnosticText');
+  const videoRecoveryAction=document.getElementById('videoRecoveryAction');
+  videoRecoveryAction.addEventListener('click',()=>{
+    if(state.role==='host' && state.source==='file'){
+      if(!navigator.mediaDevices?.getDisplayMedia){
+        notify('Open your video in a browser-supported MP4/WebM format; window sharing is unavailable.');
+        return;
+      }
+      notify('Open the movie in a desktop player such as VLC, then select its window to share.');
+      void shareScreen();
+    }else if(state.role==='guest' && state.source==='remote' && state.guestConn?.open){
+      if(!state.pictureRepairAsked){
+        state.pictureRepairAsked=true;
+        send(state.guestConn,{type:'black-video'});
+        notify('Asking the host for a compatible video stream…');
+      }else{
+        send(state.guestConn,{type:'requestmedia',reason:'manual-picture-retry'});
+        notify('Requesting a fresh video connection…');
+      }
+    }
+  });
   const pictureCanvas=document.createElement('canvas');
   pictureCanvas.width=32;pictureCanvas.height=18;
   const pictureContext=pictureCanvas.getContext('2d',{willReadFrequently:true});
@@ -3155,10 +3183,13 @@ body.theater-open{overflow:hidden}
         'Your picture is black while the host has visible video. Switching the stream to compatibility capture.' :
         'Video frames are present but the displayed pixels are black. This can be a black scene, a codec problem, or a rendering issue.' :
       'Preparing video frames…';
-    hostVideoDiagnostic.textContent=status+
+    videoDiagnosticText.textContent=status+
       (media.videoWidth ? ' · '+media.videoWidth+'×'+media.videoHeight : '')+
       (error||noVideo||dark||noFrames&&now-(hostProbeStartedAt||state.remoteVideoConnectedAt||now)>4000 ?
       ' · For incompatible codecs, use an H.264 MP4/WebM file or Settings → Share a video-player window.' : '');
+    const stalled=noFrames && now-(hostProbeStartedAt||state.remoteVideoConnectedAt||now)>4000;
+    videoRecoveryAction.hidden=!(error||dark||stalled||noVideo && now-(hostProbeStartedAt||now)>4500);
+    videoRecoveryAction.textContent=host?'Share external video-player window':'Retry picture';
     // A decoded frame count alone is not enough: verify that at least one
     // recent sampled picture contains light pixels before hiding this banner.
     const visiblePicture=lastPictureBrightness!==null &&
