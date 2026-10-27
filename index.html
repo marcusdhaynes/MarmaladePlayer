@@ -548,6 +548,7 @@ body.theater-open{overflow:hidden}
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
     basePaint: null, basePaintIdle: false, highGfxMode: '2d',
+    hostPictureSample: null, guestDarkStreak: 0, pictureRepairAsked: false,
   };
 
   function notify(message) {
@@ -1658,6 +1659,15 @@ body.theater-open{overflow:hidden}
             if(!wait&&state.heldForBuffer){state.heldForBuffer=false;void media.play();syncState();}
           }
         }
+        if(data.type==='black-video' && state.source==='file' &&
+           state.broadcasting && !entry.compatCanvas && !entry.localMirror) {
+          // Only a guest comparing real pixel samples to the brighter host
+          // can request this change. Never replace the host's working display.
+          entry.compatCanvas=true;
+          entry.applied='';
+          send(conn,{type:'picture-repair',message:'Trying compatible video capture…'});
+          void tuneGuest(entry);
+        }
         if (data.type === 'media-received' && entry.call && !entry.localMirror) {
           // PeerJS versions without metadata can still confirm the active call.
           if (data.id == null || data.id === entry.mediaAttempt)
@@ -1894,6 +1904,13 @@ body.theater-open{overflow:hidden}
     // Manually selecting Original must not silently flood the other connections.
     return Math.max(64000, Math.min(desired, Math.floor(MAX_TOTAL_VIDEO_BPS * desired / totalWanted)));
   }
+  function getCompatCanvasTrack() {
+    let track=state.canvasStream?.getVideoTracks()[0];
+    if(track?.readyState==='live')return track;
+    try { track=canvasCapture(); }
+    catch(error){console.warn('Compatibility video capture unavailable',error);return null;}
+    return track;
+  }
   // Change quality without renegotiating or restarting the movie whenever possible.
   // The guest's own signal applies only to their peer connection.
   async function tuneGuest(entry) {
@@ -1904,7 +1921,12 @@ body.theater-open{overflow:hidden}
     if (!sender?.getParameters || !sender.setParameters) return;
     const current = levelForGuest(entry);
     const wantsHigh = current.height > STREAM_HEIGHT && sourceHeight() > STREAM_HEIGHT;
-    const newTrack = wantsHigh ? getHighVideoTrack(current.height) : state.outgoing?.getVideoTracks()[0];
+    // A movie can look fine to the host while a native captureStream sender
+    // delivers solid black. A guest whose sampled pixels disagree with the
+    // host's can request a one-time canvas capture, per guest.
+    const newTrack = wantsHigh
+      ? getHighVideoTrack(current.height,!!entry.compatCanvas)
+      : entry.compatCanvas ? getCompatCanvasTrack() : state.outgoing?.getVideoTracks()[0];
     if (!newTrack || newTrack.readyState !== 'live') return;
     const bitrate = budgetForGuest(entry,Math.round(current.bitrate *
       (current.height > STREAM_HEIGHT ?
@@ -2123,6 +2145,8 @@ body.theater-open{overflow:hidden}
         state.mediaAwaitingAt = 0;
         state.mediaRequestAt = 0;
         state.remoteVideoConnectedAt = performance.now();
+        state.guestDarkStreak=0;
+        state.pictureRepairAsked=false;
         state.remoteLastFrameAt = 0;
         state.remoteVideoFrameCount = 0;
         state.remoteFramesAvailable = false;
@@ -2392,6 +2416,12 @@ body.theater-open{overflow:hidden}
           };
           updateDiagnostics();
         }
+        if(data.type==='picture-probe' && Number.isFinite(data.brightness) &&
+           data.brightness>=0 && data.brightness<=255) {
+          state.hostPictureSample={brightness:data.brightness,at:performance.now()};
+        }
+        if(data.type==='picture-repair' && typeof data.message==='string')
+          notify(data.message);
         if (data.type === 'quality-applied') {
           state.appliedQuality = data.level;
           updateQualityHint(data.limited ? 'Host bandwidth safety limit' : data.message || `Receiving ${data.height || '?'}p`);
@@ -3074,57 +3104,116 @@ body.theater-open{overflow:hidden}
   };
   for (const event of ['loadeddata','canplay','timeupdate','playing','resize'])
     media.addEventListener(event, revealPlayableVideo);
-  // Host-local playback diagnosis. Never report a black player as healthy
-  // merely because metadata arrived or audio plays.
+  // Sample actual pixels, not just decoder callbacks. Some WebRTC captures
+  // receive/encode frames but display black, while a codec can decode audio
+  // without ever producing a video frame. Neither is a successful picture.
   const hostVideoDiagnostic = document.getElementById('hostVideoDiagnostic');
-  let hostLastFrameAt = 0;
-  let hostDecodedFrames = 0;
-  let hostProbeStartedAt = 0;
-  function updateHostVideoDiagnostic() {
-    const active = state.role === 'host' && state.source === 'file' && !!state.file;
-    hostVideoDiagnostic.hidden = !active;
-    if (!active) return;
-    const error = media.error;
-    const status = error ? ({
-      1:'Playback was cancelled.', 2:'The media file could not be read.',
-      3:'Your browser could not decode this video codec.',
-      4:'The video format or codec is not supported by this browser.'
-    }[error.code] || 'Video playback failed.') :
-      !media.videoWidth || !media.videoHeight ?
-        (media.readyState >= 1 ? 'No decodable video track detected. Your browser may support its audio but not the video codec.' : 'Reading the video file…') :
-      media.paused ? 'Video loaded but paused — press Play.' :
-      media.readyState < 2 ? 'Waiting for decoded video frames…' :
-      hostDecodedFrames > 0 ? 'Video decoded. If the picture is still black, the rendering layer or the actual frames are black.' :
-      performance.now() - hostProbeStartedAt > 3000 ?
-        'Video metadata loaded, but no displayed frames confirmed. Try another browser or a different video codec.' :
-        'Waiting for the first displayed frame…';
-    const suffix = media.videoWidth ? ' · '+media.videoWidth+'×'+media.videoHeight : '';
-    hostVideoDiagnostic.textContent = status + suffix;
-    // Keep normal movie viewing clean when frames are confirmed.
-    if (!error && hostDecodedFrames > 0 && !media.paused &&
-        performance.now() - hostLastFrameAt < 3000) hostVideoDiagnostic.hidden = true;
+  const pictureCanvas=document.createElement('canvas');
+  pictureCanvas.width=32;pictureCanvas.height=18;
+  const pictureContext=pictureCanvas.getContext('2d',{willReadFrequently:true});
+  let hostLastFrameAt=0,hostDecodedFrames=0,hostProbeStartedAt=0;
+  let lastPictureBrightness=null,lastPictureAt=0,darkStartedAt=0;
+  function samplePicture() {
+    if(!pictureContext || media.readyState<HTMLMediaElement.HAVE_CURRENT_DATA ||
+       !media.videoWidth || !media.videoHeight)return null;
+    try {
+      pictureContext.drawImage(media,0,0,32,18);
+      const d=pictureContext.getImageData(0,0,32,18).data;
+      let light=0,count=0;
+      // Crop away letterbox/pillarbox bars. The maximum RGB component
+      // picks up even dark colored content without storing movie pixels.
+      for(let y=4;y<14;y+=2)for(let x=8;x<24;x+=2){
+        const i=(y*32+x)*4;
+        light+=Math.max(d[i],d[i+1],d[i+2]);count++;
+      }
+      return Math.round(light/count);
+    }catch{return null;} // Cross-origin hosted videos can forbid readback.
   }
-  if (typeof media.requestVideoFrameCallback === 'function') {
-    const probe = () => {
-      if (state.role === 'host' && state.source === 'file') {
+  function updateHostVideoDiagnostic() {
+    const host=state.role==='host' && state.source==='file' && !!state.file;
+    const guest=state.role==='guest' && state.source==='remote';
+    const active=host||guest;
+    hostVideoDiagnostic.hidden=!active;
+    if(!active)return;
+    const now=performance.now();
+    const error=media.error;
+    const noVideo=media.readyState>=1 && !media.videoWidth;
+    const noFrames=host ? hostDecodedFrames===0 :
+      !state.remoteFramesAvailable;
+    const dark=darkStartedAt && now-darkStartedAt>6500 &&
+      lastPictureBrightness!==null && lastPictureBrightness<12;
+    const status=error ? ({
+      1:'Playback was cancelled.',2:'The video file could not be read.',
+      3:'The browser failed to decode the video codec.',
+      4:'Unsupported video format or codec.'
+    }[error.code]||'Video playback failed.') :
+      noVideo ? 'Audio or metadata may be available, but there is no decoded video track.' :
+      media.paused ? 'Video is paused. Press Play to start the picture.' :
+      noFrames && now-(hostProbeStartedAt||state.remoteVideoConnectedAt||now)>4000 ?
+        'No decoded video frames are arriving.' :
+      dark ? guest && state.hostPictureSample?.brightness>45 ?
+        'Your picture is black while the host has visible video. Switching the stream to compatibility capture.' :
+        'Video frames are present but the displayed pixels are black. This can be a black scene, a codec problem, or a rendering issue.' :
+      'Preparing video frames…';
+    hostVideoDiagnostic.textContent=status+
+      (media.videoWidth ? ' · '+media.videoWidth+'×'+media.videoHeight : '')+
+      (error||noVideo||dark||noFrames&&now-(hostProbeStartedAt||state.remoteVideoConnectedAt||now)>4000 ?
+      ' · For incompatible codecs, use an H.264 MP4/WebM file or Settings → Share a video-player window.' : '');
+    // A decoded frame count alone is not enough: verify that at least one
+    // recent sampled picture contains light pixels before hiding this banner.
+    const visiblePicture=lastPictureBrightness!==null &&
+      lastPictureBrightness>=12 && now-lastPictureAt<4000;
+    if(!error && !media.paused && visiblePicture)hostVideoDiagnostic.hidden=true;
+  }
+  if(typeof media.requestVideoFrameCallback==='function'){
+    const probe=()=>{
+      if(state.role==='host' && state.source==='file'){
         hostDecodedFrames++;
-        hostLastFrameAt = performance.now();
-        updateHostVideoDiagnostic();
+        hostLastFrameAt=performance.now();
       }
       media.requestVideoFrameCallback(probe);
     };
     media.requestVideoFrameCallback(probe);
   }
-  media.addEventListener('loadstart', () => {
-    if (state.role === 'host' && state.source === 'file') {
+  media.addEventListener('loadstart',()=>{
+    if(state.role==='host' && state.source==='file'){
       hostProbeStartedAt=performance.now();
       hostDecodedFrames=0;
+      darkStartedAt=0;
+      lastPictureBrightness=null;
       updateHostVideoDiagnostic();
     }
   });
-  for (const event of ['loadedmetadata','loadeddata','playing','pause','waiting','stalled','error','resize'])
-    media.addEventListener(event, updateHostVideoDiagnostic);
-  window.setInterval(updateHostVideoDiagnostic, 1500);
+  for(const event of ['loadedmetadata','loadeddata','playing','pause','waiting','stalled','error','resize'])
+    media.addEventListener(event,updateHostVideoDiagnostic);
+  window.setInterval(()=>{
+    const host=state.role==='host' && state.source==='file' && !!state.file;
+    const guest=state.role==='guest' && state.source==='remote';
+    if((host||guest)&&!media.paused){
+      const brightness=samplePicture(), now=performance.now();
+      if(brightness!==null){
+        lastPictureBrightness=brightness;
+        lastPictureAt=now;
+        if(brightness<12){if(!darkStartedAt)darkStartedAt=now;}
+        else darkStartedAt=0;
+        if(host && state.broadcasting)
+          broadcast({type:'picture-probe',brightness});
+        if(guest && state.hostPlaying && state.guestConn?.open) {
+          const reference=state.hostPictureSample;
+          if(reference && now-reference.at<5500 &&
+             reference.brightness>45 && brightness<12)
+            state.guestDarkStreak++;
+          else state.guestDarkStreak=0;
+          if(state.guestDarkStreak>=3 && !state.pictureRepairAsked){
+            state.pictureRepairAsked=true;
+            send(state.guestConn,{type:'black-video'});
+            connection('Repairing black video…','error');
+          }
+        }
+      }
+    }else if(!host&&!guest){darkStartedAt=0;lastPictureBrightness=null;}
+    updateHostVideoDiagnostic();
+  },1600);
   media.addEventListener('loadedmetadata', () => {
     if(state.role==='guest' && (state.localVerified || state.bufferedMode)){void syncSeekablePlayback(true);return;}
     if (state.role !== 'host' || !['file','hosted'].includes(state.source)) return;
