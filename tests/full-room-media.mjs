@@ -155,8 +155,17 @@ try {
   assert(encoder1080.outbound.some(x => x.height >= 1080 && (x.fps || 0) >= 21),
     'Full-HD sender must encode at approximately 24 fps on the local healthy test link');
   console.log('PASS real 1080p delivery at 24fps target',JSON.stringify(result1080));
-  // Presentation delay changes the host's local monitor ONLY. Guest gets
-  // exactly the original WebRTC track with the existing quality encodings.
+  // The optional delayed monitor must not overlay a healthy movie by default:
+  // some browsers render a second video playback head as solid black.
+  const defaultSync=await host.locator('#hostSyncMode').inputValue();
+  assert.equal(defaultSync,'off','Host video monitor starts disabled to protect local picture');
+  assert.equal(await host.locator('#dropZone').evaluate(el=>el.classList.contains('host-sync-active')),
+    false,'Secondary monitor must not cover the host video by default');
+  // Exercise opt-in alignment separately; it never replaces the outgoing track.
+  await host.locator('#hostSyncMode').evaluate(select=>{
+    select.value='auto';
+    select.dispatchEvent(new Event('change',{bubbles:true}));
+  });
   await guest.evaluate(()=>{
     window.MarmaladeAddonBridge.state.guestConn.send({type:'presentation-delay',ms:1200});
   });
