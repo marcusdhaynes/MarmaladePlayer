@@ -63,7 +63,23 @@ async function test(browserType,name){
     await page.locator('#fileInput').setInputFiles({name:'red-test.webm',mimeType:'video/webm',buffer:fixture});
     await page.waitForFunction(()=>!document.querySelector('#hostActive').hidden && !document.querySelector('#playPause').disabled,null,{timeout:12000});
     await page.locator('#playPause').evaluate(button=>button.click());
-    await page.waitForFunction(()=>window.MarmaladeAddonBridge?.state.outgoing?.getVideoTracks?.()[0]?.readyState==='live',null,{timeout:12000});
+    try {
+      await page.waitForFunction(()=>window.MarmaladeAddonBridge?.state.outgoing?.getVideoTracks?.()[0]?.readyState==='live',null,{timeout:12000});
+    } catch(error) {
+      console.log('CAPTURE START DIAGNOSTIC',name,JSON.stringify(await page.evaluate(()=>{
+        const {state,media,el}=window.MarmaladeAddonBridge||{};
+        const tracks=stream=>stream?.getTracks?.().map(t=>({kind:t.kind,readyState:t.readyState,enabled:t.enabled,settings:t.getSettings?.()}));
+        return {fileReady:state?.fileReady,broadcasting:state?.broadcasting,
+          broadcastStarting:state?.broadcastStarting,source:state?.source,
+          peerOpen:state?.peer?.open,role:state?.role,stage:el?.stage?.className,
+          connection:document.querySelector('#connectionText')?.textContent,
+          outgoing:tracks(state?.outgoing),native:tracks(state?.nativeCapture),
+          canvas:tracks(state?.canvasStream),media:{readyState:media?.readyState,
+            paused:media?.paused,error:media?.error?.message||null,
+            time:media?.currentTime,videoWidth:media?.videoWidth,videoHeight:media?.videoHeight}};
+      })),errors);
+      throw error;
+    }
     const samples=await page.evaluate(async()=>{
       const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       const screenshotSample=(source)=>{
