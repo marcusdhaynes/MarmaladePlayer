@@ -17,7 +17,10 @@ const server=createServer((req,res)=>{
   if(req.url?.startsWith('/subtitle-search.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-search.js',import.meta.url)));
-  }else   if(req.url?.startsWith('/watch-sync-subtitles.js')){
+  }else if(req.url?.startsWith('/subtitle-match.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../subtitle-match.js',import.meta.url)));
+  }else if(req.url?.startsWith('/watch-sync-subtitles.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../watch-sync-subtitles.js',import.meta.url)));
   }else if(req.url==='/movie-info.js' || req.url==='/movie-info.css'){
