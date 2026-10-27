@@ -212,6 +212,34 @@ try {
     return v.videoHeight >= 720 && v.videoWidth >= 1280;
   },null,{timeout:8000});
   console.log('PASS real 720p delivery with visible frames',highImage);
+  // Reproduce a device that receives frame callbacks but renders only black
+  // pixels. The host's independent red-pixel probe must trigger per-guest
+  // compatibility capture rather than falsely reporting healthy playback.
+  await guest.evaluate(()=>{
+    const proto=CanvasRenderingContext2D.prototype;
+    const original=proto.drawImage;
+    window.__restorePictureProbe=()=>{proto.drawImage=original;};
+    proto.drawImage=function(...args){
+      if(this.canvas.width===32 && this.canvas.height===18 &&
+         args[0]?.id==='player'){
+        this.fillStyle='#000';this.fillRect(0,0,32,18);return;
+      }
+      return original.apply(this,args);
+    };
+  });
+  await host.waitForFunction(()=>[...window.MarmaladeAddonBridge.state.connections.values()]
+    .some(e=>e.compatCanvas===true),null,{timeout:12000});
+  const compatibility=await host.evaluate(()=>{
+    const e=[...window.MarmaladeAddonBridge.state.connections.values()][0];
+    const sender=e.call?.peerConnection?.getSenders().find(x=>x.track?.kind==='video');
+    const native=window.MarmaladeAddonBridge.state.nativeCapture?.getVideoTracks()[0];
+    return {enabled:e.compatCanvas,usingDifferentTrack:sender?.track!==native,
+      trackReady:sender?.track?.readyState};
+  });
+  assert(compatibility.enabled && compatibility.usingDifferentTrack &&
+    compatibility.trackReady==='live','Black guest frame must switch to live compatibility canvas');
+  await guest.evaluate(()=>window.__restorePictureProbe?.());
+  console.log('PASS black-frame detector switches a single guest to compatibility video',compatibility);
   await guest.locator('#qualitySelect').evaluate(el=>{
     el.value='540';el.dispatchEvent(new Event('change',{bubbles:true}));
   });
