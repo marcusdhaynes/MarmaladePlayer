@@ -8,7 +8,7 @@
   const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
   const style=document.createElement('style');
   style.textContent=[
-    '.host-sync-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent;z-index:2;pointer-events:none;display:none}',
+    '#dropZone .host-sync-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent;z-index:2;pointer-events:none;display:none}',
     '#dropZone.host-sync-active .host-sync-preview{display:block}',
     '.subtitle-popover{width:min(355px,calc(100% - 24px));max-height:min(75%,560px)}',
     '.subtitle-style{border-top:1px solid #ffffff24;padding-top:10px;display:flex;flex-direction:column;gap:9px}',
@@ -304,3 +304,4 @@
   };
   applySubtitleStyle();
 })();
+
