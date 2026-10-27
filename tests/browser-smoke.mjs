@@ -545,11 +545,12 @@ try {
     await page.waitForFunction(()=>!document.querySelector('#hostActive').hidden);
     await page.waitForFunction(()=>document.querySelector('#playPause').disabled===false,{timeout:5000});
     await page.locator('#playPause').evaluate(el=>el.click());
-    await page.waitForFunction(()=>window.__hostCanvasCapture?.stream.getVideoTracks()[0]?.readyState==='live',null,{timeout:6000});
+    await page.waitForFunction(()=>window.MarmaladeAddonBridge?.state.outgoing?.getVideoTracks()[0]?.readyState==='live',null,{timeout:6000});
     await page.waitForTimeout(1400);
     const samples=await page.evaluate(async ()=>{
       const video=document.querySelector('#player');
       const cap=window.__hostCanvasCapture;
+      const stream=window.MarmaladeAddonBridge.state.outgoing;
       const read=(source,w,h)=>{
         const c=document.createElement('canvas');c.width=w;c.height=h;
         const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(source,0,0,w,h);
@@ -557,20 +558,20 @@ try {
         return Array.from(data);
       };
       const host=read(video,64,36);
-      const canvas=read(cap.canvas,64,36);
+      const canvas=cap?.canvas?read(cap.canvas,64,36):null;
       const receiver=document.createElement('video');
       receiver.muted=true;receiver.autoplay=true;receiver.playsInline=true;
-      receiver.srcObject=cap.stream;
+      receiver.srcObject=stream;
       document.body.appendChild(receiver);
       await receiver.play();
       await new Promise(resolve=>setTimeout(resolve,600));
       const captured=receiver.videoWidth?read(receiver,64,36):null;
       receiver.remove();
-      return {host,canvas,captured,hostTime:video.currentTime,captureReady:cap.stream.getVideoTracks()[0].readyState};
+      return {host,canvas,captured,hostTime:video.currentTime,captureReady:stream.getVideoTracks()[0].readyState};
     });
     console.log('OUTBOUND VIDEO DIAGNOSTIC',JSON.stringify(samples),errors);
     assert(samples.host[0]>130 && samples.host[0]>samples.host[1]*2,'Host sample must be red');
-    assert(samples.canvas[0]>130 && samples.canvas[0]>samples.canvas[1]*2,'Canvas broadcast sample must not be black');
+    if(samples.canvas)assert(samples.canvas[0]>130 && samples.canvas[0]>samples.canvas[1]*2,'Canvas fallback must not be black');
     assert(samples.captured && samples.captured[0]>130 && samples.captured[0]>samples.captured[1]*2,'Captured guest video track must show the actual movie');
     assert.deepEqual(errors,[],'Capture test browser errors');
     await page.close();
