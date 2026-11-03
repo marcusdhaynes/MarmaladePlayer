@@ -181,7 +181,7 @@ try {
     assert.match(bottom.right,/^\d+px$/);
     assert.equal(bottom.top,'auto');
     await page.locator('[data-sub-position="middle-center"]').click({force:true});
-    assert.equal(await page.locator('#subtitleOverlay').evaluate(e=>e.style.transform),'translate(-50%,-50%)');
+    assert.equal((await page.locator('#subtitleOverlay').evaluate(e=>e.style.transform)).replace(/\s+/g,''),'translate(-50%,-50%)');
     await page.locator('[data-sub-position="top-left"]').click({force:true});
     await page.locator('[data-sub-key="textSize"]').evaluate(e=>{
       e.value='34';e.dispatchEvent(new Event('input',{bubbles:true}));
