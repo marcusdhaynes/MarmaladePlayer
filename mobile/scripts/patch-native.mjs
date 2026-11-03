@@ -49,7 +49,7 @@ import android.app.RemoteAction;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.graphics.drawable.Icon;
-import java.util.Collections;
+import java.util.Arrays;
 import android.os.Build;
 import android.util.Rational;
 import android.view.View;
@@ -81,9 +81,16 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
                 RemoteAction returnAction = new RemoteAction(
                     Icon.createWithResource(activity, android.R.drawable.ic_menu_revert),
                     "Return to Player", "Close pop-out and return to Marmalade Player", actionIntent);
+                Intent playToggle = new Intent("app.marmaladeplayer.PIP_PLAY_TOGGLE");
+                playToggle.setPackage(activity.getPackageName());
+                PendingIntent playIntent = PendingIntent.getBroadcast(activity, 89, playToggle,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                RemoteAction playAction = new RemoteAction(
+                    Icon.createWithResource(activity, android.R.drawable.ic_media_play),
+                    "Play or Pause", "Toggle the movie without exiting Picture-in-Picture", playIntent);
                 PictureInPictureParams params = new PictureInPictureParams.Builder()
                     .setAspectRatio(new Rational(16, 9))
-                    .setActions(Collections.singletonList(returnAction)).build();
+                    .setActions(Arrays.asList(playAction, returnAction)).build();
                 if (activity.enterPictureInPictureMode(params)) call.resolve();
                 else call.reject("System Picture-in-Picture was declined.");
             } catch (Exception error) {
@@ -134,6 +141,10 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
   writeFileSync(activity,`package app.marmaladeplayer.mobile;
 
 import android.content.res.Configuration;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Bundle;
 import android.os.Build;
 import android.view.WindowInsets;
@@ -142,10 +153,23 @@ import android.graphics.Color;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private final BroadcastReceiver pipMediaReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (bridge != null && bridge.getWebView() != null) {
+                bridge.getWebView().post(() ->
+                    bridge.getWebView().evaluateJavascript(
+                        "window.dispatchEvent(new Event('marmalade:pip-play-toggle'));", null));
+            }
+        }
+    };
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(MarmaladePictureInPicturePlugin.class);
         super.onCreate(savedInstanceState);
+        IntentFilter pipFilter = new IntentFilter("app.marmaladeplayer.PIP_PLAY_TOGGLE");
+        if (Build.VERSION.SDK_INT >= 33)
+            registerReceiver(pipMediaReceiver, pipFilter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(pipMediaReceiver, pipFilter);
         // Android 15 can lay out WebViews underneath status/navigation bars.
         // Always apply the *actual* window insets, not guessed CSS pixel offsets.
         getWindow().setStatusBarColor(Color.rgb(13,7,34));
@@ -165,6 +189,12 @@ public class MainActivity extends BridgeActivity {
             });
             web.requestApplyInsets();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        try { unregisterReceiver(pipMediaReceiver); } catch (Exception ignored) {}
+        super.onDestroy();
     }
 
     @Override
