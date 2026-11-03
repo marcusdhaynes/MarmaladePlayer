@@ -243,7 +243,9 @@ try {
     await subdlRow.locator('button').click({force:true});
     await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.includes('1 cues'));
     assert.equal(await page.locator('#subtitleOverlay').count(),1,'Local subtitle overlay is preserved');
-    await page.locator('#subtitlesBtn').click({force:true});
+    // Preserve a currently open subtitle editor; clicking its toggle would close it.
+    if (await page.locator('#subtitlePanel').evaluate(panel=>panel.hidden))
+      await page.locator('#subtitlesBtn').click({force:true});
     await page.locator('#subStyleTab').click({force:true});
     await page.locator('#subtitleFile').setInputFiles({name:'test.vtt',mimeType:'text/vtt',buffer:Buffer.from('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello from subtitles!\n')});
     await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.includes('1 cues'),{timeout:3000});
