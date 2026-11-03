@@ -6,9 +6,16 @@
     .toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
   const strip=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
   async function json(url){
-    const response=await fetch(url,{credentials:'omit'});
-    if(!response.ok)throw Error('Public source returned '+response.status);
-    return response.json();
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),9000);
+    try{
+      const response=await fetch(url,{credentials:'omit',signal:controller.signal});
+      if(!response.ok)throw Error('Public source returned '+response.status);
+      return await response.json();
+    }catch(error){
+      if(error?.name==='AbortError')throw Error('Information source timed out. Try again.');
+      throw error;
+    }finally{clearTimeout(timeout);}
   }
   function empty(parsed,more={}){
     return {kind:parsed.kind,id:null,imdbId:null,title:parsed.title,year:parsed.year||'',
