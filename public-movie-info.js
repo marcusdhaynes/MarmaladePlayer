@@ -202,9 +202,100 @@
     return {record:await article(primary,parsed),
       alternatives:matches.slice(1,6).map(x=>x.title)};
   }
+  // Ratings are public IMDb *aggregate* scores, not the visitor's account vote.
+  // Agregarr publishes the non-commercial IMDb dataset through a CORS API.
+  // Cinemeta is a no-key fallback and also resolves titles when no ID is known.
+  const ratingRequests=new Map();
+  const validImdbId=id=>/^tt\d{6,10}$/.test(String(id||''));
+  const validScore=value=>{
+    if(value===null||value===undefined||value==='')return null;
+    const number=Number(value);
+    return Number.isFinite(number)&&number>0&&number<=10?number:null;
+  };
+  async function ratingJson(url){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),6000);
+    try{
+      const response=await fetch(url,{credentials:'omit',signal:controller.signal});
+      if(!response.ok)throw Error('Ratings source returned '+response.status);
+      return await response.json();
+    }finally{clearTimeout(timer);}
+  }
+  function sameCatalogTitle(candidate,data){
+    if(norm(candidate.name)!==norm(data.title))return false;
+    const release=String(candidate.releaseInfo||candidate.year||
+      (candidate.released||'').slice(0,4));
+    const candidateYear=Number(release.match(/\b(?:19|20)\d{2}\b/)?.[0]||0);
+    const wantedYear=Number(data.year)||0;
+    return !wantedYear||!candidateYear||wantedYear===candidateYear;
+  }
+  async function findCatalogMatch(data){
+    const type=data.kind==='tv'?'series':'movie';
+    const url='https://v3-cinemeta.strem.io/catalog/'+type+
+      '/top/search='+encodeURIComponent(data.title)+'.json';
+    const payload=await ratingJson(url);
+    const all=(Array.isArray(payload?.metas)?payload.metas:[])
+      .filter(item=>validImdbId(item?.id)&&sameCatalogTitle(item,data));
+    const wantedYear=Number(data.year)||0;
+    const yearOf=item=>Number(String(item.releaseInfo||item.year||'')
+      .match(/\b(?:19|20)\d{2}\b/)?.[0]||0);
+    const exact=all.filter(item=>wantedYear&&yearOf(item)===wantedYear);
+    // With ambiguous remakes, never silently report the wrong version's rating.
+    const eligible=exact.length?exact:all;
+    if(!eligible.length)return null;
+    if(eligible.length!==1)return null;
+    return eligible[0];
+  }
+  async function imdbRatingForId(id,type){
+    // Prefer the IMDb-published aggregate rating dataset (no OMDb key).
+    try{
+      const response=await ratingJson('https://api.agregarr.org/api/ratings?id='+id);
+      const row=(Array.isArray(response)?response:[])
+        .find(value=>value?.imdbId===id);
+      const score=validScore(row?.rating);
+      if(score!==null)return {score,id,votes:Number(row.votes)||0,via:'IMDb Dataset'};
+    }catch{}
+    // Some browsers or regions may not reach the proxy; try Cinemeta metadata.
+    try{
+      const data=await ratingJson('https://v3-cinemeta.strem.io/meta/'+type+'/'+id+'.json');
+      if(data?.meta?.id!==id)return null;
+      const score=validScore(data.meta.imdbRating);
+      if(score!==null)return {score,id,votes:0,via:'Cinemeta'};
+    }catch{}
+    return null;
+  }
+  async function lookupImdbRating(data){
+    if(!data?.title)return null;
+    const type=data.kind==='tv'?'series':'movie';
+    const isEpisode=type==='series'&&Number(data.season)>0&&Number(data.episode)>0;
+    const exactEpisode=isEpisode&&validImdbId(data.imdbEpisodeId);
+    const id=exactEpisode?data.imdbEpisodeId:
+      validImdbId(data.imdbId)?data.imdbId:null;
+    const cacheKey=id?'id:'+id:'title:'+type+':'+norm(data.title)+':'+(data.year||'');
+    if(!ratingRequests.has(cacheKey)){
+      const job=(async()=>{
+        let selectedId=id,foundMeta=null;
+        if(!selectedId){
+          try{foundMeta=await findCatalogMatch(data);selectedId=foundMeta?.id||null;}
+          catch{return null;}
+        }
+        if(!selectedId)return null;
+        const found=await imdbRatingForId(selectedId,type);
+        const fallback=validScore(foundMeta?.imdbRating);
+        const rating=found||(fallback!==null?
+          {score:fallback,id:selectedId,votes:0,via:'Cinemeta'}:null);
+        if(!rating)return null;
+        return {...rating,isSeriesRating:isEpisode&&!exactEpisode};
+      })().catch(()=>null);
+      ratingRequests.set(cacheKey,job);
+      // Prevent unlimited memory growth during long-running sessions.
+      if(ratingRequests.size>120)ratingRequests.delete(ratingRequests.keys().next().value);
+    }
+    return ratingRequests.get(cacheKey);
+  }
   window.MarmaladePublicMovieInfo={
     async lookup(parsed){return parsed.kind==='tv'?television(parsed):movie(parsed);},
-    article,enrichFilm,
+    article,enrichFilm,lookupImdbRating,
     // Pure parsers are exposed for targeted tests without loading a movie.
     parseFilmInfobox:extractFilmInfobox,parseFilmReception:extractFilmReception
   };
