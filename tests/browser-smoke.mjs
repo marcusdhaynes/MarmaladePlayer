@@ -106,13 +106,20 @@ try {
     assert.equal(await page.locator('#broadcastToggle').getAttribute('aria-pressed'),'false');
     const order = await page.locator('.theater-bottom button').evaluateAll(buttons=>buttons.map(b=>b.id));
     assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn']);
-    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,'Info drawer starts closed');
     await page.waitForFunction(() => typeof window.MarmaladeInfoShare === 'function');
-    await page.locator('#mediaInfoToggle').evaluate(button => button.click()); // Theater controls are intentionally hover-hidden until media loads.
-    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),true,'Info button opens drawer');
+    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),true,
+      'Movie information opens by default');
     assert.equal(await page.locator('#miSources').count(),1,'API sources exist');
+    assert.equal(await page.locator('#cosmicBackgroundToggle').count(),1,
+      'Playback settings offer the cosmic nebula theme');
     await page.locator('#miClose').click();
-    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,'Close button hides drawer');
+    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,
+      'Close button hides the drawer');
+    assert.equal(await page.locator('#mediaInfoReopen').isVisible(),true,
+      'Circular information button replaces the closed drawer');
+    await page.locator('#mediaInfoReopen').click();
+    assert.equal(await page.locator('#mediaInfoPanel').isVisible(),true,
+      'Circular information button reopens movie details');
     // No dependence on browser autoplay or a remote network for UI tests.
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     await page.locator('#settingsBtn').click({force:true});
