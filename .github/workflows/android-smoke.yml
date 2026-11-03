@@ -1,0 +1,57 @@
+name: MarmaladePlayer Android Emulator Smoke
+on:
+  workflow_run:
+    workflows: ["MarmaladePlayer Android APK"]
+    types: [completed]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  smoke:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+      - name: Download exact APK from passing build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          mkdir -p candidate
+          gh run download "$APK_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MarmaladePlayer-Android-APK --dir candidate
+          test -s candidate/app-debug.apk
+      - name: Launch APK on Android 15 emulator and check for fatal crashes
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          script: |
+            adb install candidate/app-debug.apk
+            adb shell am start -W -n app.marmaladeplayer.mobile/.MainActivity
+            sleep 12
+            PID="$(adb shell pidof app.marmaladeplayer.mobile | tr -d '\r')"
+            test -n "$PID"
+            adb shell dumpsys activity activities | grep 'app.marmaladeplayer.mobile'
+            if adb logcat -d -s AndroidRuntime:E | grep -F 'FATAL EXCEPTION'; then
+              echo 'MarmaladePlayer crashed on Android emulator' >&2
+              exit 1
+            fi
+            adb shell screencap -p /sdcard/marmalade-screen.png
+            adb pull /sdcard/marmalade-screen.png marmalade-screen.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MarmaladePlayer-Android-Emulator-Screenshot
+          path: marmalade-screen.png
+          if-no-files-found: ignore
+          retention-days: 14
