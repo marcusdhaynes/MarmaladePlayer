@@ -1,6 +1,6 @@
 /* Offline shell only. Rooms and WebRTC streaming require connectivity. */
-const CACHE = 'marmalade-shell-v12-low-bandwidth-local-clock';
-const FILES = ['./', './index.html', './manifest.webmanifest', './favicon.svg', './movie-info.js', './movie-info.css', './watch-sync-subtitles.js', './subtitle-match.js', './subtitle-search.js', './watch-sync-subtitles.js?v=20261102-subtitle-grid', './subtitle-match.js?v=20261022-multisource2', './subtitle-search.js?v=20261102-subtitle-grid'];
+const CACHE = 'marmalade-shell-v13-progress-public-info';
+const FILES = ['./', './index.html', './manifest.webmanifest', './favicon.svg', './public-movie-info.js', './public-movie-info.js?v=20261103-auto-info-final', './movie-info.js', './movie-info.js?v=20261103-auto-info-final', './movie-info.css', './watch-sync-subtitles.js', './watch-sync-subtitles.js?v=20261103-labels', './subtitle-match.js', './subtitle-match.js?v=20261022-multisource2', './subtitle-search.js', './subtitle-search.js?v=20261103-labels'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
 });
