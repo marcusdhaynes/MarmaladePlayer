@@ -722,6 +722,17 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   media.addEventListener('playing',()=>{posterHasPlayed=true;el.stage.classList.remove('poster-preview-active');});
 
   const PEER_PREFIX = 'marmalade-';
+  const HOST_CODE_STORAGE='marmalade:active-host-room';
+  function rememberHostCode(code){
+    try{
+      if(code)sessionStorage.setItem(HOST_CODE_STORAGE,code);
+      else sessionStorage.removeItem(HOST_CODE_STORAGE);
+    }catch{}
+  }
+  function previousHostCode(){
+    try{return parseCode(sessionStorage.getItem(HOST_CODE_STORAGE));}
+    catch{return '';}
+  }
   const isAppleTouch = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const isMobile = matchMedia('(pointer: coarse)').matches;
@@ -2690,42 +2701,73 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       }, 14000);
     } catch (error) { console.error(error); notify('Unable to establish the video call.'); }
   }
-  async function createRoom() {
-    if (!requirePeerJS() || state.connecting) return;
-    closeConnections();
-    state.connecting = true;
-    el.createRoom.disabled = true;
-    const code = newCode();
-    const peer = new window.Peer(PEER_PREFIX + code, PEER_OPTIONS);
-    state.peer = peer;
-    connection('Opening room…');
+  let hostRecoveryTimer=null,hostRecoveryAttempt=0;
+  function stopHostRecovery(){
+    clearTimeout(hostRecoveryTimer);hostRecoveryTimer=null;hostRecoveryAttempt=0;
+  }
+  function recoverHost(peer,code){
+    if(state.peer!==peer||state.role!=='host'||hostRecoveryTimer)return;
+    connection('Restoring room service…','error');
+    hostRecoveryTimer=setTimeout(()=>{
+      hostRecoveryTimer=null;
+      if(state.peer!==peer||state.role!=='host')return;
+      if(peer.open){stopHostRecovery();connection('Room is ready','online');return;}
+      if(peer.destroyed){
+        const replacement=new window.Peer(PEER_PREFIX+code,PEER_OPTIONS);
+        state.peer=replacement;
+        configureHostPeer(replacement,code);
+      }else{
+        try{if(peer.disconnected)peer.reconnect();}catch{}
+        recoverHost(peer,code);
+      }
+    },Math.min(15000,900*Math.pow(1.6,Math.min(7,hostRecoveryAttempt++))));
+  }
+  function configureHostPeer(peer,code){
     setupHostConnections(peer);
-    peer.on('open', () => {
-      if (state.peer !== peer) return;
-      state.connecting = false;
-      state.code = code;
-      el.inviteLink.value = inviteUrl(code);
-      el.hostActive.hidden = false;
-      updateRoomActions();
-      updateRoomPanel();
-      el.createRoom.disabled = true;
-      el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
-      connection('Room is ready', 'online');
-      notify('Room created. Share the link with your guest.');
+    peer.on('open',()=>{
+      if(state.peer!==peer||state.role!=='host')return;
+      stopHostRecovery();
+      state.connecting=false;state.code=code;
+      rememberHostCode(code);
+      el.inviteLink.value=inviteUrl(code);
+      el.hostActive.hidden=false;
+      updateRoomActions();updateRoomPanel();
+      el.createRoom.disabled=true;
+      el.startBroadcast.disabled=!state.fileReady&&state.source!=='screen';
+      connection('Room is ready','online');
       autoStartIfPlaying();
     });
-    peer.on('disconnected', () => {
-      if (state.peer !== peer) return;
-      connection('Reconnecting…', 'error');
-      try { peer.reconnect(); } catch { /* no-op */ }
+    peer.on('disconnected',()=>{
+      if(state.peer===peer)recoverHost(peer,code);
     });
-    peer.on('error', (error) => {
-      if (state.peer !== peer) return;
-      console.error('Host signaling error', error);
-      connection('Connection problem', 'error');
-      notify(error.type === 'unavailable-id' ? 'Room code was already taken. Please try again.' : 'Could not connect to the room service. Try again.');
-      closeConnections();
+    peer.on('error',error=>{
+      if(state.peer!==peer)return;
+      console.warn('Host signaling error',error);
+      if(error?.type==='unavailable-id'||error?.type==='invalid-id'){
+        stopHostRecovery();
+        // Preserve the stream; only the old room code is no longer ours.
+        const fresh=newCode();
+        rememberHostCode(fresh);
+        try{peer.destroy();}catch{}
+        state.code=fresh;
+        const replacement=new window.Peer(PEER_PREFIX+fresh,PEER_OPTIONS);
+        state.peer=replacement;
+        configureHostPeer(replacement,fresh);
+        notify('Room code changed. Please share the newly generated link.');
+      }else recoverHost(peer,code);
     });
+  }
+  async function createRoom(){
+    if(!requirePeerJS()||state.connecting)return;
+    stopHostRecovery();
+    const code=previousHostCode()||newCode();
+    closeConnections();
+    state.role='host';state.connecting=true;state.code=code;
+    el.createRoom.disabled=true;
+    const peer=new window.Peer(PEER_PREFIX+code,PEER_OPTIONS);
+    state.peer=peer;
+    connection('Opening room…');
+    configureHostPeer(peer,code);
   }
   function setupGuestCallHandler(peer) {
     peer.on('call', (call) => {
@@ -4010,7 +4052,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       updateBroadcastIndicator();
     }else void startBroadcast().finally(updateBroadcastIndicator);
   });
-  el.endRoom.addEventListener('click', () => { stopBroadcast(); closeConnections(); notify('Room ended. Your video is still on this device.'); });
+  el.endRoom.addEventListener('click',()=>{
+    stopHostRecovery();rememberHostCode('');
+    stopBroadcast();closeConnections();
+    notify('Room ended. Your video is still on this device.');
+  });
   el.retryJoin.addEventListener('click',()=>{if(!state.connecting)void joinRoom();});
   el.cancelJoin.addEventListener('click',()=>{
     if(!state.connecting)return;
@@ -4343,13 +4389,16 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       if(state.bufferedMode || state.localVerified)void syncSeekablePlayback();
     }
   },1200);
-  document.addEventListener('visibilitychange', () => {
-    if (state.broadcasting && document.visibilityState === 'visible') requestWakeLock();
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible'&&state.role==='host'&&state.code&&state.peer&&!state.peer.open)
+      recoverHost(state.peer,state.code);
+    if(state.broadcasting&&document.visibilityState==='visible')requestWakeLock();
     if (state.broadcasting && document.visibilityState === 'hidden' && isMobile) {
       el.hint.textContent = 'On phones and tablets, keep this tab in the foreground while hosting.';
     }
   });
-  window.addEventListener('pagehide', () => {
+  window.addEventListener('pagehide',()=>{
+    clearTimeout(hostRecoveryTimer);
     saveWatchPosition(true);
     releaseWakeLock();
     retireHosted();
