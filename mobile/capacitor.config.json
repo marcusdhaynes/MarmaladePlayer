@@ -1,0 +1,13 @@
+{
+  "appId": "app.marmaladeplayer.mobile",
+  "appName": "MarmaladePlayer",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0
+    }
+  }
+}

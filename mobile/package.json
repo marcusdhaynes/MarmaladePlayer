@@ -1,0 +1,21 @@
+{
+  "name": "marmaladeplayer-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Android/iOS native shell for the shared MarmaladePlayer web app",
+  "scripts": {
+    "prepare:web": "node scripts/prepare-web.mjs",
+    "native:android": "npm run prepare:web && npx cap sync android",
+    "native:ios": "npm run prepare:web && npx cap sync ios",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.0",
+    "@capacitor/android": "8.6.0",
+    "@capacitor/ios": "8.6.0",
+    "@capacitor/app": "8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

@@ -1,0 +1,68 @@
+name: MarmaladePlayer Android APK
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'index.html'
+      - 'movie-info.js'
+      - 'movie-info.css'
+      - 'public-movie-info.js'
+      - 'watch-sync-subtitles.js'
+      - 'subtitle-match.js'
+      - 'subtitle-search.js'
+      - 'manifest.webmanifest'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Prepare Shared Web App
+        working-directory: mobile
+        run: |
+          npm install --no-audit --no-fund
+          npm run verify
+          npm run prepare:web
+      - name: Generate Native Android Project
+        working-directory: mobile
+        run: |
+          npx cap add android
+          node scripts/patch-native.mjs
+          npx cap sync android
+      - name: Build Installable Android APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+      - name: Verify APK exists and is an Android package
+        run: |
+          test -s mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -t mobile/android/app/build/outputs/apk/debug/app-debug.apk | tail -n 1
+          ls -lh mobile/android/app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MarmaladePlayer-Android-APK
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish Downloadable Preview APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="android-preview-${GITHUB_SHA:0:10}"
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk MarmaladePlayer-Android.apk
+          gh release create "$TAG" MarmaladePlayer-Android.apk --title "MarmaladePlayer Android Preview ${GITHUB_SHA:0:10}" --notes "Installable debug-signed Android preview. WebRTC hosting and local file playback require device testing. Android 8+; not a Play Store-signed release." --prerelease --target "$GITHUB_SHA"
