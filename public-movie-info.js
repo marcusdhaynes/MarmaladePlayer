@@ -124,7 +124,8 @@
   function extractFilmReception(html){
     if(!html)return {};
     const doc=parseHtml(html);
-    const paragraphs=[...doc.querySelectorAll('p')].map(p=>readableValue(p.textContent))
+    const paragraphs=[...doc.querySelectorAll('p')].map(p=>String(p.textContent||'')
+      .replace(/\[[^\]]{1,24}\]/g,'').replace(/\s+/g,' ').trim().slice(0,4000))
       .filter(text=>text.length>45);
     if(!paragraphs.length)return {};
     const picks=paragraphs.filter(x=>/Rotten Tomatoes|Metacritic|critics|reviews|reception/i.test(x));
