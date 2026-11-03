@@ -9,10 +9,16 @@
   "theme_color": "#101014",
   "icons": [
     {
-      "src": "favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "assets/marmalade-icon.webp",
+      "sizes": "1024x1024",
+      "type": "image/webp",
       "purpose": "any"
+    },
+    {
+      "src": "assets/marmalade-icon.webp",
+      "sizes": "1024x1024",
+      "type": "image/webp",
+      "purpose": "maskable"
     }
   ]
 }

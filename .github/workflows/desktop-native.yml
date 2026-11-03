@@ -55,7 +55,9 @@ jobs:
         working-directory: desktop
         run: |
           npm run prepare
-          npx tauri icon ../favicon.svg
+          python -m pip install --quiet pillow
+          python scripts/export-icon.py
+          npx tauri icon ../assets/marmalade-desktop-icon.png
       - name: Package native app
         working-directory: desktop
         run: npx tauri build --bundles ${{ matrix.bundle }}

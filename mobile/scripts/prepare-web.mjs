@@ -2,11 +2,11 @@ import {copyFileSync, mkdirSync, readFileSync, writeFileSync, rmSync} from 'node
 import {resolve, join} from 'node:path';
 const root=resolve(import.meta.dirname,'../..');
 const dest=resolve(root,'mobile/www');
-const files=['index.html','favicon.svg','manifest.webmanifest','movie-info.css','movie-info.js',
+const files=['index.html','favicon.svg','assets/marmalade-icon.webp','manifest.webmanifest','movie-info.css','movie-info.js',
   'public-movie-info.js','subtitle-match.js','subtitle-search.js','sw.js','watch-sync-subtitles.js'];
 rmSync(dest,{recursive:true,force:true});
 mkdirSync(dest,{recursive:true});
-for(const file of files)copyFileSync(join(root,file),join(dest,file));
+for(const file of files){mkdirSync(resolve(dest,file,'..'),{recursive:true});copyFileSync(join(root,file),join(dest,file));}
 // No service-worker cache can outlive the installed APK: native resources are
 // versioned by the app itself. Preserve the website SW unchanged at the root.
 let html=readFileSync(join(dest,'index.html'),'utf8');

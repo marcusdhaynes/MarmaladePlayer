@@ -28,6 +28,7 @@ jobs:
           test -s manifest.webmanifest
           test -s sw.js
           test -s favicon.svg
+          test -s assets/marmalade-icon.webp
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
