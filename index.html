@@ -362,7 +362,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
 @media(max-width:360px){.brand strong{font-size:14px}.identity{gap:5px}.top-actions .header-room-actions{gap:2px}.top-actions .header-room-actions .theater-pill{width:27px;min-width:27px}}
 
 /* Cosmic theme is opt-in and never interferes with player overlays. */
-body.cosmic-background .app-shell{position:relative;z-index:1}
+body.cosmic-background .app-shell,body.cosmic-background-02 .app-shell{position:relative;z-index:1}
 body.cosmic-background{background:#090719!important}
 body.cosmic-background::before{content:"";position:fixed;z-index:0;inset:-22%;pointer-events:none;
 background:radial-gradient(ellipse 42% 32% at 28% 28%,#ba2caa99 0%,#661ca566 42%,transparent 90%),
@@ -390,6 +390,21 @@ font-size:clamp(11px,2.8vw,23px)!important;z-index:12!important}
 body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
 body.document-pip .stage-poster-preview{display:none!important}
 
+
+/* Cosmic 02 matches the flat-vector galaxy of the approved launcher icon. */
+body.cosmic-background-02{background:#1e0750 url('./assets/cosmic-02.webp') center center/cover fixed no-repeat!important}
+@media(max-width:800px){body.cosmic-background-02{background-position:48% center!important}}
+.backgrounds-setting{border-top:1px solid #ffffff26;margin:10px 0 6px;padding-top:11px}
+.backgrounds-heading{color:#f4d6ff;font-size:11px;text-transform:uppercase;letter-spacing:1.4px;font-weight:800;margin:0 0 8px}
+.backgrounds-setting label{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#e5d3ed;font-size:12px}
+.backgrounds-setting select{background:#20122e;color:#f5e5ff;border:1px solid #70519a;padding:6px 7px;border-radius:6px}
+.stage-status-stack{display:flex;flex-direction:column;align-items:flex-start;gap:3px;pointer-events:auto}
+.stage-status-stack .stage-state{pointer-events:auto}
+.rotation-lock{display:flex;align-items:center;justify-content:center;position:relative;min-width:51px!important;height:23px!important;padding:2px 7px!important}
+.rotation-lock svg{width:17px;height:17px;display:block}
+.rotation-lock .rotation-mini-lock{position:absolute;right:7px;bottom:1px;font-size:7px;color:#ecb57c;opacity:1}
+.rotation-lock[aria-pressed="false"] .rotation-mini-lock{opacity:0}
+.rotation-lock[aria-pressed="false"]{color:#f0dcff!important;text-decoration:none!important;border-color:#7059a0!important}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -427,7 +442,7 @@ body.document-pip .stage-poster-preview{display:none!important}
           </div>
           
           <div class="theater-top">
-            <div class="stage-state"><button type="button" id="statusToggle" class="theater-pill" aria-pressed="false" title="Toggle playback status">STATUS</button><span class="stage-badge" id="stageBadge" hidden><span class="live-dot"></span><span id="stageBadgeText">Live</span></span></div>
+            <div class="stage-status-stack"><div class="stage-state"><button type="button" id="statusToggle" class="theater-pill" aria-pressed="false" title="Toggle playback status">STATUS</button><span class="stage-badge" id="stageBadge" hidden><span class="live-dot"></span><span id="stageBadgeText">Live</span></span></div><button type="button" id="rotationLockToggle" class="theater-pill rotation-lock" aria-pressed="true" aria-label="Orientation locked; tap to enable automatic rotation" title="Orientation locked · Tap to allow automatic rotation"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="4" width="8" height="13" rx="1.6"/><path d="M5 8a8 8 0 0 0 1 10m-1-4 1 4-4-1M19 15a8 8 0 0 0-1-10m1 4-1-4 4 1"/></svg><span class="rotation-mini-lock" aria-hidden="true">●</span></button></div>
             <div class="stage-indicators">
               <div class="stage-fps"><span class="fps-overlay" id="fpsOverlay" hidden aria-live="off">— FPS</span><button type="button" class="theater-pill fps-toggle" id="fpsToggle" aria-pressed="false" title="Toggle my displayed FPS">FPS</button></div>
               <div class="stage-buffer"><output id="bufferReadout" class="buffer-readout" hidden aria-live="off" title="Forward buffered video seconds">—s</output><button type="button" class="theater-pill buffer-toggle" id="bufferToggle" aria-pressed="false" title="Show buffered seconds ahead">BUFFER</button></div>
@@ -467,7 +482,7 @@ body.document-pip .stage-poster-preview{display:none!important}
             <div class="popover-heading"><strong>Playback Settings</strong><button type="button" id="closeSettingsPanel" aria-label="Close settings">✕</button></div>
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
-             <label class="cosmic-setting"><input id="cosmicBackgroundToggle" type="checkbox"> Cosmic Nebula Background</label>
+             <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast">Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
             <label><input type="checkbox" id="peerAssist" checked> Peer Rescue</label>
@@ -589,15 +604,21 @@ body.document-pip .stage-poster-preview{display:none!important}
   const media = el.player;
 
   // Keep cosmetic preferences device-local and restore without a layout flash.
-  const cosmicToggle=document.getElementById('cosmicBackgroundToggle');
-  try {document.body.classList.toggle('cosmic-background',localStorage.getItem('marmalade:cosmic-background')!=='false');}catch{}
-  if(cosmicToggle){
-    cosmicToggle.checked=document.body.classList.contains('cosmic-background');
-    cosmicToggle.addEventListener('change',()=>{
-      document.body.classList.toggle('cosmic-background',cosmicToggle.checked);
-      try{localStorage.setItem('marmalade:cosmic-background',String(cosmicToggle.checked));}catch{}
-    });
+  const backgroundTheme=document.getElementById('backgroundTheme');
+  let savedBackground='cosmic01';
+  try {
+    savedBackground=localStorage.getItem('marmalade:background-theme')||
+      (localStorage.getItem('marmalade:cosmic-background')==='false'?'none':'cosmic01');
+  }catch{}
+  if(!['cosmic01','cosmic02','none'].includes(savedBackground))savedBackground='cosmic01';
+  function applyBackground(theme){
+    document.body.classList.toggle('cosmic-background',theme==='cosmic01');
+    document.body.classList.toggle('cosmic-background-02',theme==='cosmic02');
+    if(backgroundTheme)backgroundTheme.value=theme;
+    try{localStorage.setItem('marmalade:background-theme',theme);}catch{}
   }
+  applyBackground(savedBackground);
+  backgroundTheme?.addEventListener('change',()=>applyBackground(backgroundTheme.value));
   // Poster is purely visual and never uploaded. Keep it until playback starts.
   const posterPreview=document.getElementById('stagePosterPreview');
   let posterHasPlayed=false;
@@ -1120,7 +1141,7 @@ body.document-pip .stage-poster-preview{display:none!important}
     const count = state.role === 'host'
       ? [...state.connections.values()].filter(x => x.conn.open).length
       : (state.guestConn && state.guestConn.open ? 1 : 0);
-    el.viewers.textContent = `${count} watching`;
+    el.viewers.textContent = `${count} Watching`;
   }
   function send(conn, message) {
     if (conn && conn.open) { try { conn.send(message); } catch (error) { console.warn('Data connection send failed', error); } }
@@ -3368,8 +3389,35 @@ body.document-pip .stage-poster-preview{display:none!important}
       notify(copied?'Room Link Copied!':'Clipboard access blocked. Copy the room URL from your browser.');
     }
   }
+  const rotationToggle=document.getElementById('rotationLockToggle');
+  let orientationLocked=true;
+  try{orientationLocked=localStorage.getItem('marmalade:rotation-locked')!=='false';}catch{}
+  function updateRotationButton(){
+    if(!rotationToggle)return;
+    rotationToggle.setAttribute('aria-pressed',String(orientationLocked));
+    rotationToggle.title=orientationLocked?'Orientation locked · Tap for auto rotation':'Auto rotation on · Tap to lock current orientation';
+    rotationToggle.setAttribute('aria-label',orientationLocked?'Orientation locked; tap to enable automatic rotation':'Automatic rotation on; tap to lock current orientation');
+  }
+  async function applyOrientationPreference(){
+    if(!(state.theaterMode||document.fullscreenElement===el.stage))return;
+    if(window.MarmaladeNativeOrientation?.set){
+      try{await window.MarmaladeNativeOrientation.set(orientationLocked?'lock':'auto');return;}catch{}
+    }
+    try{
+      if(orientationLocked)await screen.orientation?.lock?.(screen.orientation.type||'portrait-primary');
+      else screen.orientation?.unlock?.();
+    }catch{}
+  }
+  rotationToggle?.addEventListener('click',()=>{
+    orientationLocked=!orientationLocked;
+    try{localStorage.setItem('marmalade:rotation-locked',String(orientationLocked));}catch{}
+    updateRotationButton();
+    void applyOrientationPreference();
+  });
+  updateRotationButton();
   function releaseOrientation(){
     try{screen.orientation?.unlock?.();}catch{}
+    try{window.MarmaladeNativeOrientation?.set?.('restore');}catch{}
   }
   async function setNativeFullscreen(enter){
     try{
@@ -3389,13 +3437,7 @@ body.document-pip .stage-poster-preview{display:none!important}
     void setNativeFullscreen(false);
     revealControls();
   }
-  async function lockLandscape(){
-    if(!isMobile)return;
-    try{await screen.orientation?.lock?.('landscape');}catch{
-      // Some Safari/WebView implementations disallow orientation locking.
-      // In landscape the fullscreen CSS still uses the entire viewport.
-    }
-  }
+  async function lockLandscape(){await applyOrientationPreference();}
   async function toggleFullscreen(){
     if(state.theaterMode||document.fullscreenElement===el.stage){
       leaveTheater();return;
@@ -3547,6 +3589,10 @@ body.document-pip .stage-poster-preview{display:none!important}
     }
     if(media.readyState<2||!el.stage.classList.contains('has-video')){
       notify('Load a video before opening Pop-Out.');return;
+    }
+    if(!window.MarmaladeNativePictureInPicture?.enter && /Android/i.test(navigator.userAgent) && window.Capacitor){
+      const cap=window.Capacitor;
+      window.MarmaladeNativePictureInPicture={enter:()=>cap.Plugins?.MarmaladePictureInPicture?.enter?.() || cap.nativePromise?.('MarmaladePictureInPicture','enter',{}) || Promise.reject(new Error('Android native PiP bridge unavailable'))};
     }
     if(window.MarmaladeNativePictureInPicture?.enter){
       // Android OS PiP remains above other apps, supports pinch-resize and

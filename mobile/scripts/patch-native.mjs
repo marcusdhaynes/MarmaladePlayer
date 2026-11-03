@@ -103,6 +103,34 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setOrientation(PluginCall call) {
+        String mode=call.getString("mode","lock");
+        Activity activity=getActivity();
+        activity.runOnUiThread(()->{
+            try {
+                if ("auto".equals(mode)) {
+                    activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+                } else if ("restore".equals(mode)) {
+                    activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                } else {
+                    int orient=activity.getResources().getConfiguration().orientation;
+                    int rotation=activity.getWindowManager().getDefaultDisplay().getRotation();
+                    boolean landscape=orient==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+                    int desired=landscape ?
+                        (rotation==android.view.Surface.ROTATION_270 ?
+                         android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE :
+                         android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) :
+                        (rotation==android.view.Surface.ROTATION_180 ?
+                         android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT :
+                         android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                    activity.setRequestedOrientation(desired);
+                }
+                call.resolve();
+            } catch(Exception error) {call.reject("Could not change orientation",error);}
+        });
+    }
+
+    @PluginMethod
     public void enterFullscreen(PluginCall call) {
         Activity activity = getActivity();
         activity.runOnUiThread(() -> {

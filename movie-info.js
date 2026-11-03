@@ -82,8 +82,7 @@
             data.imdbEpisodeId=found.id;
           else data.imdbId=found.id;
         }
-        // A fresh render displays the score in both the compact title box and
-        // Ratings & Reception, without affecting video playback or local votes.
+        // Refreshes the single IMDb card in Ratings & Reception.
         render(data);
         broadcast();
       }).catch(()=>{if(button.isConnected)number.textContent='N/A';});
@@ -538,7 +537,6 @@
     const copy = line(hero,'div','mi-hero-copy');
     const titleRow=line(copy,'div','mi-title-line');
     line(titleRow,'h2','',data.title + (data.year ? ' (' + data.year + ')' : ''));
-    personalRatingCard(titleRow,data);
     if (data.episodeTitle) line(copy,'p','mi-kicker',
       'Season ' + data.season + ', Episode ' + data.episode + ' — ' + data.episodeTitle);
     if (data.tagline) line(copy,'p','mi-tagline',data.tagline);
@@ -551,8 +549,20 @@
       link(refs,'Wikipedia',data.sourceUrl);
     else if(!data.source||data.source==='tmdb')
       link(refs,'TMDB', 'https://www.themoviedb.org/' + data.kind + '/' + data.id);
-    // The compact IMDb card beside the title opens its official rating flow.
     const score = section(ui.results,'Ratings & Reception');
+    const ratingCards=line(score,'div','mi-rating-cards');
+    personalRatingCard(ratingCards,data);
+    // Rotten Tomatoes data is only displayed when supplied by a verified
+    // metadata source; otherwise the link clearly states N/A.
+    const rt=(data.ratings||[]).find(r=>/Rotten Tomatoes/i.test(r?.source||''));
+    const rtCard=line(ratingCards,'a','mi-user-rating mi-rt-rating');
+    rtCard.href='https://www.rottentomatoes.com/search?search='+encodeURIComponent(data.title||'');
+    rtCard.target='_blank';rtCard.rel='noopener noreferrer';
+    rtCard.title='Find '+data.title+' on Rotten Tomatoes';
+    line(rtCard,'span','mi-user-rating-head','RT');
+    line(rtCard,'span','mi-user-rating-stars','●').setAttribute('aria-hidden','true');
+    line(rtCard,'span','mi-user-rating-number',rt?.value||'N/A');
+    line(rtCard,'span','mi-user-rating-note','Rotten Tomatoes ↗');
     const scoreGrid = line(score,'div','mi-stats');
     let listed=0;
     if(Number(data.score)>0){
@@ -560,21 +570,15 @@
         Number(data.score).toFixed(1)+'/10'+(data.votes?' · '+Number(data.votes).toLocaleString()+' Votes':''));
       listed++;
     }
-    if(data.imdbScore){
-      const via=data.imdbScoreVia||'OMDb';
-      const suffix=data.imdbRatingIsSeries?' · Series':'';
-      labeled(scoreGrid,'IMDb'+suffix+' (via '+via+')',data.imdbScore+'/10');
-      listed++;
-    }
     if(data.metacritic){labeled(scoreGrid,'Metacritic (via OMDb)',data.metacritic+'/100');listed++;}
     for(const rating of data.ratings||[]){
       if(!rating?.source||!rating.value)continue;
-      if(/Internet Movie Database/i.test(rating.source)||
+      if(/Internet Movie Database|Rotten Tomatoes/i.test(rating.source)||
           (/Metacritic/i.test(rating.source)&&data.metacritic))continue;
       labeled(scoreGrid,rating.source+(rating.via?' (via '+rating.via+')':''),rating.value);
       listed++;
     }
-    if(!listed)labeled(scoreGrid,'Public Ratings','Not Available From Connected Sources');
+    if(!listed && !data.imdbScore && !rt?.value)labeled(scoreGrid,'Public Ratings','Not Available From Connected Sources');
     if(data.receptionText){
       const text=line(score,'p','mi-reception-text',data.receptionText);
       text.title='Source: '+(data.wiki?.title||'Wikipedia');

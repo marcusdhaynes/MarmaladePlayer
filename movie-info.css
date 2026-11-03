@@ -80,3 +80,10 @@
 .mi-user-rating-number{margin-top:1px!important}
 .mi-user-rating-note{margin-top:1px!important}
 @media(max-width:510px){.mi-user-rating{padding:3px 5px!important;max-width:44%!important}}
+
+/* Paired, content-sized source rating cards in Ratings & Reception. */
+.mi-rating-cards{display:flex;align-items:flex-start;justify-content:flex-start;gap:8px;flex-wrap:wrap;margin:9px 0 12px}
+.mi-rating-cards .mi-user-rating{width:max-content!important;height:auto!important;max-width:160px!important;min-width:100px!important;aspect-ratio:auto!important;padding:6px 9px!important}
+.mi-rt-rating .mi-user-rating-stars{color:#e94a50!important;font-size:15px!important;line-height:1!important}
+.mi-rt-rating .mi-user-rating-head{color:#f7b0aa!important}
+.mi-rating-cards .mi-user-rating-note{font-size:9px!important}
