@@ -1703,10 +1703,15 @@ body.theater-open{overflow:hidden}
           }
         }
         if (data.type === 'hello' || data.type === 'requeststate') send(conn, hostStatus());
-        if (data.type === 'local-verified' && data.verified === true) {
-          entry.localMirror=true;
-          try{entry.call?.close();}catch{} entry.call=null;
-          void tuneAllGuests();
+        if (data.type === 'local-verified' && typeof data.verified === 'boolean') {
+          entry.localMirror=data.verified;
+          if(data.verified){
+            try{entry.call?.close();}catch{} entry.call=null;
+            void tuneAllGuests();
+          }else{
+            entry.mediaConfirmed=false;entry.applied='';
+            if(state.outgoing && state.source==='file')callGuest(conn.peer);
+          }
         }
         if (data.type === 'buffer-status' && typeof data.ready==='boolean') {
           entry.bufferReady=data.ready;entry.lastBufferReport=performance.now();
@@ -2203,11 +2208,21 @@ body.theater-open{overflow:hidden}
   }
   function setupGuestCallHandler(peer) {
     peer.on('call', (call) => {
-      if (state.peer !== peer || state.role !== 'guest' || state.localVerified || state.bufferedMode || call.peer !== PEER_PREFIX + state.code) { call.close(); return; }
+      if (state.peer !== peer || state.role !== 'guest' ||
+          (state.localVerified && !state.localReturnPending) ||
+          (state.bufferedMode && !state.localVerified) ||
+          call.peer !== PEER_PREFIX + state.code) { call.close(); return; }
       try { state.guestCall?.close(); } catch { /* no-op */ }
       state.guestCall = call;
       call.on('stream', async (stream) => {
-        if (state.guestCall !== call) return;
+        if (state.guestCall !== call || (state.localVerified && !state.localReturnPending)) return;
+        const hadLocal=state.localVerified && state.localReturnPending;
+        const oldLocalUrl=hadLocal?state.localFileUrl:null;
+        if(hadLocal){
+          state.localVerified=false;state.bufferedMode=false;
+          state.localFileUrl=null;state.localSelectionId++;
+        }
+        state.localReturnPending=false;
         state.guestQualitySample = null;
         state.mediaAwaitingAt = 0;
         state.mediaRequestAt = 0;
@@ -2229,6 +2244,7 @@ body.theater-open{overflow:hidden}
         media.pause();
         media.removeAttribute('src');
         media.srcObject = stream;
+        if(oldLocalUrl)URL.revokeObjectURL(oldLocalUrl);
         media.autoplay = true;
         media.playsInline = true;
         state.source = 'remote';
@@ -2244,6 +2260,7 @@ body.theater-open{overflow:hidden}
         // resume() can remain unresolved until the next user interaction,
         // leaving the movie element permanently paused and black.
         connection('Starting movie…');
+        if(hadLocal){localNotice('Streaming Restored. Hold Link to Re-enable Local Video.');updateRoomActions();}
         try {
           await media.play(); // Native video and audio, independent of Web Audio.
           if (state.guestCall !== call) return;
