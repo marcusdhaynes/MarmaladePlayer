@@ -8,12 +8,12 @@
   const appearance=panel.querySelector('.subtitle-style');
   const actions=el.loadSubtitle.closest('.popover-actions');
   panel.classList.add('subtitle-studio');
-  panel.querySelector('.popover-heading strong').textContent='My subtitles';
+  panel.querySelector('.popover-heading strong').textContent='My Subtitles';
   el.loadSubtitle.textContent='Load .srt / .vtt';
   el.hideSubtitle.textContent='Off';
   const css=document.createElement('style');
   css.textContent=[
-    '.subtitle-studio{position:fixed!important;z-index:1210!important;top:12px;left:12px;right:auto!important;bottom:auto!important;width:min(352px,calc(100vw - 24px))!important;max-height:calc(100dvh - 24px)!important;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 22px 56px #000b;background:#19191fee}',
+    '.subtitle-studio{position:fixed!important;z-index:1210!important;top:12px;left:12px;right:auto!important;bottom:auto!important;width:min(344px,calc(100vw - 24px))!important;max-height:calc(100dvh - 24px)!important;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 22px 56px #000b;background:#19191fee}',
     '.subtitle-studio[hidden]{display:none!important}',
     '.subtitle-studio .sub-tabs{display:grid;grid-template-columns:1fr 1fr;gap:5px}',
     '.subtitle-studio .sub-tabs button[aria-selected=true]{border-color:#ffad69;background:#51372c;color:#fff}',
@@ -34,33 +34,24 @@
     '.subtitle-studio .sub-result strong{display:block;font-size:10px}',
     '.subtitle-studio .sub-result small,.subtitle-studio .sub-note{font-size:9px;color:#bfb1b9;line-height:1.4}',
     '.subtitle-studio .sub-result a,.subtitle-studio .sub-result button{font-size:10px;padding:5px 7px;text-decoration:none;border:1px solid #6a5548;border-radius:5px;background:#352c2b;color:#ffdaaa}',
-    '.subtitle-studio .subtitle-style{border:0;padding:0;gap:8px}',
+    '.subtitle-studio .subtitle-style{border:0;padding:0;gap:5px}',
     '.subtitle-studio .sub-setting-value{display:inline-block;min-width:32px;text-align:right;font-size:9px;color:#ffd8ac;font-variant-numeric:tabular-nums}',
-    '.subtitle-studio .subtitle-style-row{grid-template-columns:minmax(68px,1fr) auto auto auto}',
+    '.subtitle-studio .subtitle-style-row{grid-template-columns:minmax(0,1fr) 26px minmax(80px,102px) 45px}',
     '.subtitle-studio input[type=checkbox]{accent-color:#ffa869}',
-    '@media(max-width:450px){.subtitle-studio .sub-results{max-height:165px}}'
+    '@media(max-width:450px){.subtitle-studio .sub-results{max-height:165px}.subtitle-studio .subtitle-style-row{grid-template-columns:minmax(0,1fr) 24px minmax(70px,92px) 43px;gap:4px}}'
   ].join('\n');
   document.head.append(css);
   const tabs=document.createElement('div');
   tabs.className='sub-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Subtitle tools');
-  tabs.innerHTML='<button id="subFindTab" type="button" role="tab" aria-selected="true" aria-controls="subFindView">Find subtitles</button>'+
+  tabs.innerHTML='<button id="subFindTab" type="button" role="tab" aria-selected="true" aria-controls="subFindView">Find Subtitles</button>'+
     '<button id="subStyleTab" type="button" role="tab" aria-selected="false" aria-controls="subStyleView">Appearance</button>';
   actions.insertAdjacentElement('afterend',tabs);
   const find=document.createElement('section'),style=document.createElement('section');
   find.id='subFindView';find.className='sub-view';find.setAttribute('role','tabpanel');
   style.id='subStyleView';style.className='sub-view';style.setAttribute('role','tabpanel');style.hidden=true;
   tabs.insertAdjacentElement('afterend',find);find.insertAdjacentElement('afterend',style);style.append(appearance);
-  // Show actual values next to every size/transparency control. Transparency
-  // is 0% (solid) to 100% (invisible), consistent with the labels.
-  for(const input of appearance.querySelectorAll('input[type=range][data-sub-key]')){
-    const out=document.createElement('output');
-    out.className='sub-setting-value';
-    input.insertAdjacentElement('afterend',out);
-    const update=()=>{out.textContent=input.value+
-      (input.dataset.subKey==='timing'?'s':input.dataset.subKey.endsWith('Alpha')?'%':'px');};
-    input.addEventListener('input',update);
-    update();
-  }
+  // Appearance controls create their own single, aligned value outputs.
+  // Avoid adding duplicate outputs that shift the slider columns.
 
   function place(){
     if(panel.hidden)return;
@@ -87,7 +78,7 @@
   const form=document.createElement('form');
   form.className='sub-search';form.id='subSearchForm';
   form.innerHTML=
-    '<label>Movie / series name<input class="sub-input" type="search" id="subSearchTitle" maxlength="160" required placeholder="Auto-filled from the video" autocomplete="off"></label>'+
+    '<label>Movie / Series Name<input class="sub-input" type="search" id="subSearchTitle" maxlength="160" required placeholder="Auto-filled from the video" autocomplete="off"></label>'+
     '<div class="sub-pair"><label>Year<input class="sub-input" type="number" min="1890" max="2100" id="subSearchYear" placeholder="Any"></label>'+
     '<label>Language<select class="sub-input" id="subSearchLanguage">'+
     [['en','English'],['ar','Arabic'],['id','Indonesian'],['es','Spanish'],['fr','French'],['de','German'],['pt','Portuguese'],['it','Italian'],['ru','Russian'],['tr','Turkish'],['fa','Persian'],['hi','Hindi'],['ja','Japanese'],['ko','Korean'],['zh','Chinese'],['','All languages']]
@@ -96,10 +87,10 @@
     [['','Any'],['480p','480p'],['720p','720p'],['1080p','1080p'],['2160p','4K / 2160p'],['BluRay','BluRay'],['WEB','WEB / WEB-DL']]
     .map(([v,n])=>'<option value="'+v+'">'+n+'</option>').join('')+'</select></label>'+
     '<label>Type<select class="sub-input" id="subSearchType"><option value="movie">Movie</option><option value="tv">TV series</option></select></label></div>'+
-    '<details id="subSearchAdvanced"><summary>Episode filters</summary><div class="sub-pair">'+
+    '<details id="subSearchAdvanced"><summary>Episode Filters</summary><div class="sub-pair">'+
     '<label>Season<input class="sub-input" type="number" id="subSearchSeason" min="1" max="999" placeholder="Any"></label>'+
     '<label>Episode<input class="sub-input" type="number" id="subSearchEpisode" min="1" max="9999" placeholder="Any"></label></div></details>'+
-    '<div class="sub-actions"><button id="subSearchSubmit" type="submit">Search subtitles</button>'+
+    '<div class="sub-actions"><button id="subSearchSubmit" type="submit">Search Subtitles</button>'+
     '<button id="subSearchReset" type="button">↺ File</button></div>'+
     '<div class="sub-note" id="subSearchStatus" role="status" aria-live="polite">Based on your video filename.</div>'+
     '<div id="subSearchResults" class="sub-results" aria-label="Subtitle results"></div>'+
