@@ -419,6 +419,26 @@ body.native-pip-active .stage .mini-player-transport,body.native-pip-active .sta
 .stage.mini-pip-visible .mini-player-overlay{display:block!important}
 body.native-pip-active .stage .subtitle-overlay{z-index:15!important}
 
+
+/* Small rotation control is only as wide as its glyph. */
+.rotation-lock,.stage-status-stack .rotation-lock{width:25px!important;min-width:25px!important;max-width:25px!important;height:24px!important;min-height:24px!important;padding:2px!important;display:grid!important;place-items:center!important;border-radius:6px!important}
+.rotation-lock svg{width:19px!important;height:19px!important;margin:0!important}
+.rotation-lock .rotation-mini-lock{display:none!important}
+/* App-controlled Document PiP: naked, clickable SVG buttons, with a subtle
+   text shadow only. Never imitate the system controls in native Android PiP. */
+.mini-player-overlay{pointer-events:none;opacity:1;transition:opacity .2s ease}
+.mini-player-transport{background:none!important;border:0!important;border-radius:0!important;padding:0!important;backdrop-filter:none!important;box-shadow:none!important;gap:5px!important;bottom:7px!important;left:8px!important}
+.mini-player-transport button,.mini-player-return{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;width:27px!important;height:27px!important;color:white!important;filter:drop-shadow(0 1px 3px #000) drop-shadow(0 1px 5px #000b)}
+.mini-player-transport button:hover,.mini-player-return:hover{background:transparent!important;transform:scale(1.08)}
+.mini-player-transport svg{width:22px!important;height:22px!important}
+.mini-player-return{font-size:21px!important;top:5px!important;right:6px!important}
+.stage.mini-pip-visible:not(.mini-controls-awake) .mini-player-overlay{opacity:0;pointer-events:none!important}
+.stage.mini-pip-visible:not(.mini-controls-awake) .mini-player-transport,.stage.mini-pip-visible:not(.mini-controls-awake) .mini-player-return{pointer-events:none!important}
+.stage.mini-pip-visible.mini-controls-awake .mini-player-overlay{opacity:1}
+body.native-pip-active .stage .mini-player-overlay{display:none!important}
+body.native-pip-active .stage .subtitle-overlay{display:block!important;z-index:21!important;max-width:90%;margin:auto;text-shadow:0 2px 4px #000,0 1px 8px #000!important}
+body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
+
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -3404,28 +3424,35 @@ body.native-pip-active .stage .subtitle-overlay{z-index:15!important}
       notify(copied?'Room Link Copied!':'Clipboard access blocked. Copy the room URL from your browser.');
     }
   }
+
+  // Rotate the FULLSCREEN movie explicitly between portrait and landscape.
+  // Store the chosen orientation for future fullscreen sessions.
   const rotationToggle=document.getElementById('rotationLockToggle');
-  let orientationLocked=true;
-  try{orientationLocked=localStorage.getItem('marmalade:rotation-locked')!=='false';}catch{}
+  let fullscreenOrientation='portrait';
+  try{
+    const saved=localStorage.getItem('marmalade:fullscreen-orientation');
+    fullscreenOrientation=['portrait','landscape'].includes(saved)?saved:
+      ((screen.orientation?.type||'').startsWith('landscape')?'landscape':'portrait');
+  }catch{}
   function updateRotationButton(){
     if(!rotationToggle)return;
-    rotationToggle.setAttribute('aria-pressed',String(orientationLocked));
-    rotationToggle.title=orientationLocked?'Orientation locked · Tap for auto rotation':'Auto rotation on · Tap to lock current orientation';
-    rotationToggle.setAttribute('aria-label',orientationLocked?'Orientation locked; tap to enable automatic rotation':'Automatic rotation on; tap to lock current orientation');
+    const landscape=fullscreenOrientation==='landscape';
+    rotationToggle.setAttribute('aria-pressed',String(landscape));
+    rotationToggle.title=landscape?'Switch Fullscreen To Portrait':'Switch Fullscreen To Landscape';
+    rotationToggle.setAttribute('aria-label',rotationToggle.title);
   }
   async function applyOrientationPreference(){
     if(!(state.theaterMode||document.fullscreenElement===el.stage))return;
-    if(window.MarmaladeNativeOrientation?.set){
-      try{await window.MarmaladeNativeOrientation.set(orientationLocked?'lock':'auto');return;}catch{}
-    }
     try{
-      if(orientationLocked)await screen.orientation?.lock?.(screen.orientation.type||'portrait-primary');
-      else screen.orientation?.unlock?.();
-    }catch{}
+      if(window.MarmaladeNativeOrientation?.set)
+        await window.MarmaladeNativeOrientation.set(fullscreenOrientation);
+      else if(screen.orientation?.lock)
+        await screen.orientation.lock(fullscreenOrientation);
+    }catch(error){console.debug('Fullscreen rotation unavailable',error);}
   }
   rotationToggle?.addEventListener('click',()=>{
-    orientationLocked=!orientationLocked;
-    try{localStorage.setItem('marmalade:rotation-locked',String(orientationLocked));}catch{}
+    fullscreenOrientation=fullscreenOrientation==='portrait'?'landscape':'portrait';
+    try{localStorage.setItem('marmalade:fullscreen-orientation',fullscreenOrientation);}catch{}
     updateRotationButton();
     void applyOrientationPreference();
   });
@@ -3605,15 +3632,33 @@ body.native-pip-active .stage .subtitle-overlay{z-index:15!important}
   if(el.playIcon && typeof MutationObserver!=='undefined')
     new MutationObserver(()=>syncMiniIcon(miniPlay,el.play))
       .observe(el.playIcon,{attributes:true,childList:true,subtree:true});
+
+  let miniFadeTimer=null;
+  let nativePipActive=false;
+  const showMiniControls=()=>{
+    if(!el.stage.classList.contains('mini-pip-visible'))return;
+    el.stage.classList.add('mini-controls-awake');
+    clearTimeout(miniFadeTimer);
+    miniFadeTimer=setTimeout(()=>el.stage.classList.remove('mini-controls-awake'),5000);
+  };
   const setMiniOverlay=visible=>{
+    clearTimeout(miniFadeTimer);
     if(miniOverlay)miniOverlay.hidden=!visible;
     el.stage.classList.toggle('mini-pip-visible',visible);
+    el.stage.classList.toggle('mini-controls-awake',visible);
+    if(visible)showMiniControls();
   };
+  miniOverlay?.addEventListener('pointerdown',showMiniControls,{passive:true});
+  el.stage.addEventListener('pointerdown',()=>{if(el.stage.classList.contains('mini-pip-visible'))showMiniControls();},{passive:true});
   window.addEventListener('marmalade:native-pip',event=>{
     const active=!!event.detail?.active;
+    nativePipActive=active;
     document.body.classList.toggle('native-pip-active',active);
-    setMiniOverlay(active);
-    if(!active){document.body.classList.remove('native-pip-active');revealControls();}
+    // Android intercepts taps on a system PiP activity. Showing web buttons
+    // there creates dead controls; Android's own 10-second actions remain live.
+    setMiniOverlay(false);
+    if(active)window.MarmaladeSubtitleRefresh?.();
+    else{document.body.classList.remove('native-pip-active');revealControls();}
   });
   window.addEventListener('marmalade:pip-command',event=>{
     const type=event.detail?.type;
@@ -3670,7 +3715,8 @@ body.native-pip-active .stage .subtitle-overlay{z-index:15!important}
       // Android OS PiP remains above other apps, supports pinch-resize and
       // retains the WebView subtitle overlay with its own system controls.
       document.body.classList.add('native-pip-active');
-      setMiniOverlay(true);
+      setMiniOverlay(false);
+      window.MarmaladeSubtitleRefresh?.();
       try{await window.MarmaladeNativePictureInPicture.enter();return;}
       catch(error){document.body.classList.remove('native-pip-active');setMiniOverlay(false);
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
@@ -3696,6 +3742,8 @@ body.native-pip-active .stage .subtitle-overlay{z-index:15!important}
         el.stage.classList.add('controls-visible');
 
         pop.addEventListener('pagehide',restoreDocumentPip,{once:true});
+        pop.document.addEventListener('pointerdown',showMiniControls,{passive:true});
+        pop.document.addEventListener('pointermove',showMiniControls,{passive:true});
         return;
       }catch(error){
         try{pipWindow?.close();}catch{}

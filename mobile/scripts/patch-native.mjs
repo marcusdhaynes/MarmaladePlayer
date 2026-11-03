@@ -136,7 +136,11 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
         Activity activity=getActivity();
         activity.runOnUiThread(()->{
             try {
-                if ("auto".equals(mode)) {
+                if ("landscape".equals(mode)) {
+                    activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                } else if ("portrait".equals(mode)) {
+                    activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+                } else if ("auto".equals(mode)) {
                     activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
                 } else if ("restore".equals(mode)) {
                     activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -209,9 +213,23 @@ import android.os.Build;
 import android.view.WindowInsets;
 import android.view.View;
 import android.graphics.Color;
+import android.os.Handler;
+import android.os.Looper;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    // Refresh WebVTT/SRT text even when Android throttles JS timers in PiP.
+    private final Handler subtitleHandler=new Handler(Looper.getMainLooper());
+    private final Runnable subtitleRefresh=new Runnable(){
+        @Override public void run(){
+            if(android.os.Build.VERSION.SDK_INT>=26 && isInPictureInPictureMode()){
+                if(bridge!=null && bridge.getWebView()!=null)
+                    bridge.getWebView().evaluateJavascript(
+                        "window.MarmaladeSubtitleRefresh&&window.MarmaladeSubtitleRefresh();",null);
+                subtitleHandler.postDelayed(this,200);
+            }
+        }
+    };
     private final BroadcastReceiver pipMediaReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (bridge != null && bridge.getWebView() != null) {
@@ -284,6 +302,7 @@ public class MainActivity extends BridgeActivity {
     }
     @Override
     public void onDestroy() {
+        subtitleHandler.removeCallbacks(subtitleRefresh);
         try { unregisterReceiver(pipMediaReceiver); } catch (Exception ignored) {}
         super.onDestroy();
     }
@@ -291,6 +310,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onPictureInPictureModeChanged(boolean active, Configuration config) {
         super.onPictureInPictureModeChanged(active, config);
+        subtitleHandler.removeCallbacks(subtitleRefresh);
+        if(active) subtitleHandler.post(subtitleRefresh);
         View root = findViewById(android.R.id.content);
         if (root != null) root.requestApplyInsets();
         if (bridge != null && bridge.getWebView() != null) {
