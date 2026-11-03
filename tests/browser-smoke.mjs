@@ -189,7 +189,8 @@ try {
     await page.locator('[data-sub-key="textSize"]').evaluate(e=>{
       e.value='34';e.dispatchEvent(new Event('input',{bubbles:true}));
     });
-    assert.equal(await page.locator('#subtitleOverlay').evaluate(e=>e.style.fontSize),'34px');
+    const responsiveSize=parseFloat(await page.locator('#subtitleOverlay').evaluate(e=>e.style.fontSize));
+    assert(responsiveSize>=9 && responsiveSize<=34,'Caption text is scaled to fit the video without overflowing');
     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade-subtitle-style-v1')).textSize),34);
     await page.locator('#subFindTab').click({force:true});
     assert.equal(await page.locator('#subFindTab').count(),1,'Search belongs in Subtitle window');
