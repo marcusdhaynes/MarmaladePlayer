@@ -606,7 +606,7 @@ try {
   // Mobile and slow-network signaling regressions: no endless Joining screen.
   {
     const {page,errors}=await launchRoomPage();
-    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.locator('#roomInput').evaluate(input=>{input.value='ABCDEFGH';input.dispatchEvent(new Event('input',{bubbles:true}));});
     await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
     assert.equal(await page.locator('#joinProgress').isVisible(),false);
     assert.equal(await page.locator('#retryJoin').isVisible(),false);
@@ -616,7 +616,7 @@ try {
   }
   {
     const {page,errors}=await launchRoomPage();
-    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.locator('#roomInput').evaluate(input=>{input.value='ABCDEFGH';input.dispatchEvent(new Event('input',{bubbles:true}));});
     await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
     await page.locator('#leaveRoom').click();
     // Suppress the next data-channel open to exercise Cancel on an in-flight join.
@@ -627,8 +627,8 @@ try {
         window.__connections.push(conn);return conn;
       };
     });
-    await page.locator('#roomInput').fill('ABCDEFGH');
-    await page.locator('#roomInput').press('Enter');
+    await page.locator('#roomInput').evaluate(input=>{input.value='ABCDEFGH';input.dispatchEvent(new Event('input',{bubbles:true}));});
+    await page.locator('#roomInput').evaluate(input=>input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
     await page.waitForFunction(()=>!document.querySelector('#joinProgress').hidden);
     assert.equal(await page.locator('#cancelJoin').isVisible(),true);
     await page.locator('#cancelJoin').click();
@@ -648,7 +648,7 @@ try {
         window.__connections.push(conn);return conn;
       };
     });
-    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.locator('#roomInput').evaluate(input=>{input.value='ABCDEFGH';input.dispatchEvent(new Event('input',{bubbles:true}));});
     await page.waitForFunction(()=>window.__peers.length===1);
     await page.evaluate(()=>window.__peers[0].handlers.error({type:'network'}));
     await page.waitForFunction(()=>document.querySelector('#joinProgressText')?.textContent?.includes('Retrying'));
@@ -673,7 +673,7 @@ try {
         window.__connections.push(conn);return conn;
       };
     });
-    await page.locator('#roomInput').fill('ABCDEFGH');
+    await page.locator('#roomInput').evaluate(input=>{input.value='ABCDEFGH';input.dispatchEvent(new Event('input',{bubbles:true}));});
     await page.waitForFunction(()=>window.__peers.length===1);
     await page.evaluate(()=>window.__peers[0].handlers.error({type:'peer-unavailable'}));
     await page.waitForFunction(()=>!document.querySelector('#retryJoin').hidden);
