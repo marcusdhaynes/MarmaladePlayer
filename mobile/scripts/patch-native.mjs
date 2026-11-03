@@ -41,7 +41,7 @@ if(existsSync(manifest)){
 const nativeDir=resolve(mobile,'android/app/src/main/java/app/marmaladeplayer/mobile');
 const activity=resolve(nativeDir,'MainActivity.java');
 if(existsSync(activity)){
-  const plugin=\`package app.marmaladeplayer.mobile;
+  const plugin=`package app.marmaladeplayer.mobile;
 
 import android.app.Activity;
 import android.app.PictureInPictureParams;
@@ -73,9 +73,9 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
         });
     }
 }
-\`;
+`;
   writeFileSync(resolve(nativeDir,'MarmaladePictureInPicturePlugin.java'),plugin);
-  writeFileSync(activity,\`package app.marmaladeplayer.mobile;
+  writeFileSync(activity,`package app.marmaladeplayer.mobile;
 
 import android.content.res.Configuration;
 import android.os.Bundle;
@@ -98,7 +98,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 }
-\`);
+`);
   console.log('Android: System Picture-in-Picture enabled.');
 }
 const plist=resolve(mobile,'ios/App/App/Info.plist');
