@@ -5,7 +5,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const ui = {
-    toggle: $('mediaInfoToggle'), panel: $('mediaInfoPanel'), close: $('miClose'),
+    toggle: $('mediaInfoToggle'), panel: $('mediaInfoPanel'), close: $('miClose'), reopen: $('mediaInfoReopen'),
     status: $('miStatus'), form: $('miSearchForm'), search: $('miSearch'),
     matches: $('miMatches'), results: $('miResults'), sources: $('miSources'), kind: $('miKind'),
     tmdb: $('miTmdbToken'), omdb: $('miOmdbKey'), subtitles: $('miSubtitlesKey'),
@@ -92,12 +92,14 @@
   }
   function openPanel(scroll = false) {
     ui.panel.hidden = false;
+    if (ui.reopen) { ui.reopen.parentElement.hidden = true; ui.reopen.setAttribute('aria-expanded', 'true'); }
     ui.toggle.setAttribute('aria-expanded', 'true');
     if (scroll) ui.panel.scrollIntoView({block: 'nearest', behavior: 'smooth'});
   }
-  function closePanel() { ui.panel.hidden = true; ui.toggle.setAttribute('aria-expanded', 'false'); }
+  function closePanel() { ui.panel.hidden = true; if (ui.reopen) { ui.reopen.parentElement.hidden = false; ui.reopen.setAttribute('aria-expanded', 'false'); } ui.toggle.setAttribute('aria-expanded', 'false'); }
   ui.toggle.addEventListener('click', () => ui.panel.hidden ? openPanel(true) : closePanel());
   ui.close.addEventListener('click', closePanel);
+  if (ui.reopen) { ui.reopen.parentElement.hidden = !ui.panel.hidden; ui.reopen.addEventListener('click', () => openPanel(true)); }
   function normalize(value) {
     return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
       .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
