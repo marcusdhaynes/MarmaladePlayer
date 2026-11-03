@@ -416,6 +416,41 @@
       return {text, title:page.title, url:'https://en.wikipedia.org/?curid=' + page.pageid};
     } catch { return null; }
   }
+  async function enhanceMissingTmdbFields(record,parsed,seq){
+    if(record.kind!=='movie'||!window.MarmaladePublicMovieInfo||
+        (record.budget>0&&record.revenue>0&&record.score>0))return;
+    try{
+      const source=window.MarmaladePublicMovieInfo;
+      const {record:wiki}=await source.lookup({kind:'movie',title:record.title,
+        year:Number(record.year)||null,season:null,episode:null});
+      if(!wiki||wiki.source!=='wikipedia'||normalize(wiki.title)!==normalize(record.title))return;
+      if(wiki.year&&record.year&&Number(wiki.year)!==Number(record.year))return;
+      const details=await source.enrichFilm(wiki);
+      if(seq!==sequence||displayed!==record)return;
+      const next={...record};
+      let updated=false;
+      if(!record.budget&&details.budgetText){
+        next.budgetText=details.budgetText;next.budget=details.budget||0;updated=true;
+      }
+      if(!record.revenue&&details.revenueText){
+        next.revenueText=details.revenueText;next.revenue=details.revenue||0;updated=true;
+      }
+      if(!record.imdbId&&details.imdbId){next.imdbId=details.imdbId;updated=true;}
+      if(details.receptionText){next.receptionText=details.receptionText;updated=true;}
+      const wikiRatings=Array.isArray(details.ratings)?details.ratings:[];
+      if(wikiRatings.length){
+        next.ratings=[...(next.ratings||[])];
+        for(const rating of wikiRatings)if(!next.ratings.some(r=>
+          normalize(r.source)===normalize(rating.source))){
+          next.ratings.push(rating);updated=true;
+        }
+      }
+      if(!updated)return;
+      next.financeSourceUrl=wiki.wiki?.url||'';
+      next.receptionSourceUrl=wiki.wiki?.url||'';
+      displayed=next;render(next);broadcast();
+    }catch{} // Never let an optional source alter existing TMDB results.
+  }
   async function loadRecord(kind, id, parsed, seq) {
     if (seq !== sequence) return;
     ui.results.replaceChildren();
@@ -475,10 +510,10 @@
       render(displayed);
       status('Details Loaded');
       broadcast();
+      void enhanceMissingTmdbFields(displayed,parsed,seq);
     } catch (error) {
       if (seq !== sequence) return;
-      status('Lookup Unavailable');
-      clearResult(error.message || 'Could not load details.');
+      await publicLookup(parsed,seq,error);
     }
   }
   function labeled(parent, title, value) {
@@ -540,7 +575,8 @@
     if(data.receptionText){
       const text=line(score,'p','mi-reception-text',data.receptionText);
       text.title='Source: '+(data.wiki?.title||'Wikipedia');
-      if(data.wiki?.url)link(score,'Reception Source · Wikipedia',data.wiki.url);
+      if(data.receptionSourceUrl||data.wiki?.url)
+        link(score,'Reception Source · Wikipedia',data.receptionSourceUrl||data.wiki.url);
     }
     const production = section(ui.results,'Production & Finances');
     const financial = line(production,'div','mi-stats');
@@ -548,8 +584,8 @@
       ?(data.budgetText||plainMoney(data.budget)):'Not Consistently Reported for TV');
     labeled(financial,'Worldwide Revenue',data.kind==='movie'
       ?(data.revenueText||plainMoney(data.revenue)):'Not Consistently Reported for TV');
-    if((data.budgetText||data.revenueText)&&data.wiki?.url)
-      link(production,'Financial Figures · Wikipedia',data.wiki.url);
+    if((data.budgetText||data.revenueText)&&(data.financeSourceUrl||data.wiki?.url))
+      link(production,'Financial Figures · Wikipedia',data.financeSourceUrl||data.wiki.url);
     if (data.omdbBoxOffice) labeled(financial,'Box Office (OMDb)',data.omdbBoxOffice);
     if(data.runtime||data.runtimeText)
       labeled(financial,'Runtime',data.runtimeText||String(data.runtime)+' min');
