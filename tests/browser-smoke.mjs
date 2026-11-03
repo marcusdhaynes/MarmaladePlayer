@@ -725,8 +725,8 @@ try {
     }
     const {page,errors}=await launchRoomPage('/?room=ABCDEFGH');
     await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,null,{timeout:6000});
-    assert.equal(await page.locator('#localCopyPanel').isVisible(),true,'Guest local-copy option displayed');
-    assert.equal(await page.locator('#localCopyButton').isDisabled(),true,'Wait for movie identity');
+    assert.equal(await page.locator('#localCopyPanel').isVisible(),false,'Local video picker opens on demand');
+    assert.equal(await page.locator('#localCopyButton').isDisabled(),false,'Connected guests can open the Local Video picker');
     assert.equal(await page.locator('#settingsPanel #localCopyPanel').count(),0,'No hidden duplicate controls');
     await page.evaluate(fp=>{
       const conn=window.__connections[0];
