@@ -24,4 +24,14 @@
   };
   App?.addListener('appUrlOpen',event=>route(event.url)).catch(()=>{});
   App?.getLaunchUrl?.().then(event=>event?.url&&route(event.url)).catch(()=>{});
+  // Capacitor v8 exposes nativePromise on the injected bridge. Our native
+  // Android Activity supports true OS PiP even while the media is paused.
+  if(native.getPlatform?.()==='android'&&typeof native.nativePromise==='function'){
+    window.MarmaladeNativePictureInPicture={
+      enter:()=>native.nativePromise('MarmaladePictureInPicture','enter',{})
+    };
+    window.addEventListener('marmalade:native-pip',event=>{
+      document.body.classList.toggle('native-pip-active',!!event.detail?.active);
+    });
+  }
 })();
