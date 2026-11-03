@@ -279,6 +279,25 @@ body.theater-open{overflow:hidden}
 .seek-stack .buffered-fill[hidden]{display:none!important}
 .seek-stack input[type=range]::-webkit-slider-runnable-track{background:rgba(255,255,255,.23)}
 .seek-stack input[type=range]::-moz-range-track{background:rgba(255,255,255,.23)}
+/* Minimal glass controls for room sharing and local playback, without the old sidebar. */
+.workspace{grid-template-columns:minmax(0,1fr)!important}
+.legacy-room-controls{display:none!important}
+.room-join-inline{display:flex;gap:8px;margin:0 0 12px;max-width:460px}
+.room-join-inline[hidden]{display:none!important}
+.room-join-inline .text-input{margin:0;padding:10px 12px;background:#17161c;border:1px solid #4e4148;border-radius:9px;font-size:11px}
+.room-join-inline .compact-retry{padding:10px 14px;white-space:nowrap;border:1px solid #72553f;background:#332824;color:#f8c896;border-radius:9px;font-size:11px}
+.stage-indicators{pointer-events:none}
+.stage-quick-actions{display:flex;gap:5px;justify-content:flex-end;align-items:center;margin-top:3px;pointer-events:auto}
+.stage-quick-actions .theater-pill{opacity:1!important;display:inline-flex;align-items:center;justify-content:center;width:33px;height:29px;min-height:29px;padding:4px!important;color:#e9d9ce;background:#111319d9!important;border:1px solid #ffffff32!important;border-radius:7px!important;pointer-events:auto;transition:background .16s ease,border-color .16s ease}
+.stage-quick-actions svg{width:18px;height:18px;display:block}
+.stage-quick-actions .theater-pill:hover:not(:disabled),.stage-quick-actions .theater-pill:focus-visible{background:#3a2b29!important;border-color:#ffa862!important}
+.stage-quick-actions .theater-pill:disabled{opacity:.4!important;cursor:not-allowed}
+.stage-quick-actions .quick-link-btn[aria-pressed=true]{color:#ffd09a;border-color:#f5b575!important;background:#513628!important}
+.stage-quick-actions .quick-link-btn.local-suspended{color:#92929b}
+.local-copy-feedback{font-size:10px;color:#e9c59e;line-height:1.4;margin:0 4px 10px;max-width:780px}
+.local-copy-feedback[hidden]{display:none!important}
+#hostVideoDiagnostic{display:none!important}
+@media(max-width:450px){.stage-quick-actions .theater-pill{width:29px;height:27px;min-height:27px}.stage-quick-actions svg{width:16px;height:16px}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -311,6 +330,14 @@ body.theater-open{overflow:hidden}
             <div class="stage-indicators">
               <div class="stage-fps"><span class="fps-overlay" id="fpsOverlay" hidden aria-live="off">— FPS</span><button type="button" class="theater-pill fps-toggle" id="fpsToggle" aria-pressed="false" title="Toggle my displayed FPS">FPS</button></div>
               <div class="stage-buffer"><output id="bufferReadout" class="buffer-readout" hidden aria-live="off" title="Forward buffered video seconds">—s</output><button type="button" class="theater-pill buffer-toggle" id="bufferToggle" aria-pressed="false" title="Show buffered seconds ahead">BUFFER</button></div>
+              <div class="stage-quick-actions" aria-label="Room Actions">
+  <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 13.9a5 5 0 0 0 7.4.5l2.1-2.1a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M14.2 10.1a5 5 0 0 0-7.4-.5l-2.1 2.1a5 5 0 0 0 7.1 7.1l1.2-1.2"/></svg>
+  </button>
+  <button type="button" id="copyLink" class="theater-pill quick-share-btn" disabled title="Share: Copy Room Link" aria-label="Share: Copy Room Link">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5"/><path d="M5 13v5.3A2.7 2.7 0 0 0 7.7 21h8.6a2.7 2.7 0 0 0 2.7-2.7V13"/></svg>
+  </button>
+</div>
             </div>
           </div>
           <div class="subtitle-overlay" id="subtitleOverlay" hidden></div>
@@ -357,6 +384,12 @@ body.theater-open{overflow:hidden}
           </div>
         </div>
         <div class="below-stage"><span><span class="small-shield">✳</span> Video streams peer-to-peer. No video file upload.</span><span id="mediaHint">Optimized for low latency, not zero latency.</span></div>
+        <div class="local-copy-feedback" id="localCopyPanel" hidden role="status" aria-live="polite"><small id="localCopyStatus">Waiting for Host Video…</small></div>
+        <input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg" hidden>
+        <section class="room-join-inline" id="joinSection" aria-label="Join Room">
+          <input id="roomInput" class="text-input" type="text" placeholder="Paste a Room Invitation Link or Code" autocomplete="off" spellcheck="false" aria-label="Room Invitation or Code">
+          <button id="retryJoin" type="button" class="compact-retry" hidden>Retry</button>
+        </section>
 
         <section class="media-info" id="mediaInfoPanel" aria-label="Movie and TV information" hidden>
           <div class="mi-header"><strong>Movie &amp; series information</strong><div class="mi-header-right"><span id="miStatus" class="mi-muted" role="status" aria-live="polite">No video selected</span><button type="button" id="miClose" aria-label="Close movie information">✕</button></div></div>
@@ -381,30 +414,20 @@ body.theater-open{overflow:hidden}
       </section>
 
 
-      <aside class="sidepanel compact-sidepanel" aria-label="Watch room">
-        <section class="compact-join" id="joinSection">
-          <label for="roomInput" class="compact-label"><span class="compact-icon">↗</span> Join a room</label>
-          <input id="roomInput" class="text-input" type="text" placeholder="Paste invitation link or room code" autocomplete="off" spellcheck="false" aria-describedby="joinHelp">
-          <p class="compact-help" id="joinHelp">Paste an invite to join automatically.</p>
-          <button id="retryJoin" type="button" class="compact-retry" hidden>Retry connection</button>
-        </section>
+      <div class="legacy-room-controls" hidden aria-hidden="true">
         <section class="compact-room compact-joining" id="joinProgress" hidden role="status">
           <span class="compact-heading"><span class="room-indicator"></span><strong id="joinProgressText">Finding your host…</strong><button id="cancelJoin" type="button" class="compact-text-btn">Cancel</button></span>
           <p class="compact-help">Keep this page open while Marmalade connects.</p>
         </section>
         <section id="hostActive" class="compact-room" hidden>
           <div class="compact-heading"><span class="room-indicator"></span><strong>Hosting</strong><button id="endRoom" type="button" class="compact-text-btn">End room</button></div>
-          <div class="copy-row compact-copy"><input id="inviteLink" readonly aria-label="Your invitation link"><button id="copyLink" type="button" title="Copy invite link" aria-label="Copy invite link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg></button></div>
+          <input id="inviteLink" type="hidden" readonly>
           <p class="compact-help">Copy this link to invite someone.</p>
         </section>
         <section id="joinActive" class="compact-room" hidden>
           <div class="compact-heading"><span class="room-indicator"></span><strong>Watching together</strong><button id="leaveRoom" type="button" class="compact-text-btn">Leave</button></div>
           <span id="joinedCode" class="compact-room-code">—</span>
-          <div class="local-copy guest-local-copy" id="localCopyPanel" hidden>
-            <button type="button" id="localCopyButton" disabled>Use my copy of the movie</button>
-            <input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg" hidden>
-            <small id="localCopyStatus" role="status" aria-live="polite">Waiting for the host's movie…</small>
-          </div>
+          <!-- Guest local file controls are now beside the Share action. -->
         </section>
         <div class="compact-separator"></div>
         <section class="hosted-link compact-cdn" aria-label="Buffer-first CDN video">
@@ -413,7 +436,7 @@ body.theater-open{overflow:hidden}
           <input type="url" id="fallbackUrl" placeholder="Optional backup URL (failover)" aria-label="Fallback video URL" autocomplete="off">
           <button type="button" id="hostedStart">Use hosted video + create room</button>
         </section>
-      </aside>
+      </div>
       <div class="compatibility-controls" hidden aria-hidden="true">
         <div class="role-tabs"><button id="hostTab" type="button">Host</button><button id="joinTab" type="button">Join</button></div>
         <div id="hostPanel">
