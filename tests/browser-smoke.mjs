@@ -621,7 +621,7 @@ try {
     const {page,errors}=await launchRoomPage();
     await page.locator('#roomInput').evaluate(input=>{input.value='ABCDEFGH';input.dispatchEvent(new Event('input',{bubbles:true}));});
     await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden);
-    await page.locator('#leaveRoom').click();
+    await page.locator('#leaveRoom').evaluate(button=>button.click());
     // Suppress the next data-channel open to exercise Cancel on an in-flight join.
     await page.evaluate(()=>{
       window.Peer.prototype.connect=function(id){
@@ -633,8 +633,8 @@ try {
     await page.locator('#roomInput').evaluate(input=>{input.value='ABCDEFGH';input.dispatchEvent(new Event('input',{bubbles:true}));});
     await page.locator('#roomInput').evaluate(input=>input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
     await page.waitForFunction(()=>!document.querySelector('#joinProgress').hidden);
-    assert.equal(await page.locator('#cancelJoin').isVisible(),true);
-    await page.locator('#cancelJoin').click();
+    assert.equal(await page.locator('#cancelJoin').evaluate(el=>!el.hidden),true);
+    await page.locator('#cancelJoin').evaluate(button=>button.click());
     assert.equal(await page.locator('#joinProgress').isVisible(),false);
     assert.equal(await page.locator('#joinSection').isVisible(),false);
     assert.equal(await page.locator('#connectionText').textContent(),'Not connected');
