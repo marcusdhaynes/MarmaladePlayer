@@ -23,7 +23,7 @@
   ui.tmdb.value = credentials.tmdb || '';
   ui.omdb.value = credentials.omdb || '';
   ui.subtitles.value = credentials.subtitles || '';
-  ui.sources.open = !credentials.tmdb;
+  ui.sources.open = false;
   function node(tag, cls, text) {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -172,12 +172,62 @@
     line(ui.results, 'p', 'mi-empty', message);
     broadcast();
   }
+  async function publicLookup(parsed,seq,priorError=null){
+    if(seq!==sequence)return;
+    const source=window.MarmaladePublicMovieInfo;
+    if(!source){
+      status('Information Source Unavailable');
+      clearResult('Could not initialize the public movie-information source.');
+      return;
+    }
+    if(!parsed.title||parsed.title.length<2){
+      status('Title Needed');
+      clearResult('Enter a Movie or Series Title to find information.');
+      return;
+    }
+    status('Looking Up Movie Information…');
+    try{
+      const {record,alternatives}=await source.lookup(parsed);
+      if(seq!==sequence)return;
+      displayed={...record,fileDetails:detected?.metadata||null};
+      render(displayed);
+      status('Details Loaded Automatically');
+      ui.sources.open=false;
+      broadcast();
+      if(Array.isArray(alternatives)&&alternatives.length){
+        ui.matches.replaceChildren();
+        const wrap=line(ui.matches,'div','mi-match-row');
+        line(wrap,'span','mi-muted','Other Film Versions');
+        for(const title of alternatives){
+          const button=line(wrap,'button','mi-choice',title);
+          button.type='button';
+          button.addEventListener('click',async()=>{
+            if(seq!==sequence)return;
+            status('Loading Selected Version…');
+            try{
+              const selected=await source.article(title,parsed);
+              if(seq!==sequence)return;
+              displayed={...selected,fileDetails:detected?.metadata||null};
+              render(displayed);
+              status('Details Loaded Automatically');
+              broadcast();
+            }catch(error){if(seq===sequence)status('Version Unavailable');}
+          });
+        }
+      }
+    }catch(error){
+      if(seq!==sequence)return;
+      status('Information Unavailable');
+      clearResult('Automatic movie-information lookup failed. '+
+        (error?.message||'Try a more specific title or release year.')+
+        (priorError?' The optional TMDB source also failed.':''));
+      ui.sources.open=false;
+    }
+  }
   async function findMovie(parsed, seq, feature = null) {
     if (seq !== sequence) return;
     if (!credentials.tmdb) {
-      status('Source setup needed');
-      clearResult('Add a TMDB API key or read-access token in Sources to load cast, scores, budgets and more.');
-      ui.sources.open = true;
+      await publicLookup(parsed,seq);
       return;
     }
     status('Looking up filmography…');
@@ -218,8 +268,7 @@
       await loadRecord(parsed.kind, items[0].id, parsed, seq);
     } catch (error) {
       if (seq !== sequence) return;
-      status('Lookup unavailable');
-      clearResult(error.message || 'Could not reach the movie database. Playback is unaffected.');
+      await publicLookup(parsed,seq,error);
     }
   }
   async function fetchOmdb(imdbId, parsed) {
@@ -285,7 +334,7 @@
       const primaryCrew = crew.filter(x => ['Director','Writer','Screenplay','Creator'].includes(x.job) ||
         ['Directing','Writing'].includes(x.department)).slice(0,12);
       displayed = {
-        kind, id, imdbId, title:record.title || record.name,
+        source:'tmdb',kind, id, imdbId, title:record.title || record.name,
         year, tagline:record.tagline || '', overview:record.overview || '',
         poster:record.poster_path ? 'https://image.tmdb.org/t/p/w342' + record.poster_path : '',
         backdrop:record.backdrop_path ? 'https://image.tmdb.org/t/p/w780' + record.backdrop_path : '',
@@ -348,12 +397,20 @@
     line(copy,'p','mi-overview',data.episodeOverview || data.overview || 'No synopsis reported.');
     line(copy,'p','mi-muted',data.genres.join(' · '));
     const refs = line(copy,'div','mi-link-row');
-    link(refs,'TMDB', 'https://www.themoviedb.org/' + data.kind + '/' + data.id);
+    if(data.source==='tvmaze'&&/^https:\/\//.test(data.sourceUrl||''))
+      link(refs,'TVmaze',data.sourceUrl);
+    else if(data.source==='wikipedia'&&/^https:\/\//.test(data.sourceUrl||''))
+      link(refs,'Wikipedia',data.sourceUrl);
+    else if(!data.source||data.source==='tmdb')
+      link(refs,'TMDB', 'https://www.themoviedb.org/' + data.kind + '/' + data.id);
     if (data.imdbId && /^tt\d+$/.test(data.imdbId))
       link(refs,'IMDb','https://www.imdb.com/title/' + data.imdbId + '/');
     const score = section(ui.results,'Ratings & reception');
     const scoreGrid = line(score,'div','mi-stats');
-    labeled(scoreGrid,'TMDB community',data.score ? data.score.toFixed(1) + '/10' + (data.votes ? ' · ' + data.votes.toLocaleString() + ' votes' : '') : 'Not rated');
+    labeled(scoreGrid,data.source==='tvmaze'?'TVmaze Viewers':
+      data.source==='wikipedia'?'Wikipedia':'TMDB Community',
+      data.score?data.score.toFixed(1)+'/10'+(data.votes?' · '+data.votes.toLocaleString()+' Votes':''):
+      data.source==='wikipedia'?'No Ratings Available':'Not Rated');
     if (data.imdbScore) labeled(scoreGrid,'IMDb via OMDb',data.imdbScore + '/10');
     if (data.metacritic) labeled(scoreGrid,'Metacritic via OMDb',data.metacritic + '/100');
     for (const rating of data.ratings || []) {
@@ -431,8 +488,12 @@
     const limited = (task, timeout = 6500) => Promise.race([
       task.catch(() => null), new Promise(resolve => setTimeout(() => resolve(null), timeout))
     ]);
+    // Automatic title-first lookup; media parsing and optional file-hash lookup
+    // refine the result later without holding up the initial information panel.
+    const initial={...parsed};
+    void findMovie(initial,seq);
     const [metadata, match] = await Promise.all([
-      limited(fileMetadata(file)), limited(hashMatch(file))
+      limited(fileMetadata(file),3500), limited(hashMatch(file),2500)
     ]);
     if (seq !== sequence) return;
     detected.metadata = metadata;
@@ -448,7 +509,12 @@
     if (match?.episode_number) parsed.episode=Number(match.episode_number);
     ui.search.value = parsed.title;
     ui.kind.value = parsed.kind;
-    await findMovie(parsed,seq,match);
+    if(normalize(initial.title)!==normalize(parsed.title)||initial.kind!==parsed.kind||
+      initial.year!==parsed.year||initial.season!==parsed.season||
+      initial.episode!==parsed.episode||match?.tmdb_id||
+      match?.parent_tmdb_id||match?.imdb_id){
+      await findMovie(parsed,++sequence,match);
+    }
   }
   ui.form.addEventListener('submit', event => {
     event.preventDefault();
@@ -466,7 +532,12 @@
     try {localStorage.setItem(STORE,JSON.stringify(credentials));} catch {}
     ui.sources.open = false;
     status('Sources saved in this browser');
-    if (activeFile) void start(activeFile);
+    if(activeFile)void start(activeFile);
+    else if(ui.search.value.trim()){
+      const parsed={...(detected?.parsed||{season:null,episode:null,year:null}),
+        title:ui.search.value.trim(),kind:ui.kind.value};
+      void findMovie(parsed,++sequence);
+    }
   });
   ui.forget.addEventListener('click', () => {
     credentials = {};
