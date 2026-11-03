@@ -820,6 +820,13 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
     return (h ? `${h}:${String(m).padStart(2, '0')}` : String(m).padStart(2, '0')) + ':' + String(rest).padStart(2, '0');
   }
   function updateTransport() {
+    updateBroadcastIndicator();
+    const chromePaused=isPlaybackPausedForControls();
+    if(state.lastChromePaused!==chromePaused){
+      state.lastChromePaused=chromePaused;
+      if(chromePaused)revealControls();
+      else scheduleControlsFade();
+    }
     const duration = media.duration;
     const isFile = ['file','hosted'].includes(state.source) && state.fileReady && state.role === 'host';
     const guestConnected = state.role === 'guest' && Boolean(state.guestConn?.open);
@@ -864,14 +871,28 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
     el.badge.classList.toggle('is-broken', broken);
     el.badge.classList.toggle('is-paused', !broken && paused);
   }
-  function revealControls() {
-    el.stage.classList.add('controls-visible');
+  function isPlaybackPausedForControls(){
+    if(state.role==='guest'&&state.sharedDuration>0)return !state.hostPlaying;
+    return media.paused;
+  }
+  function canHideControls(){
+    if(!el.stage.classList.contains('has-video')||isPlaybackPausedForControls())return false;
+    if(!el.settingsPanel.hidden||!el.subtitlePanel.hidden)return false;
+    // A persistent tapped focus must not trap controls on touch devices.
+    if(!isMobile&&el.stage.contains(document.activeElement)&&
+      document.activeElement!==el.stage)return false;
+    return true;
+  }
+  function scheduleControlsFade(delay=isMobile?7200:3600){
     clearTimeout(state.controlHideTimer);
-    if (!el.settingsPanel.hidden || !el.subtitlePanel.hidden || (el.stage.contains(document.activeElement) && document.activeElement !== el.stage)) return;
-    state.controlHideTimer = setTimeout(() => {
-      if (el.settingsPanel.hidden && el.subtitlePanel.hidden &&
-          !(el.stage.contains(document.activeElement) && document.activeElement !== el.stage)) el.stage.classList.remove('controls-visible');
-    }, 3600);
+    if(!canHideControls())return;
+    state.controlHideTimer=setTimeout(()=>{
+      if(canHideControls())el.stage.classList.remove('controls-visible');
+    },delay);
+  }
+  function revealControls(){
+    el.stage.classList.add('controls-visible');
+    scheduleControlsFade();
   }
   // Forward-buffer estimate is meaningful only for seekable movie sources.
   // Live WebRTC doesn't expose seconds of *future movie frames*: never pretend
@@ -1777,6 +1798,7 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
     badge('');
     el.startBroadcast.textContent = 'Start watching  ▶';
     el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
+    updateBroadcastIndicator();
   }
   function removeMedia() {
     saveWatchPosition(true);
@@ -1807,7 +1829,23 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
     buildQualitySelect();
   }
 
+  function updateBroadcastIndicator(){
+    const hosted=state.role==='host'&&state.source==='hosted'&&
+      state.peer?.open&&state.fileReady;
+    const live=state.role==='host'?(!!state.broadcasting||!!hosted):
+      state.role==='guest'&&!!state.guestConn?.open&&!!state.hostStreamLive;
+    const available=state.role==='host'&&!!state.peer?.open&&
+      (state.fileReady||state.source==='screen');
+    el.broadcastToggle.disabled=state.role!=='host'||state.broadcastStarting||
+      (!available&&!state.broadcasting);
+    el.broadcastToggle.setAttribute('aria-pressed',String(!!live));
+    el.broadcastToggle.setAttribute('aria-label',live?'Broadcasting':'Not Broadcasting');
+    el.broadcastToggle.title=state.role==='guest'?
+      (live?'Host Is Broadcasting':'Host Is Not Broadcasting'):
+      live?'Broadcasting · Click to Stop':'Not Broadcasting · Click to Broadcast';
+  }
   function updateRoomActions() {
+    updateBroadcastIndicator();
     const connected=state.role==='guest' && !!state.guestConn?.open;
     el.localCopyButton.disabled=!connected;
     el.localCopyButton.classList.toggle('local-suspended',!!state.localModeOff);
@@ -2996,10 +3034,11 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
   }
   function setVolume(raw) {
     let next = Math.max(0, Math.min(200, Math.round(Number(raw) || 0)));
-    const before = state.volumePercent;
-    if (before < 100 && next > 100 && !state.volumeDetent) {
-      next = 100; state.volumeDetent = true;
-    } else if (next <= 100 || Math.abs(next - 100) >= 4) state.volumeDetent = false;
+    const distance=Math.abs(next-100);
+    // Gentle 100% magnetic detent; moving a few points further releases it.
+    if(distance<=2||(state.volumeDetent&&distance<=4)){
+      next=100;state.volumeDetent=true;
+    }else state.volumeDetent=false;
     state.volumePercent = next;
     if (next) { state.lastVolume = next / 100; state.soundMuted = false; }
     applyVolume();
@@ -3115,6 +3154,7 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
         state.outgoing = state.screenStream;
       } else state.outgoing = await captureLocalMedia();
       state.broadcasting = true;
+      updateBroadcastIndicator();
       requestWakeLock();
       badge('LIVE');
       el.startBroadcast.textContent = 'Broadcasting  ●';
@@ -3133,6 +3173,7 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
     } finally {
       state.broadcastStarting = false;
       el.startBroadcast.disabled = state.broadcasting || (!state.fileReady && state.source !== 'screen');
+      updateBroadcastIndicator();
     }
   }
   async function shareScreen() {
@@ -3232,12 +3273,7 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
   el.stage.addEventListener('pointerdown', revealControls, {passive:true});
   el.stage.addEventListener('focusin', revealControls);
   el.stage.addEventListener('pointerleave', () => {
-    if (el.settingsPanel.hidden && el.subtitlePanel.hidden) {
-      clearTimeout(state.controlHideTimer);
-      state.controlHideTimer = setTimeout(() => {
-        if (!(el.stage.contains(document.activeElement) && document.activeElement !== el.stage)) el.stage.classList.remove('controls-visible');
-      }, 450);
-    }
+    if(!isMobile)scheduleControlsFade(450);
   });
 
   // Settings is a real floating palette, not a child clipped by the video.
@@ -3288,7 +3324,8 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
   el.stage.addEventListener('pointerdown',event=>{
     if(event.target.closest('.theater-popover,#settingsBtn,#subtitlesBtn'))return;
     if(!el.settingsPanel.hidden){el.settingsPanel.hidden=true;el.settingsBtn.setAttribute('aria-expanded','false');}
-    if(!el.subtitlePanel.hidden){el.subtitlePanel.hidden=true;el.subtitleBtn.setAttribute('aria-expanded','false');}
+    // Keep the subtitle editor open so transport, seeking, and video taps can
+    // preview subtitle changes without reopening the panel.
   });
   el.subtitleBtn.addEventListener('click',()=>togglePopover(el.subtitlePanel,el.subtitleBtn));
   el.statusToggle.addEventListener('click',()=>{
@@ -3445,6 +3482,14 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
   el.createRoom.addEventListener('click', createRoom);
   el.copy.addEventListener('click', copyInvite);
   el.startBroadcast.addEventListener('click', startBroadcast);
+  el.broadcastToggle.addEventListener('click',()=>{
+    if(state.role!=='host'||state.broadcastStarting)return;
+    if(state.broadcasting){
+      stopBroadcast(state.source==='screen');
+      connection('Not Broadcasting');
+      updateBroadcastIndicator();
+    }else void startBroadcast().finally(updateBroadcastIndicator);
+  });
   el.endRoom.addEventListener('click', () => { stopBroadcast(); closeConnections(); notify('Room ended. Your video is still on this device.'); });
   el.retryJoin.addEventListener('click',()=>{if(!state.connecting)void joinRoom();});
   el.cancelJoin.addEventListener('click',()=>{
@@ -3710,7 +3755,9 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
   });
   for (const event of ['play', 'pause', 'seeked', 'ended']) media.addEventListener(event, () => {
     if(event==='pause'||event==='seeked'||event==='ended')saveWatchPosition(true);
-    updateTransport(); syncState(); if (event === 'play') autoStartIfPlaying();
+    updateTransport();syncState();
+    if(event==='play')autoStartIfPlaying();
+    if(event==='play'||event==='pause'||event==='ended')revealControls();
   });
   media.addEventListener('timeupdate', () => {
     saveWatchPosition();
