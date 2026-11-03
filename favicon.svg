@@ -1,1 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#ffa348"/><circle cx="32" cy="32" r="22" fill="#ffbd67"/><circle cx="32" cy="32" r="17" fill="none" stroke="#fff0d6" stroke-width="2"/><path d="M32 10v44M10 32h44M18.6 18.6l26.8 26.8m0-26.8L18.6 45.4" stroke="#fff0d6" stroke-width="3"/><circle cx="32" cy="32" r="4" fill="#76452a"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Marmalade jar with play symbol">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#43251d"/><stop offset="1" stop-color="#190f19"/></linearGradient>
+<linearGradient id="jam" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffcb54"/><stop offset=".5" stop-color="#f77b1d"/><stop offset="1" stop-color="#ad3619"/></linearGradient>
+<linearGradient id="cap" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#ffedb6"/><stop offset="1" stop-color="#c37d35"/></linearGradient>
+</defs>
+<rect width="128" height="128" rx="29" fill="url(#bg)"/>
+<path d="M24 98c12-6 19-14 24-23m56 23c-12-6-19-14-24-23" fill="none" stroke="#9d4d24" stroke-width="5" stroke-linecap="round" opacity=".62"/>
+<path d="M42 37h44l8 13v42c0 13-12 20-30 20s-30-7-30-20V50z" fill="url(#jam)" stroke="#ffd27f" stroke-width="3"/>
+<path d="M43 53c-3 20-1 40 6 47" fill="none" stroke="#fff1a5" stroke-width="5" stroke-linecap="round" opacity=".55"/>
+<path d="M37 39c3-7 6-11 11-12h32c5 1 8 5 11 12l-6 7H43z" fill="#e9aa50"/>
+<rect x="37" y="22" width="54" height="15" rx="7" fill="url(#cap)" stroke="#ffe4a2" stroke-width="2"/>
+<path d="M44 28h40" stroke="#fff2c8" stroke-width="2" opacity=".8"/>
+<path d="M54 60c0-3 3-5 6-3l23 14c3 2 3 5 0 7L60 92c-3 2-6 0-6-3z" fill="#fff8e7" stroke="#a8421e" stroke-width="1.4"/>
+</svg>
