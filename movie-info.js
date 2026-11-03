@@ -77,7 +77,7 @@
         data.imdbScore=Number(found.score).toFixed(1);
         data.imdbScoreVia=found.via||'Public IMDb Data';
         data.imdbRatingIsSeries=!!found.isSeriesRating;
-        if(/^tt\\d{6,10}$/.test(String(found.id||''))){
+        if(/^tt\d{6,10}$/.test(String(found.id||''))){
           if(data.kind==='tv'&&data.season>0&&data.episode>0&&!found.isSeriesRating)
             data.imdbEpisodeId=found.id;
           else data.imdbId=found.id;
