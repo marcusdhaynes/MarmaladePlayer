@@ -45,3 +45,28 @@
 .mi-footnote{margin:11px 0 3px;border-top:1px solid #ffffff19;padding-top:10px;font-size:10px}
 .mi-attribution{color:#89838c;font-size:10px;line-height:1.5;margin-top:12px;border-top:1px solid #ffffff16;padding-top:10px}
 @media(max-width:510px){.media-info{padding:12px}.mi-header{gap:5px}.mi-header>strong{font-size:12px}.mi-hero{gap:11px}.mi-poster{width:95px}.mi-hero h2{font-size:18px}.mi-settings-row{grid-template-columns:1fr}.mi-cast-grid{grid-template-columns:repeat(auto-fit,minmax(125px,1fr))}}
+
+/* Compact, independent 1–10 personal rating beside the title. */
+.mi-title-line{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin:0 0 7px}
+.mi-title-line>h2{flex:1;min-width:0;margin:0!important}
+.mi-user-rating{flex:none;width:148px;max-width:44%;padding:6px 7px 5px;border:1px solid #68534a;border-radius:8px;background:#141317;text-align:center}
+.mi-user-rating-head{display:block;color:#dbbc9e;font-size:9px;font-weight:750;letter-spacing:.25px;line-height:1.1;margin-bottom:5px}
+.mi-user-rating-stars{display:flex;align-items:center;justify-content:center;gap:0;white-space:nowrap}
+.mi-user-rating-star{flex:1;min-width:0;width:12px;height:19px;padding:0!important;margin:0;border:0!important;background:transparent!important;color:#655f66;font-size:13px;line-height:18px;cursor:pointer;touch-action:manipulation}
+.mi-user-rating-star[aria-pressed=true]{color:#ffbf75}
+.mi-user-rating-star:hover,.mi-user-rating-star:focus-visible{color:#fff0c8!important;outline:none;transform:scale(1.11)}
+.mi-user-rating-star:focus-visible{box-shadow:inset 0 0 0 1px #ffc287}
+.mi-user-rating-number{display:block;font-size:11px;line-height:1.2;font-weight:850;color:#f0dcc7;margin-top:2px;font-variant-numeric:tabular-nums}
+.mi-user-rating-note{display:block;font-size:8px;line-height:1.2;color:#a99a9c;margin-top:2px}
+.mi-info-detail{font-size:10px;color:#bcb4b9;line-height:1.45}
+.mi-info-source{font-size:9px;color:#a59aa4}
+.mi-reception-text{max-width:810px;font-size:11px;line-height:1.55;color:#ded3d6;margin-top:8px}
+.mi-stats{gap:8px}
+.mi-section{padding:10px 0}
+@media(max-width:510px){
+  .mi-title-line{gap:6px}
+  .mi-user-rating{width:126px;max-width:49%;padding:5px 4px}
+  .mi-user-rating-star{font-size:11px;height:17px;line-height:16px}
+  .mi-user-rating-head{font-size:8px}
+  .mi-user-rating-number{font-size:10px}
+}
