@@ -53,6 +53,8 @@
     const cast=Array.isArray(show._embedded?.cast)?show._embedded.cast:[];
     return {record:empty(parsed,{
       source:'tvmaze',id:show.id,sourceUrl:show.url,
+      imdbId:/^tt\d{6,10}$/.test(String(show.externals?.imdb||''))?
+        show.externals.imdb:null,
       title:show.name||parsed.title,year:(show.premiered||'').slice(0,4),
       overview:strip(show.summary),poster:show.image?.medium||show.image?.original||'',
       genres:Array.isArray(show.genres)?show.genres:[],release:show.premiered||'',
@@ -227,7 +229,7 @@
       (candidate.released||'').slice(0,4));
     const candidateYear=Number(release.match(/\b(?:19|20)\d{2}\b/)?.[0]||0);
     const wantedYear=Number(data.year)||0;
-    return !wantedYear||!candidateYear||wantedYear===candidateYear;
+    return !wantedYear || (candidateYear>0 && wantedYear===candidateYear);
   }
   async function findCatalogMatch(data){
     const type=data.kind==='tv'?'series':'movie';
@@ -242,9 +244,9 @@
     const exact=all.filter(item=>wantedYear&&yearOf(item)===wantedYear);
     // With ambiguous remakes, never silently report the wrong version's rating.
     const eligible=exact.length?exact:all;
-    if(!eligible.length)return null;
-    if(eligible.length!==1)return null;
-    return eligible[0];
+    const unique=[...new Map(eligible.map(item=>[item.id,item])).values()];
+    if(unique.length!==1)return null;
+    return unique[0];
   }
   async function imdbRatingForId(id,type){
     // Prefer the IMDb-published aggregate rating dataset (no OMDb key).
