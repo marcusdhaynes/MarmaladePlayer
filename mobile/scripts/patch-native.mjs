@@ -9,7 +9,7 @@ if(existsSync(manifest)){
  let xml=readFileSync(manifest,'utf8');
  const perms=['android.permission.CAMERA','android.permission.RECORD_AUDIO',
    'android.permission.MODIFY_AUDIO_SETTINGS','android.permission.INTERNET',
-   'android.permission.ACCESS_NETWORK_STATE','android.permission.WAKE_LOCK'];
+   'android.permission.ACCESS_NETWORK_STATE','android.permission.WAKE_LOCK','android.permission.SYSTEM_ALERT_WINDOW'];
  for(const permission of perms){
   if(!xml.includes('android:name="'+permission+'"')){
    xml=xml.replace('<application','<uses-permission android:name="'+permission+'" />\n    <application');
@@ -45,6 +45,19 @@ if(existsSync(activity)){
 
 import android.app.Activity;
 import android.app.PictureInPictureParams;
+import android.content.Context;
+import android.net.Uri;
+import android.provider.Settings;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.graphics.PixelFormat;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.DisplayMetrics;
 import android.app.RemoteAction;
 import android.app.PendingIntent;
 import android.content.Intent;
@@ -62,6 +75,155 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 @CapacitorPlugin(name = "MarmaladePictureInPicture")
 public class MarmaladePictureInPicturePlugin extends Plugin {
+    // App-owned always-on-top window. Unlike system PiP, the live WebView
+    // receives real touch events, so subtitles and HTML controls are interactive.
+    private static WindowManager floatingManager;
+    private static WindowManager.LayoutParams floatingParams;
+    private static FloatingFrame floatingFrame;
+    private static View floatedWeb;
+    private static ViewGroup originalParent;
+    private static ViewGroup.LayoutParams originalLayout;
+    private static int originalIndex;
+    private static Activity originalActivity;
+    private static final Handler floatingHeartbeat=new Handler(Looper.getMainLooper());
+    private static final Runnable refreshCaptions=new Runnable(){
+        @Override public void run(){
+            if(floatingFrame!=null&&floatedWeb instanceof android.webkit.WebView){
+                ((android.webkit.WebView)floatedWeb).evaluateJavascript(
+                    "window.MarmaladeSubtitleRefresh?.();",null);
+                floatingHeartbeat.postDelayed(this,200);
+            }
+        }
+    };
+    private static int dp(Activity activity,float n){
+        return Math.round(n*activity.getResources().getDisplayMetrics().density);
+    }
+    private static class FloatingFrame extends FrameLayout {
+        private float downX,downY;
+        private int startX,startY,startWidth;
+        private boolean dragging,resizing;
+        FloatingFrame(Activity activity){super(activity);setClipChildren(false);}
+        @Override public boolean onInterceptTouchEvent(MotionEvent e){
+            if(e.getActionMasked()==MotionEvent.ACTION_DOWN){
+                downX=e.getRawX();downY=e.getRawY();
+                startX=floatingParams.x;startY=floatingParams.y;startWidth=floatingParams.width;
+                // The upper edge is a drag handle; the lower-right corner
+                // resizes while preserving the movie's aspect ratio.
+                dragging=e.getY()<dp(originalActivity,28) &&
+                    e.getX()<getWidth()-dp(originalActivity,32);
+                resizing=e.getY()>getHeight()-dp(originalActivity,35) &&
+                    e.getX()>getWidth()-dp(originalActivity,35);
+                if(dragging||resizing)return true;
+            }
+            return super.onInterceptTouchEvent(e);
+        }
+        @Override public boolean onTouchEvent(MotionEvent e){
+            if(!dragging&&!resizing)return super.onTouchEvent(e);
+            if(e.getActionMasked()==MotionEvent.ACTION_MOVE&&floatingParams!=null){
+                final int dx=Math.round(e.getRawX()-downX);
+                final int dy=Math.round(e.getRawY()-downY);
+                DisplayMetrics display=getResources().getDisplayMetrics();
+                if(resizing){
+                    int width=Math.max(dp(originalActivity,200),
+                        Math.min(display.widthPixels-dp(originalActivity,12),startWidth+dx));
+                    floatingParams.width=width;
+                    floatingParams.height=Math.round(width*9f/16f);
+                    floatingParams.y=Math.max(0,Math.min(startY+dy,
+                        display.heightPixels-floatingParams.height));
+                }else{
+                    floatingParams.x=Math.max(0,Math.min(display.widthPixels-floatingParams.width,startX+dx));
+                    floatingParams.y=Math.max(0,Math.min(display.heightPixels-floatingParams.height,startY+dy));
+                }
+                try{floatingManager.updateViewLayout(this,floatingParams);}catch(Exception ignored){}
+                return true;
+            }
+            if(e.getActionMasked()==MotionEvent.ACTION_UP||
+               e.getActionMasked()==MotionEvent.ACTION_CANCEL){
+                dragging=false;resizing=false;return true;
+            }
+            return true;
+        }
+    }
+    private static void notifyWeb(boolean active){
+        if(floatedWeb instanceof android.webkit.WebView){
+            ((android.webkit.WebView)floatedWeb).evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('marmalade:native-floating',{detail:{active:"+
+                (active?"true":"false")+"}}));",null);
+        }
+    }
+    public static boolean restoreFloating(Activity activity){
+        if(floatingFrame==null||floatedWeb==null)return false;
+        try{
+            floatingHeartbeat.removeCallbacks(refreshCaptions);
+            ViewGroup actual=(ViewGroup)floatedWeb.getParent();
+            if(actual!=null)actual.removeView(floatedWeb);
+            floatingManager.removeViewImmediate(floatingFrame);
+            floatingFrame=null;floatingParams=null;floatingManager=null;
+            if(originalParent!=null)originalParent.addView(floatedWeb,
+                Math.min(originalIndex,originalParent.getChildCount()),originalLayout);
+            notifyWeb(false);
+        }catch(Exception error){android.util.Log.e("MarmaladeFloat","Restore failed",error);}
+        finally{
+            originalParent=null;originalLayout=null;originalActivity=null;
+            floatedWeb=null;
+        }
+        return true;
+    }
+    @PluginMethod
+    public void enterFloating(PluginCall call){
+        Activity activity=getActivity();
+        if(android.os.Build.VERSION.SDK_INT<23||!Settings.canDrawOverlays(activity)){
+            Intent permission=new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:"+activity.getPackageName()));
+            activity.startActivity(permission);
+            call.reject("Grant 'Display over other apps' for the interactive mini-player, then tap Pop-Out again.");
+            return;
+        }
+        activity.runOnUiThread(()->{
+            if(floatingFrame!=null){call.resolve();return;}
+            try{
+                View web=getBridge().getWebView();
+                if(web==null||!(web.getParent() instanceof ViewGroup)){
+                    call.reject("Player view unavailable");return;
+                }
+                originalActivity=activity;
+                floatedWeb=web;
+                originalParent=(ViewGroup)web.getParent();
+                originalIndex=originalParent.indexOfChild(web);
+                originalLayout=web.getLayoutParams();
+                floatingManager=(WindowManager)activity.getApplicationContext()
+                    .getSystemService(Context.WINDOW_SERVICE);
+                DisplayMetrics metrics=activity.getResources().getDisplayMetrics();
+                int width=Math.min(dp(activity,340),metrics.widthPixels-dp(activity,24));
+                floatingParams=new WindowManager.LayoutParams(width,Math.round(width*9f/16f),
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT);
+                floatingParams.gravity=Gravity.TOP|Gravity.START;
+                floatingParams.x=Math.max(0,metrics.widthPixels-width-dp(activity,12));
+                floatingParams.y=Math.max(0,metrics.heightPixels-floatingParams.height-dp(activity,70));
+                originalParent.removeView(web);
+                floatingFrame=new FloatingFrame(activity);
+                float radius=dp(activity,12);
+                GradientDrawable background=new GradientDrawable();
+                background.setColor(0xff05030d);
+                background.setCornerRadius(radius);
+                floatingFrame.setBackground(background);
+                floatingFrame.setClipToOutline(true);
+                floatingFrame.addView(web,new FrameLayout.LayoutParams(-1,-1));
+                floatingManager.addView(floatingFrame,floatingParams);
+                notifyWeb(true);
+                floatingHeartbeat.removeCallbacks(refreshCaptions);
+                floatingHeartbeat.post(refreshCaptions);
+                call.resolve();
+                activity.moveTaskToBack(true);
+            }catch(Exception error){
+                restoreFloating(activity);
+                call.reject("Interactive mini-player could not open",error);
+            }
+        });
+    }
     private RemoteAction mediaAction(Activity activity,String action,int requestCode,
                                      int iconId,String title) {
         Intent message=new Intent(action);
@@ -75,6 +237,7 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
         Activity activity=getActivity();
         activity.runOnUiThread(()->{
             try {
+                restoreFloating(activity);
                 Intent resume=new Intent(activity,MainActivity.class);
                 resume.setAction("app.marmaladeplayer.RETURN_FROM_PIP");
                 resume.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT |
