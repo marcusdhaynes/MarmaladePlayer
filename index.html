@@ -573,6 +573,9 @@ body.theater-open{overflow:hidden}
     hostStreamLive: false, mediaRequestAt: 0, mediaAwaitingAt: 0,
     showStatus: false, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
+    // Local-file control clock only; remote media and buffered streaming are unchanged.
+    localClockOffsetMs: null, localClockBestRtt: Infinity, localClockSampleAt: 0,
+    localSnapshotSequence: 0, lastLocalSnapshotSeq: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
     basePaint: null, basePaintIdle: false, highGfxMode: '2d',
     hostPictureSample: null, guestDarkStreak: 0, pictureRepairAsked: false,
@@ -895,13 +898,48 @@ body.theater-open{overflow:hidden}
       duration: ['file','hosted'].includes(state.source) && Number.isFinite(media.duration) ? media.duration : 0,
       live: state.broadcasting || state.source === 'hosted', sourceHeight: sourceHeight(), sourceWidth: media.videoWidth || 0,
       revision: state.transportRevision, fingerprint: state.localFingerprint,
+      sentAt: performance.now(), seq: ++state.localSnapshotSequence,
       mediaKind: state.source === 'hosted' ? 'hosted' : state.source,
       hostedUrl: state.source === 'hosted' ? state.hostedUrl : '',
       backupUrl: state.source === 'hosted' ? state.backupUrl : '',
       strictSync: state.strictSync, heldForBuffer: !!state.heldForBuffer,
       ackPeer: state.lastTransportAck?.peer || '', ackId: state.lastTransportAck?.id || 0 };
   }
-  function syncState() { if (state.role === 'host' && state.peer) broadcast(hostStatus()); }
+  function syncState() {
+    if(state.role!=='host'||!state.peer)return;
+    const now=performance.now();
+    let complete=null;
+    for(const entry of state.connections.values()){
+      if(!entry.conn.open)continue;
+      if(!entry.localMirror||state.source!=='file'){
+        // Keep all ordinary WebRTC and hosted-stream behavior unchanged.
+        if(!complete)complete=hostStatus();
+        send(entry.conn,complete);
+        continue;
+      }
+      // A verified local guest needs clock/control messages, not video or a
+      // 4-Hz stream of full metadata. Keep the data channel queue tiny.
+      const fingerprint=state.localFingerprint,name=state.file?.name||'';
+      const playing=!media.paused,revision=state.transportRevision;
+      const ackId=state.lastTransportAck?.id||0,ackPeer=state.lastTransportAck?.peer||'';
+      const mediaChanged=entry.localSyncFingerprint!==fingerprint||entry.localSyncName!==name;
+      const urgent=mediaChanged||entry.localSyncRevision!==revision||
+        entry.localSyncPlaying!==playing||entry.localSyncAckId!==ackId||entry.localSyncAckPeer!==ackPeer;
+      const full=mediaChanged||now-(entry.localSyncFullAt||0)>15000;
+      if(!urgent&&now-(entry.localSyncAt||0)<(playing?1500:3000))continue;
+      const snapshot=full?hostStatus():{
+        type:'local-clock',time:media.currentTime,duration:media.duration,
+        playing,revision,sentAt:performance.now(),seq:++state.localSnapshotSequence,
+        ackId,ackPeer
+      };
+      send(entry.conn,snapshot);
+      entry.localSyncAt=now;
+      if(full)entry.localSyncFullAt=now;
+      entry.localSyncFingerprint=fingerprint;entry.localSyncName=name;
+      entry.localSyncRevision=revision;entry.localSyncPlaying=playing;
+      entry.localSyncAckId=ackId;entry.localSyncAckPeer=ackPeer;
+    }
+  }
   function issueKeyframe() {
     for (const entry of state.connections.values()) {
       const pc = entry.call?.peerConnection;
@@ -956,7 +994,10 @@ body.theater-open{overflow:hidden}
     else state.sharedTime = current;
     state.sharedAt = now;
     const id = ++state.clientCommandId;
-    state.pendingTransport = { id, expires: now + 2800 };
+    // On a very poor connection do not let a periodic pre-command state
+    // undo a locally executed button press before the host can acknowledge it.
+    const ackWindow=state.localVerified?Math.min(20000,Math.max(6000,(state.observedRtt||0)*4+2000)):2800;
+    state.pendingTransport = { id, expires: now + ackWindow };
     updateTransport();
     // For seekable sources this is an immediate local preview; P2P cannot
     // display future frames until the host's stream reaches the requested position.
@@ -1225,6 +1266,8 @@ body.theater-open{overflow:hidden}
       if(previousUrl)URL.revokeObjectURL(previousUrl);
       applyVolume();
       send(state.guestConn,{type:'local-verified',verified:true});
+      // One immediate clock exchange avoids waiting for the regular heartbeat.
+      send(state.guestConn,{type:'ping',at:performance.now()});
       updateRoomActions();showStage(true);badge('LOCAL SYNC');
       localNotice('Local Video Enabled · '+match+'. Playback stays synchronized to the host.');
       void syncSeekablePlayback(true);
@@ -1539,6 +1582,8 @@ body.theater-open{overflow:hidden}
     updateRoomActions();
     state.hostPlaying = false; state.sharedDuration = 0; state.sharedTime = 0; state.sharedAt = 0;
     state.pendingTransport = null; state.lastAcceptedRevision = -1; state.lastTransportAck = null;
+    state.localClockOffsetMs=null;state.localClockBestRtt=Infinity;
+    state.localClockSampleAt=0;state.lastLocalSnapshotSeq=-1;
     state.sourceHeight = 0; state.sourceWidth = 0;
     state.code = '';
     state.connecting = false;
@@ -1736,7 +1781,10 @@ body.theater-open{overflow:hidden}
       });
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
-        if (data.type === 'ping') send(conn, { type: 'pong', at: data.at });
+        if(data.type==='ping'){
+          const receivedAt=performance.now();
+          send(conn,{type:'pong',at:data.at,hostReceivedAt:receivedAt,hostSentAt:performance.now()});
+        }
         if (data.type === 'presentation-delay' && Number.isFinite(data.ms) &&
             data.ms >= 35 && data.ms <= 8000) {
           entry.hostPresentationDelayMs=data.ms;
