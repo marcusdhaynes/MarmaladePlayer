@@ -680,12 +680,17 @@ try {
     await page.locator('#roomInput').evaluate(input=>{input.value='ABCDEFGH';input.dispatchEvent(new Event('input',{bubbles:true}));});
     await page.waitForFunction(()=>window.__peers.length===1);
     await page.evaluate(()=>window.__peers[0].handlers.error({type:'peer-unavailable'}));
-    await page.waitForFunction(()=>!document.querySelector('#retryJoin').hidden);
+    // Missing-host signals often arrive immediately. They must not terminate
+    // the invited guest's attempt or incorrectly report an invalid link.
+    await page.waitForFunction(()=>window.__peers.length>=2,null,{timeout:3500});
+    assert.equal(await page.locator('#retryJoin').evaluate(el=>el.hidden),true);
     assert.equal(await page.locator('#joinSection').isVisible(),false);
-    assert((await page.locator('#stageSubtitle').textContent()).includes('fresh invitation'));
+    assert.equal(await page.locator('#roomInput').inputValue(),'ABCDEFGH');
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,null,{timeout:3500});
+    assert.equal(await page.locator('#connectionText').textContent(),'Watching with host');
     assert.deepEqual(errors,[]);
     await page.close();
-    console.log('PASS unavailable host exits Joining screen and offers Retry');
+    console.log('PASS immediate host-not-found retries without losing invitation and joins');
   }
   // A connected guest can choose an identically named, content-verified movie.
   // A negative check must not replace or interrupt incoming streaming media.
