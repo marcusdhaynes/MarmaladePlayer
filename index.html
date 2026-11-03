@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#101014">
   <meta name="description" content="Marmalade Player — private, low-latency watch parties directly from your device.">
   <title>Marmalade Player — Watch together.</title>
@@ -968,18 +968,32 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
     return cues.sort((a,b)=>a.start-b.start);
   }
   function updateSubtitles() {
-    if (!state.subtitlesEnabled || !state.subtitles.length || !el.stage.classList.contains('has-video')) {
-      el.subtitleOverlay.hidden = true; return;
+    if(!el.stage.classList.contains('has-video')){
+      el.subtitleOverlay.hidden=true;return;
+    }
+    const editing=!el.subtitlePanel.hidden;
+    if(!state.subtitlesEnabled){
+      // Before a subtitle file is chosen, show a sample only while the
+      // Appearance editor is open. Off explicitly hides loaded captions.
+      const preview=editing&&state.subtitles.length===0&&
+        !document.getElementById('subStyleView')?.hidden;
+      el.subtitleOverlay.hidden=!preview;
+      if(preview)el.subtitleOverlay.textContent='Subtitle Preview';
+      return;
     }
     const t = state.role === 'guest' ? Math.max(0, state.sharedTime +
       (state.hostPlaying ? (performance.now()-state.sharedAt)/1000 : 0)) :
       media.currentTime;
     const subtitleTime=window.MarmaladeSubtitleClock ?
       window.MarmaladeSubtitleClock(t):t;
-    const cue=state.subtitles.find(c=>c.start<=subtitleTime && c.end>=subtitleTime);
-    el.subtitleOverlay.hidden = !cue;
-    if(cue && el.subtitleOverlay.textContent !== cue.text)el.subtitleOverlay.textContent=cue.text;
+    const cue=state.subtitles.find(c=>c.start<=subtitleTime&&c.end>=subtitleTime);
+    // A sample cue can be inspected live while the editor is open—even when
+    // playback is paused or seeking outside subtitle dialogue.
+    const shown=cue?.text||(editing&&state.subtitles.length?state.subtitles[0].text:'');
+    el.subtitleOverlay.hidden=!shown;
+    if(shown&&el.subtitleOverlay.textContent!==shown)el.subtitleOverlay.textContent=shown;
   }
+  window.MarmaladeSubtitleRefresh=updateSubtitles;
   function showStage(show) {
     el.stage.classList.toggle('has-video', show);
     el.empty.hidden = show;
@@ -3248,24 +3262,63 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
       notify(copied?'Room Link Copied!':'Clipboard access blocked. Copy the room URL from your browser.');
     }
   }
-  function leaveTheater() {
-    state.theaterMode = false;
+  function releaseOrientation(){
+    try{screen.orientation?.unlock?.();}catch{}
+  }
+  function leaveTheater(){
+    if(document.fullscreenElement===el.stage)
+      void document.exitFullscreen().catch(()=>{});
+    if(media.webkitDisplayingFullscreen&&media.webkitExitFullscreen)
+      try{media.webkitExitFullscreen();}catch{}
+    state.theaterMode=false;
     el.stage.classList.remove('fullscreen-fallback');
     document.body.classList.remove('theater-open');
+    releaseOrientation();
+    revealControls();
   }
-  async function toggleFullscreen() {
-    if (state.theaterMode) { leaveTheater(); return; }
-    try {
-      if (document.fullscreenElement) { await document.exitFullscreen(); return; }
-      if (el.stage.requestFullscreen) { await el.stage.requestFullscreen(); return; }
-    } catch { /* iPhone often blocks element fullscreen; use a fallback. */ }
-    if (media.webkitEnterFullscreen && el.stage.classList.contains('has-video')) {
-      try { media.webkitEnterFullscreen(); return; } catch { /* use CSS theatre */ }
+  async function lockLandscape(){
+    if(!isMobile)return;
+    try{await screen.orientation?.lock?.('landscape');}catch{
+      // Some Safari/WebView implementations disallow orientation locking.
+      // In landscape the fullscreen CSS still uses the entire viewport.
     }
-    state.theaterMode = true;
+  }
+  async function toggleFullscreen(){
+    if(state.theaterMode||document.fullscreenElement===el.stage){
+      leaveTheater();return;
+    }
+    if(el.stage.classList.contains('floating-player'))
+      el.stage.classList.remove('floating-player');
+    try{
+      if(el.stage.requestFullscreen){
+        await el.stage.requestFullscreen();
+        await lockLandscape();
+        revealControls();
+        return;
+      }
+    }catch{}
+    // iPhone native movie fullscreen is preferable to a boxed stage when
+    // element fullscreen is unavailable; use CSS only if native is blocked.
+    if(media.webkitEnterFullscreen&&el.stage.classList.contains('has-video')){
+      try{media.webkitEnterFullscreen();return;}catch{}
+    }
+    state.theaterMode=true;
     el.stage.classList.add('fullscreen-fallback');
     document.body.classList.add('theater-open');
+    await lockLandscape();
+    revealControls();
   }
+  document.addEventListener('fullscreenchange',()=>{
+    if(document.fullscreenElement===el.stage){
+      revealControls();
+    }else{
+      releaseOrientation();
+      el.stage.classList.remove('fullscreen-fallback');
+      state.theaterMode=false;
+      document.body.classList.remove('theater-open');
+    }
+    window.MarmaladeSubtitleReposition?.();
+  });
 
   // Stage controls fade when untouched; remain reachable through hover,
   // keyboard focus and mobile tap.
@@ -3345,18 +3398,40 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
       if(!cues.length)throw Error('No readable subtitle cues');
       state.subtitles=cues;state.subtitlesEnabled=true;
       el.subtitleName.textContent=file.name+' · '+cues.length+' cues';
-      el.subtitlePanel.hidden=true;el.subtitleBtn.setAttribute('aria-expanded','false');
-      notify('Subtitles loaded locally.');
+      updateSubtitles();
+      revealControls();
+      notify('Subtitles loaded locally. Preview and edit them while the window stays open.');
     }catch(e){notify('Subtitle file could not be read. Try .srt or .vtt.');}
     el.subtitleFile.value='';
   });
   el.popoutBtn.addEventListener('click',async ()=>{
-    try{
-      if(document.pictureInPictureElement){await document.exitPictureInPicture();}
-      else if(media.requestPictureInPicture){await media.requestPictureInPicture();}
-      else if(media.webkitSetPresentationMode){media.webkitSetPresentationMode('picture-in-picture');}
-      else notify('Pop-out is unavailable in this browser.');
-    }catch{notify('Play a video first to use pop-out.');}
+    if(el.stage.classList.contains('floating-player')){
+      el.stage.classList.remove('floating-player');revealControls();return;
+    }
+    if(document.pictureInPictureElement){
+      try{await document.exitPictureInPicture();}catch{}return;
+    }
+    if(media.webkitPresentationMode==='picture-in-picture'&&media.webkitSetPresentationMode){
+      try{media.webkitSetPresentationMode('inline');}catch{}return;
+    }
+    // A paused decoded frame remains eligible for native PiP on supported
+    // browsers. Never call play() just to open the popout: doing so would
+    // broadcast a false Play command to everybody else.
+    if(media.readyState<2||!el.stage.classList.contains('has-video')){
+      notify('Load a video before opening Pop-Out.');return;
+    }
+    if(document.pictureInPictureEnabled&&media.requestPictureInPicture){
+      try{await media.requestPictureInPicture();return;}catch{}
+    }
+    if(media.webkitSetPresentationMode){
+      try{media.webkitSetPresentationMode('picture-in-picture');return;}catch{}
+    }
+    // Android/iOS WebViews may forbid system PiP. An always-on-top in-app
+    // miniature is still usable during pause, without changing media time.
+    el.stage.classList.add('floating-player');
+    el.settingsPanel.hidden=true;
+    el.subtitlePanel.hidden=true;
+    notify('Floating Video Enabled · Tap the Mini-Player to Return.');
   });
   window.setInterval(()=>{updateBufferDisplay();updateSubtitles();updateStatusDisplay();},500);
 
@@ -3381,6 +3456,9 @@ body.theater-open{overflow:hidden;overscroll-behavior:none}
   }
   el.stage.addEventListener('click', event => {
     if (event.target.closest('button,input,select,label,textarea,a,[role="button"],.theater-popover,[contenteditable="true"]')) return;
+    if(el.stage.classList.contains('floating-player')){
+      el.stage.classList.remove('floating-player');revealControls();return;
+    }
     playPauseFromStage();
   });
   el.stage.addEventListener('keydown', event => {
