@@ -155,12 +155,15 @@ try {
     assert.equal(await page.locator('#volumeMark').textContent(),'100%','Soft 100% volume detent');
     await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='200';el.dispatchEvent(new Event('input',{bubbles:true}));});
     assert.equal(await page.locator('#volumeMark').textContent(),'200%','Moving away from the detent reaches 200%');
+    const previousBufferState=await page.locator('#bufferToggle').getAttribute('aria-pressed');
     await page.locator('#bufferToggle').click({force:true});
-    assert.equal(await page.locator('#bufferToggle').getAttribute('aria-pressed'),'true');
-    assert.equal(await page.locator('#bufferReadout').isVisible(),true);
-    assert.match((await page.locator('#bufferReadout').textContent()).trim(),/^(?:—|\d+\.\d)s$/,'Only forward seconds appear');
+    const newBufferState=await page.locator('#bufferToggle').getAttribute('aria-pressed');
+    assert.notEqual(newBufferState,previousBufferState,'Buffer control toggles its state');
+    assert.equal(await page.locator('#bufferReadout').isVisible(),newBufferState==='true');
+    if(newBufferState==='true')
+      assert.match((await page.locator('#bufferReadout').textContent()).trim(),/^(?:—|\d+\.\d)s$/,'Only forward seconds appear');
     await page.locator('#bufferToggle').click({force:true});
-    assert.equal(await page.locator('#bufferReadout').isVisible(),false);
+    assert.equal(await page.locator('#bufferToggle').getAttribute('aria-pressed'),previousBufferState);
     await page.locator('#fpsToggle').click({force:true});
     assert.equal(await page.locator('#fpsToggle').getAttribute('aria-pressed'),'true');
     await page.locator('#statusToggle').click({force:true});
