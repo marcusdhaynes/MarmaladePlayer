@@ -74,7 +74,7 @@ try {
     assert.equal(await page.locator('#popoutBtn').count(),1);
     assert.equal(await page.locator('#settingsBtn').count(),1);
     for (const id of ['skipBack','playPause','skipForward','muteBtn','subtitlesBtn',
-        'mediaInfoToggle','popoutBtn','fullscreenBtn','settingsBtn']) {
+        'popoutBtn','fullscreenBtn','settingsBtn']) {
       assert.equal(await page.locator('#'+id+' svg.glass-icon').count(),1,
         'Crisp vector artwork must replace Unicode glyphs for '+id);
       assert.equal(await page.locator('#'+id+' svg').getAttribute('stroke-width'),'1.5');
@@ -100,8 +100,12 @@ try {
       return clicks;
     });
     assert.equal(openedFilePicker,1,'Clicking empty video must open file picker');
+    assert.deepEqual(await page.locator('.stage-quick-actions button').evaluateAll(buttons=>buttons.map(b=>b.id)),
+      ['broadcastToggle','localCopyButton','copyLink'],'Broadcast, Local, Share order');
+    assert.equal(await page.locator('#mediaInfoToggle').count(),1,'Information available via movie title');
+    assert.equal(await page.locator('#broadcastToggle').getAttribute('aria-pressed'),'false');
     const order = await page.locator('.theater-bottom button').evaluateAll(buttons=>buttons.map(b=>b.id));
-    assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','subtitlesBtn','mediaInfoToggle','popoutBtn','fullscreenBtn','settingsBtn']);
+    assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn']);
     assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,'Info drawer starts closed');
     await page.waitForFunction(() => typeof window.MarmaladeInfoShare === 'function');
     await page.locator('#mediaInfoToggle').evaluate(button => button.click()); // Theater controls are intentionally hover-hidden until media loads.
@@ -162,7 +166,15 @@ try {
         'Independent subtitle setting missing: '+key);
     await page.locator('[data-sub-position="top-left"]').click({force:true});
     assert.equal(await page.locator('[data-sub-position="top-left"]').getAttribute('aria-pressed'),'true');
-    assert.equal(await page.locator('#subtitleOverlay').evaluate(e=>e.style.top),'8%');
+    assert.match(await page.locator('#subtitleOverlay').evaluate(e=>e.style.top),/^\d+px$/,'Top-left captions positioned within decoded picture');
+    await page.locator('[data-sub-position="bottom-right"]').click({force:true});
+    const bottom=await page.locator('#subtitleOverlay').evaluate(e=>({top:e.style.top,bottom:e.style.bottom,right:e.style.right}));
+    assert.match(bottom.bottom,/^\d+px$/);
+    assert.match(bottom.right,/^\d+px$/);
+    assert.equal(bottom.top,'auto');
+    await page.locator('[data-sub-position="middle-center"]').click({force:true});
+    assert.equal(await page.locator('#subtitleOverlay').evaluate(e=>e.style.transform),'translate(-50%,-50%)');
+    await page.locator('[data-sub-position="top-left"]').click({force:true});
     await page.locator('[data-sub-key="textSize"]').evaluate(e=>{
       e.value='34';e.dispatchEvent(new Event('input',{bubbles:true}));
     });
@@ -611,7 +623,7 @@ try {
     assert.equal(await page.locator('#cancelJoin').isVisible(),true);
     await page.locator('#cancelJoin').click();
     assert.equal(await page.locator('#joinProgress').isVisible(),false);
-    assert.equal(await page.locator('#joinSection').isVisible(),true);
+    assert.equal(await page.locator('#joinSection').isVisible(),false);
     assert.equal(await page.locator('#connectionText').textContent(),'Not connected');
     assert.deepEqual(errors,[]);
     await page.close();
@@ -655,7 +667,7 @@ try {
     await page.waitForFunction(()=>window.__peers.length===1);
     await page.evaluate(()=>window.__peers[0].handlers.error({type:'peer-unavailable'}));
     await page.waitForFunction(()=>!document.querySelector('#retryJoin').hidden);
-    assert.equal(await page.locator('#joinSection').isVisible(),true);
+    assert.equal(await page.locator('#joinSection').isVisible(),false);
     assert((await page.locator('#stageSubtitle').textContent()).includes('fresh invitation'));
     assert.deepEqual(errors,[]);
     await page.close();
