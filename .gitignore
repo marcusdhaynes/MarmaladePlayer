@@ -1,0 +1,13 @@
+# Build output for cross-platform apps; all players use root web source.
+mobile/www/
+mobile/android/
+mobile/ios/
+mobile/node_modules/
+mobile/package-lock.json
+desktop/web/
+desktop/node_modules/
+desktop/package-lock.json
+desktop/src-tauri/target/
+desktop/src-tauri/icons/
+desktop/src-tauri/Cargo.lock
+.DS_Store
