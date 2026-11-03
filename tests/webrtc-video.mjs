@@ -23,6 +23,9 @@ const server=createServer((req,res)=>{
   }else if(req.url?.startsWith('/watch-sync-subtitles.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../watch-sync-subtitles.js',import.meta.url)));
+  }else if(req.url?.startsWith('/public-movie-info.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../public-movie-info.js',import.meta.url)));
   }else if(req.url==='/movie-info.js' || req.url==='/movie-info.css'){
     const css=req.url.endsWith('.css');
     res.writeHead(200,{'content-type':css?'text/css':'application/javascript'});
