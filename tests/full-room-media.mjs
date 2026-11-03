@@ -39,6 +39,10 @@ const web=createServer((req,res)=>{
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../watch-sync-subtitles.js',import.meta.url)));return;
   }
+  if(req.url?.startsWith('/public-movie-info.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../public-movie-info.js',import.meta.url)));return;
+  }
   if(req.url?.startsWith('/movie-info.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../movie-info.js',import.meta.url)));return;
