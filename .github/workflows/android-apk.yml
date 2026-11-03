@@ -57,6 +57,10 @@ jobs:
         run: |
           test -s mobile/android/app/build/outputs/apk/debug/app-debug.apk
           unzip -t mobile/android/app/build/outputs/apk/debug/app-debug.apk | tail -n 1
+          unzip -Z1 mobile/android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/public/index.html'
+          APKSIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose mobile/android/app/build/outputs/apk/debug/app-debug.apk
           ls -lh mobile/android/app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
