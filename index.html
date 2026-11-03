@@ -997,8 +997,10 @@ body.theater-open{overflow:hidden}
     const id = ++state.clientCommandId;
     // On a very poor connection do not let a periodic pre-command state
     // undo a locally executed button press before the host can acknowledge it.
-    const ackWindow=state.localVerified?Math.min(20000,Math.max(6000,(state.observedRtt||0)*4+2000)):2800;
-    state.pendingTransport = { id, expires: now + ackWindow };
+    const retryDelay=Math.max(1200,Math.min(12000,(state.observedRtt||0)*1.5+550));
+    const ackWindow=state.localVerified?Math.min(90000,Math.max(12000,retryDelay*5)):2800;
+    state.pendingTransport = { id, expires: now + ackWindow,
+      action, value, attempts: 0, retryAt: now + retryDelay, retryDelay };
     updateTransport();
     // For seekable sources this is an immediate local preview; P2P cannot
     // display future frames until the host's stream reaches the requested position.
@@ -1897,7 +1899,17 @@ body.theater-open{overflow:hidden}
         }
         if (data.type === 'transport' && typeof data.action === 'string' &&
             ['toggle', 'play', 'pause', 'seek', 'skip'].includes(data.action)) {
-          applyTransport(data.action, data.value, conn.peer, data.id);
+          // Local-file guests can retry an unacknowledged request on a bad
+          // connection. Never execute a duplicate toggle/skip twice.
+          if(entry.localMirror && Number.isSafeInteger(data.id) && data.id>0){
+            if(data.id === entry.lastTransportId){
+              state.lastTransportAck={peer:conn.peer,id:data.id};
+              syncState();
+            }else if(data.id > (entry.lastTransportId||0)){
+              entry.lastTransportId=data.id;
+              applyTransport(data.action,data.value,conn.peer,data.id);
+            }
+          }else applyTransport(data.action, data.value, conn.peer, data.id);
         }
         if (data.type === 'quality' && entry.call && Number.isFinite(data.loss)) {
           entry.lastHealth={loss:data.loss,freezes:data.freezes||0,stalls:data.stalls||0,jitter:data.jitter||0};
@@ -3586,8 +3598,15 @@ body.theater-open{overflow:hidden}
   window.setInterval(() => {
     if(state.role==='guest'&&state.guestConn?.open&&!state.seeking){
       updateTransport();
-      if(state.localVerified&&media.readyState>=HTMLMediaElement.HAVE_METADATA)
-        void syncSeekablePlayback();
+      if(state.localVerified){
+        const pending=state.pendingTransport,now=performance.now();
+        if(pending && now>=pending.retryAt && now<pending.expires && pending.attempts<3){
+          send(state.guestConn,{type:'transport',action:pending.action,value:pending.value,id:pending.id});
+          pending.attempts++;
+          pending.retryAt=now+pending.retryDelay*Math.pow(1.6,pending.attempts);
+        }
+        if(media.readyState>=HTMLMediaElement.HAVE_METADATA)void syncSeekablePlayback();
+      }
     }
   },250);
   window.setInterval(() => {
