@@ -405,6 +405,20 @@ body.cosmic-background-02{background:#1e0750 url('./assets/cosmic-02.webp') cent
 .rotation-lock .rotation-mini-lock{position:absolute;right:7px;bottom:1px;font-size:7px;color:#ecb57c;opacity:1}
 .rotation-lock[aria-pressed="false"] .rotation-mini-lock{opacity:0}
 .rotation-lock[aria-pressed="false"]{color:#f0dcff!important;text-decoration:none!important;border-color:#7059a0!important}
+
+/* Three compact, familiar controls in the mini-player, never in normal playback. */
+.mini-player-overlay[hidden]{display:none!important}
+.mini-player-overlay{position:absolute;inset:0;z-index:20;pointer-events:none}
+.mini-player-transport{position:absolute;left:7px;bottom:7px;display:flex;align-items:center;gap:3px;pointer-events:auto;padding:3px 4px;border:1px solid #ffffff34;border-radius:7px;background:#0c0819bb;backdrop-filter:blur(5px)}
+.mini-player-transport button,.mini-player-return{display:grid;place-items:center;flex:none;width:25px;height:23px;padding:3px;background:transparent;color:#fff;border:0;border-radius:4px;cursor:pointer;line-height:1}
+.mini-player-transport button:hover,.mini-player-return:hover{background:#ffffff36}
+.mini-player-transport svg{width:19px;height:19px;display:block}
+.mini-player-return{position:absolute;top:6px;right:6px;width:24px;height:24px;border:1px solid #ffffff49;background:#120c1bdb;pointer-events:auto;font-size:18px}
+body.native-pip-active .stage .mini-player-overlay{display:block!important}
+body.native-pip-active .stage .mini-player-transport,body.native-pip-active .stage .mini-player-return{pointer-events:auto}
+.stage.mini-pip-visible .mini-player-overlay{display:block!important}
+body.native-pip-active .stage .subtitle-overlay{z-index:15!important}
+
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -432,6 +446,7 @@ body.cosmic-background-02{background:#1e0750 url('./assets/cosmic-02.webp') cent
       <section class="screen-column" aria-label="Video player">
         <div class="stage" id="dropZone" tabindex="0" aria-label="Video theater, tap to reveal controls">
           <video id="player" playsinline preload="metadata"></video>
+          <div class="mini-player-overlay" id="miniPlayerOverlay" aria-label="Mini-player controls" hidden><div class="mini-player-transport"><button type="button" id="miniSkipBack" aria-label="Rewind 10 seconds" title="Rewind 10 seconds"></button><button type="button" id="miniPlayPause" aria-label="Play or pause" title="Play or pause"></button><button type="button" id="miniSkipForward" aria-label="Forward 10 seconds" title="Forward 10 seconds"></button></div><button type="button" id="miniReturn" class="mini-player-return" aria-label="Close mini-player and return to app" title="Return to Marmalade Player">×</button></div>
           <div class="stage-poster-preview" id="stagePosterPreview" aria-hidden="true"></div>
           <div id="hostVideoDiagnostic" role="status" aria-live="polite" hidden style="position:absolute;z-index:7;left:12px;right:12px;top:54px;max-width:520px;background:#1a1518ed;color:#ffe6cb;border:1px solid #bc8660;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-start;gap:8px"><span id="videoDiagnosticText"></span><button type="button" id="videoRecoveryAction" hidden style="background:#ffb86b;color:#2b1a11;border:0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12px">Retry picture</button></div>
           <div class="stage-empty" id="stageEmpty">
@@ -3568,6 +3583,51 @@ body.cosmic-background-02{background:#1e0750 url('./assets/cosmic-02.webp') cent
     }catch(e){notify('Subtitle file could not be read. Try .srt or .vtt.');}
     el.subtitleFile.value='';
   });
+  const miniOverlay=document.getElementById('miniPlayerOverlay');
+  const miniBack=document.getElementById('miniSkipBack');
+  const miniPlay=document.getElementById('miniPlayPause');
+  const miniForward=document.getElementById('miniSkipForward');
+  const miniReturn=document.getElementById('miniReturn');
+  // Clone the *same* transport vectors as the main player (not approximate icons).
+  for(const [destination,original] of [[miniBack,el.back],[miniPlay,el.play],[miniForward,el.forward]]){
+    const svg=original?.querySelector('svg');
+    if(svg)destination.appendChild(svg.cloneNode(true));
+    destination.addEventListener('click',event=>{event.stopPropagation();original?.click();});
+  }
+  const setMiniOverlay=visible=>{
+    if(miniOverlay)miniOverlay.hidden=!visible;
+    el.stage.classList.toggle('mini-pip-visible',visible);
+  };
+  window.addEventListener('marmalade:native-pip',event=>{
+    const active=!!event.detail?.active;
+    document.body.classList.toggle('native-pip-active',active);
+    setMiniOverlay(active);
+    if(!active){document.body.classList.remove('native-pip-active');revealControls();}
+  });
+  window.addEventListener('marmalade:pip-command',event=>{
+    const type=event.detail?.type;
+    if(type==='rewind')el.back.click();
+    else if(type==='forward')el.forward.click();
+    else if(type==='playpause')el.play.click();
+    else if(type==='return') {
+      document.body.classList.remove('native-pip-active');
+      setMiniOverlay(false);
+      revealControls();
+    }
+  });
+  miniReturn?.addEventListener('click',event=>{
+    event.stopPropagation();
+    if(window.MarmaladeNativePictureInPicture?.returnToApp){
+      void window.MarmaladeNativePictureInPicture.returnToApp().catch(()=>{});
+    } else if(window.documentPictureInPicture?.window){
+      window.documentPictureInPicture.window.close();
+    } else if(typeof pipWindow!=='undefined'&&pipWindow){
+      pipWindow.close();
+    }
+    document.body.classList.remove('native-pip-active');
+    setMiniOverlay(false);
+  });
+
   // Document Picture-in-Picture keeps the actual video, timed subtitles,
   // existing controls and shared playback state in one independently resizable OS window.
   let pipWindow=null,stagePlaceholder=null,restoringPip=false;
@@ -3577,6 +3637,7 @@ body.cosmic-background-02{background:#1e0750 url('./assets/cosmic-02.webp') cent
     if(stagePlaceholder.parentNode)stagePlaceholder.replaceWith(el.stage);
     else document.querySelector('.screen-column')?.prepend(el.stage);
     stagePlaceholder=null;pipWindow=null;restoringPip=false;
+    setMiniOverlay(false);
     revealControls();
   };
   el.popoutBtn.addEventListener('click',async ()=>{
@@ -3598,8 +3659,9 @@ body.cosmic-background-02{background:#1e0750 url('./assets/cosmic-02.webp') cent
       // Android OS PiP remains above other apps, supports pinch-resize and
       // retains the WebView subtitle overlay with its own system controls.
       document.body.classList.add('native-pip-active');
+      setMiniOverlay(true);
       try{await window.MarmaladeNativePictureInPicture.enter();return;}
-      catch(error){document.body.classList.remove('native-pip-active');
+      catch(error){document.body.classList.remove('native-pip-active');setMiniOverlay(false);
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
       }
     }
@@ -3615,14 +3677,13 @@ body.cosmic-background-02{background:#1e0750 url('./assets/cosmic-02.webp') cent
           '\n.stage{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;aspect-ratio:auto!important;border-radius:0!important;border:0!important}'+
           '\n.stage .theater-controls{opacity:1!important;pointer-events:auto!important;transform:none!important}'+
           '\n.stage .subtitle-overlay{z-index:12!important}'+
-          '\n#pipReturn{position:fixed;top:7px;right:8px;z-index:10000;display:grid;place-items:center;width:26px;height:26px;background:#17131ad9;color:white;border:1px solid #ffffff65;border-radius:7px;cursor:pointer}';
+          '\n.stage .theater-controls,.stage .theater-top{display:none!important}'+
+          '\n.stage .mini-player-overlay{display:block!important}';
         pop.document.head.appendChild(style);
         pop.document.body.appendChild(el.stage);
+        setMiniOverlay(true);
         el.stage.classList.add('controls-visible');
-        const close=pop.document.createElement('button');
-        close.id='pipReturn';close.type='button';close.title='Return to Marmalade Player';close.setAttribute('aria-label','Close pop-out and return to app');close.textContent='×';
-        close.addEventListener('click',()=>pop.close());
-        pop.document.body.appendChild(close);
+
         pop.addEventListener('pagehide',restoreDocumentPip,{once:true});
         return;
       }catch(error){

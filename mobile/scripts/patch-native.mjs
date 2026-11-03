@@ -62,6 +62,28 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 @CapacitorPlugin(name = "MarmaladePictureInPicture")
 public class MarmaladePictureInPicturePlugin extends Plugin {
+    private RemoteAction mediaAction(Activity activity,String action,int requestCode,
+                                     int iconId,String title) {
+        Intent message=new Intent(action);
+        message.setPackage(activity.getPackageName());
+        PendingIntent pending=PendingIntent.getBroadcast(activity,requestCode,message,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        return new RemoteAction(Icon.createWithResource(activity,iconId),title,title,pending);
+    }
+    @PluginMethod
+    public void returnToApp(PluginCall call) {
+        Activity activity=getActivity();
+        activity.runOnUiThread(()->{
+            try {
+                Intent resume=new Intent(activity,MainActivity.class);
+                resume.setAction("app.marmaladeplayer.RETURN_FROM_PIP");
+                resume.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT |
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                activity.startActivity(resume);
+                call.resolve();
+            } catch(Exception error) { call.reject("Unable to return to full player",error); }
+        });
+    }
     @PluginMethod
     public void enter(PluginCall call) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -71,26 +93,32 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
         Activity activity = getActivity();
         activity.runOnUiThread(() -> {
             try {
-                // Android supplies resize, playback, and dismiss actions.
-                // Provide an explicit return-to-app affordance in its OS PiP menu.
+                // Android owns the actual mini-window resizing and touch controls.
+                // Add 10s rewind, play/pause, and 10s forward as native PiP actions;
+                // the same icons are also drawn in the WebView at bottom-left.
                 Intent resume = new Intent(activity, MainActivity.class);
                 resume.setAction("app.marmaladeplayer.RETURN_FROM_PIP");
-                resume.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                PendingIntent actionIntent = PendingIntent.getActivity(activity, 88, resume,
+                resume.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT |
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                PendingIntent returnIntent = PendingIntent.getActivity(activity, 88, resume,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                RemoteAction returnAction = new RemoteAction(
-                    Icon.createWithResource(activity, android.R.drawable.ic_menu_revert),
-                    "Return to Player", "Close pop-out and return to Marmalade Player", actionIntent);
-                Intent playToggle = new Intent("app.marmaladeplayer.PIP_PLAY_TOGGLE");
-                playToggle.setPackage(activity.getPackageName());
-                PendingIntent playIntent = PendingIntent.getBroadcast(activity, 89, playToggle,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                RemoteAction playAction = new RemoteAction(
-                    Icon.createWithResource(activity, android.R.drawable.ic_media_play),
-                    "Play or Pause", "Toggle the movie without exiting Picture-in-Picture", playIntent);
-                PictureInPictureParams params = new PictureInPictureParams.Builder()
+                RemoteAction rewindAction=mediaAction(activity,"app.marmaladeplayer.PIP_REWIND",
+                    89,android.R.drawable.ic_media_rew,"Rewind 10 seconds");
+                RemoteAction playAction=mediaAction(activity,"app.marmaladeplayer.PIP_PLAY_TOGGLE",
+                    90,android.R.drawable.ic_media_play,"Play / Pause");
+                RemoteAction forwardAction=mediaAction(activity,"app.marmaladeplayer.PIP_FORWARD",
+                    91,android.R.drawable.ic_media_ff,"Forward 10 seconds");
+                PictureInPictureParams.Builder builder=new PictureInPictureParams.Builder()
                     .setAspectRatio(new Rational(16, 9))
-                    .setActions(Arrays.asList(playAction, returnAction)).build();
+                    .setActions(Arrays.asList(rewindAction,playAction,forwardAction));
+                // Android 13+ can intercept the PiP X button and bring the
+                // existing activity back instead of leaving a fullscreen WebView.
+                if(Build.VERSION.SDK_INT>=33) {
+                    builder.setCloseAction(new RemoteAction(
+                        Icon.createWithResource(activity,android.R.drawable.ic_menu_revert),
+                        "Return to Marmalade Player","Reopen the full player",returnIntent));
+                }
+                PictureInPictureParams params=builder.build();
                 if (!activity.getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
                     call.reject("Android reports Picture-in-Picture disabled on this device.");return;
                 }
@@ -187,9 +215,14 @@ public class MainActivity extends BridgeActivity {
     private final BroadcastReceiver pipMediaReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (bridge != null && bridge.getWebView() != null) {
-                bridge.getWebView().post(() ->
-                    bridge.getWebView().evaluateJavascript(
-                        "window.dispatchEvent(new Event('marmalade:pip-play-toggle'));", null));
+                final String type;
+                String action=intent.getAction();
+                if("app.marmaladeplayer.PIP_REWIND".equals(action))type="rewind";
+                else if("app.marmaladeplayer.PIP_FORWARD".equals(action))type="forward";
+                else type="playpause";
+                bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('marmalade:pip-command',{detail:{type:'"+
+                      type+"'}}));",null));
             }
         }
     };
@@ -198,6 +231,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MarmaladePictureInPicturePlugin.class);
         super.onCreate(savedInstanceState);
         IntentFilter pipFilter = new IntentFilter("app.marmaladeplayer.PIP_PLAY_TOGGLE");
+        pipFilter.addAction("app.marmaladeplayer.PIP_REWIND");
+        pipFilter.addAction("app.marmaladeplayer.PIP_FORWARD");
         if (Build.VERSION.SDK_INT >= 33)
             registerReceiver(pipMediaReceiver, pipFilter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(pipMediaReceiver, pipFilter);
@@ -229,6 +264,24 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    private void notifyRestored() {
+        if(bridge!=null && bridge.getWebView()!=null)
+            bridge.getWebView().post(()->bridge.getWebView().evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('marmalade:native-pip',{detail:{active:false}}));",null));
+    }
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if("app.marmaladeplayer.RETURN_FROM_PIP".equals(intent.getAction())) {
+            notifyRestored();
+        }
+    }
+    @Override
+    public void onResume() {
+        super.onResume();
+        if(Build.VERSION.SDK_INT>=26 && !isInPictureInPictureMode())notifyRestored();
+    }
     @Override
     public void onDestroy() {
         try { unregisterReceiver(pipMediaReceiver); } catch (Exception ignored) {}
