@@ -77,6 +77,111 @@
       title:parsed.title,year,overview:info.extract||'',
       poster:info.thumbnail?.source||'',wiki:{title:info.title,url:page,text:info.extract||''}});
   }
+
+  // The Wikipedia summary is fast but omits its infobox. The MediaWiki Action
+  // API exposes the actual cited infobox and Reception section without keys.
+  // Enrich only a confirmed film article, asynchronously after initial render.
+  function wikipediaApi(params){
+    const url=new URL('https://en.wikipedia.org/w/api.php');
+    url.search=new URLSearchParams({action:'parse',format:'json',origin:'*',...params}).toString();
+    return json(url.toString());
+  }
+  function parseHtml(value){
+    return new DOMParser().parseFromString(String(value||''),'text/html');
+  }
+  function readableValue(value){
+    return String(value||'').replace(/\[[^\]]{1,24}\]/g,'')
+      .replace(/\s+/g,' ').trim().slice(0,170);
+  }
+  function filmMoney(raw){
+    const text=readableValue(raw);
+    // Never guess currency or add differing reported amounts together.
+    const match=text.match(/(?:US\s*)?(\$\s*[\d,.]+)\s*(billion|million|thousand)?\b/i);
+    if(!match)return 0;
+    const number=Number(match[1].replace(/[$,\s]/g,''));
+    const multiplier={billion:1e9,million:1e6,thousand:1e3};
+    const amount=number*(multiplier[(match[2]||'').toLowerCase()]||1);
+    return Number.isFinite(amount)&&amount>0?Math.round(amount):0;
+  }
+  function extractFilmInfobox(html){
+    if(!html)return {};
+    const doc=parseHtml(html);
+    const box=doc.querySelector('table.infobox');
+    if(!box)return {};
+    const fields={};
+    for(const row of box.querySelectorAll('tr')){
+      const key=norm(row.querySelector('th')?.textContent);
+      const value=readableValue(row.querySelector('td')?.textContent);
+      if(!key||!value)continue;
+      if(key==='budget')fields.budgetText=value;
+      if(key==='box office'||key==='box office gross'||key==='gross')fields.revenueText=value;
+      if(key==='running time'||key==='runtime')fields.runtimeText=value;
+    }
+    if(fields.budgetText)fields.budget=filmMoney(fields.budgetText);
+    if(fields.revenueText)fields.revenue=filmMoney(fields.revenueText);
+    return fields;
+  }
+  function extractFilmReception(html){
+    if(!html)return {};
+    const doc=parseHtml(html);
+    const paragraphs=[...doc.querySelectorAll('p')].map(p=>readableValue(p.textContent))
+      .filter(text=>text.length>45);
+    if(!paragraphs.length)return {};
+    const picks=paragraphs.filter(x=>/Rotten Tomatoes|Metacritic|critics|reviews|reception/i.test(x));
+    const selected=(picks.length?picks:paragraphs).slice(0,2);
+    const ratings=[];
+    for(const p of picks.slice(0,12)){
+      const rotten=p.match(/Rotten Tomatoes[\s\S]{0,260}?\b(\d{1,3})\s*%/i);
+      if(rotten&&Number(rotten[1])<=100&&!ratings.some(x=>x.source==='Rotten Tomatoes')){
+        ratings.push({source:'Rotten Tomatoes',value:rotten[1]+'%',via:'Wikipedia'});
+      }
+      const meta=p.match(/Metacritic[\s\S]{0,260}?(?:score of|average of|score of a|score)\s*(\d{1,3})\s*(?:out of|\/)\s*100/i);
+      if(meta&&Number(meta[1])<=100&&!ratings.some(x=>x.source==='Metacritic')){
+        ratings.push({source:'Metacritic',value:meta[1]+'/100',via:'Wikipedia'});
+      }
+    }
+    return {receptionText:selected.join(' ').slice(0,350),ratings};
+  }
+  async function wikipediaImdbId(pageTitle){
+    try{
+      const u=new URL('https://en.wikipedia.org/w/api.php');
+      u.search=new URLSearchParams({action:'query',titles:pageTitle,
+        prop:'pageprops',ppprop:'wikibase_item',format:'json',origin:'*'}).toString();
+      const page=(Object.values((await json(u.toString())).query?.pages||{}))[0];
+      const id=page?.pageprops?.wikibase_item;
+      if(!/^Q\d+$/.test(id||''))return null;
+      const wd=new URL('https://www.wikidata.org/w/api.php');
+      wd.search=new URLSearchParams({action:'wbgetentities',ids:id,
+        props:'claims',format:'json',origin:'*'}).toString();
+      const data=await json(wd.toString());
+      const imdb=data.entities?.[id]?.claims?.P345?.[0]?.mainsnak?.datavalue?.value;
+      return /^tt\d{6,10}$/.test(String(imdb||''))?imdb:null;
+    }catch{return null;}
+  }
+  async function enrichFilm(record){
+    if(record?.source!=='wikipedia'||!record.wiki?.title)return {};
+    const page=record.wiki.title;
+    const [lead,sectionList,imdb]=await Promise.allSettled([
+      wikipediaApi({page,prop:'text',section:'0'}),
+      wikipediaApi({page,prop:'sections'}),
+      wikipediaImdbId(page)
+    ]);
+    const details=lead.status==='fulfilled'
+      ?extractFilmInfobox(lead.value.parse?.text?.['*']):{};
+    if(imdb.status==='fulfilled'&&imdb.value)details.imdbId=imdb.value;
+    if(sectionList.status==='fulfilled'){
+      const sections=sectionList.value.parse?.sections||[];
+      const reception=sections.find(x=>/^(?:Reception|Critical Reception|Critical Response|Reviews)$/i
+        .test(String(x.line||'').trim()));
+      if(reception?.index!==undefined){
+        try{
+          const payload=await wikipediaApi({page,prop:'text',section:String(reception.index)});
+          Object.assign(details,extractFilmReception(payload.parse?.text?.['*']));
+        }catch{} // No article reception should not erase valid infobox figures.
+      }
+    }
+    return details;
+  }
   async function movie(parsed){
     const term=[parsed.title,parsed.year||'','film'].filter(Boolean).join(' ');
     const u=new URL('https://en.wikipedia.org/w/api.php');
@@ -98,6 +203,8 @@
   }
   window.MarmaladePublicMovieInfo={
     async lookup(parsed){return parsed.kind==='tv'?television(parsed):movie(parsed);},
-    article
+    article,enrichFilm,
+    // Pure parsers are exposed for targeted tests without loading a movie.
+    parseFilmInfobox:extractFilmInfobox,parseFilmReception:extractFilmReception
   };
 })();
