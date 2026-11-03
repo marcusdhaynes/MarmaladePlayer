@@ -44,6 +44,10 @@ jobs:
           npx cap add android
           node scripts/patch-native.mjs
           npx cap sync android
+      - name: Add MarmaladePlayer Launcher Icon
+        run: |
+          python -m pip install --disable-pip-version-check --quiet pillow
+          python mobile/scripts/generate_icons.py
       - name: Build Installable Android APK
         working-directory: mobile/android
         run: |
