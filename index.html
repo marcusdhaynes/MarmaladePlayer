@@ -476,6 +476,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 .stage.join-failed .stage-empty p{font-size:13px!important;max-width:340px;line-height:1.5!important;margin:0!important}
 .stage-retry-join{pointer-events:auto;position:relative;z-index:5;background:#eeb07b;color:#271421;border:0;border-radius:8px;font-size:12px;font-weight:800;padding:9px 16px;margin-top:6px}
 .stage-retry-join[hidden]{display:none!important}
+
+.stage.guest-waiting .theater-controls,.stage.guest-waiting .theater-top{display:none!important}
+.stage.guest-waiting .stage-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:230px;padding:20px 15px;gap:10px}
+.stage.guest-waiting .stage-empty h1{font-size:clamp(20px,4vw,27px)!important;margin:0!important}
+.stage.guest-waiting .stage-empty p{font-size:13px!important;line-height:1.4!important;max-width:320px;margin:0!important}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -2093,6 +2098,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     el.joinSection.hidden = true;
     el.joinProgress.hidden = !state.connecting || state.role !== 'guest';
     el.retryJoin.hidden = !state.joinFailure || state.connecting;
+    // While a guest is waiting, keep the player controls out of the
+    // joining/error message so they never overlap the status or retry action.
+    el.stage.classList.toggle('guest-waiting',state.role==='guest' &&
+      (state.connecting||state.joinFailure) && !el.stage.classList.contains('has-video'));
     const canPick = (!state.source || (state.source === 'file' && !!media.error)) && !state.connecting;
     el.stage.classList.toggle('is-pickable', canPick);
     el.stage.setAttribute('aria-label', canPick ?
