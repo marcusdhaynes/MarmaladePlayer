@@ -26,9 +26,80 @@ if(existsSync(manifest)){
     '            </intent-filter>';
   xml=xml.replace('</activity>',filter+'\n        </activity>');
  }
+ // True OS Picture-in-Picture without overlay or special accessibility rights.
+ xml=xml.replace(/<activity\b([^>]*?)>/,(_original,attributes)=>{
+   let flags=attributes;
+   if(!flags.includes('android:supportsPictureInPicture='))flags+=' android:supportsPictureInPicture="true"';
+   if(!flags.includes('android:resizeableActivity='))flags+=' android:resizeableActivity="true"';
+   return '<activity'+flags+'>';
+ });
  xml=xml.replace('android:usesCleartextTraffic="true"','android:usesCleartextTraffic="false"');
  writeFileSync(manifest,xml);
  console.log('Android: WebRTC runtime permissions, URI handling, and HTTPS-only policy configured.');
+}
+// Capacitor's native Android project is generated fresh during each build.
+const nativeDir=resolve(mobile,'android/app/src/main/java/app/marmaladeplayer/mobile');
+const activity=resolve(nativeDir,'MainActivity.java');
+if(existsSync(activity)){
+  const plugin=\`package app.marmaladeplayer.mobile;
+
+import android.app.Activity;
+import android.app.PictureInPictureParams;
+import android.os.Build;
+import android.util.Rational;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+@CapacitorPlugin(name = "MarmaladePictureInPicture")
+public class MarmaladePictureInPicturePlugin extends Plugin {
+    @PluginMethod
+    public void enter(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            call.reject("System Picture-in-Picture requires Android 8 or later.");
+            return;
+        }
+        Activity activity = getActivity();
+        activity.runOnUiThread(() -> {
+            try {
+                PictureInPictureParams params = new PictureInPictureParams.Builder()
+                    .setAspectRatio(new Rational(16, 9)).build();
+                if (activity.enterPictureInPictureMode(params)) call.resolve();
+                else call.reject("System Picture-in-Picture was declined.");
+            } catch (Exception error) {
+                call.reject("System Picture-in-Picture unavailable on this device.", error);
+            }
+        });
+    }
+}
+\`;
+  writeFileSync(resolve(nativeDir,'MarmaladePictureInPicturePlugin.java'),plugin);
+  writeFileSync(activity,\`package app.marmaladeplayer.mobile;
+
+import android.content.res.Configuration;
+import android.os.Bundle;
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(MarmaladePictureInPicturePlugin.class);
+        super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean active, Configuration config) {
+        super.onPictureInPictureModeChanged(active, config);
+        if (bridge != null && bridge.getWebView() != null) {
+            String script = "window.dispatchEvent(new CustomEvent('marmalade:native-pip',{detail:{active:"+
+                (active ? "true" : "false") + "}}));";
+            bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(script, null));
+        }
+    }
+}
+\`);
+  console.log('Android: System Picture-in-Picture enabled.');
 }
 const plist=resolve(mobile,'ios/App/App/Info.plist');
 if(existsSync(plist)){
