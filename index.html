@@ -3783,6 +3783,7 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
   }
   el.stage.addEventListener('click', event => {
     if (event.target.closest('button,input,select,label,textarea,a,[role="button"],.theater-popover,[contenteditable="true"]')) return;
+    if(el.stage.classList.contains('mini-pip-visible')){showMiniControls();return;}
     if(el.stage.classList.contains('floating-player')){
       el.stage.classList.remove('floating-player');revealControls();return;
     }
