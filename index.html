@@ -1115,6 +1115,13 @@ body.theater-open{overflow:hidden}
   }
   function inviteUrl(code) {
     const address = new URL(window.location.href);
+    // Packaged mobile and desktop apps have private local origins that other
+    // devices cannot open. Publish ordinary browser-accessible room links.
+    if (window.Capacitor?.isNativePlatform?.() || window.__TAURI_INTERNALS__ ||
+        address.protocol === 'tauri:' || address.hostname === 'tauri.localhost') {
+      return 'https://marcusdhaynes.github.io/MarmaladePlayer/?room=' +
+        encodeURIComponent(code);
+    }
     address.search = '';
     address.hash = '';
     address.searchParams.set('room', code);
