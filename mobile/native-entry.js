@@ -42,6 +42,10 @@
       return Promise.reject(new Error('The Android Picture-in-Picture native bridge was not registered.'));
     };
     window.MarmaladeNativePictureInPicture={enter:()=>invokeNative('enter'),returnToApp:()=>invokeNative('returnToApp')};
+    window.MarmaladeNativeFloatingPlayer={
+      enter:()=>invokeNative('enterFloating'),
+      returnToApp:()=>invokeNative('returnToApp')
+    };
     window.MarmaladeNativeOrientation={set:(mode)=>{
       const cap=window.Capacitor;
       const plugin=cap?.Plugins?.MarmaladePictureInPicture;

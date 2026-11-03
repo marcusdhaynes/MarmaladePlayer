@@ -436,6 +436,9 @@ body.native-pip-active .stage .subtitle-overlay{z-index:15!important}
 .stage.mini-pip-visible:not(.mini-controls-awake) .mini-player-transport,.stage.mini-pip-visible:not(.mini-controls-awake) .mini-player-return{pointer-events:none!important}
 .stage.mini-pip-visible.mini-controls-awake .mini-player-overlay{opacity:1}
 body.native-pip-active .stage .mini-player-overlay{display:none!important}
+body.native-pip-active.floating-overlay-active .stage .mini-player-overlay{display:block!important}
+body.floating-overlay-active .stage .mini-player-overlay{display:block!important}
+body.floating-overlay-active .stage .subtitle-overlay{z-index:19!important}
 body.native-pip-active .stage .subtitle-overlay{display:block!important;z-index:21!important;max-width:90%;margin:auto;text-shadow:0 2px 4px #000,0 1px 8px #000!important}
 body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
 
@@ -3650,6 +3653,15 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
   };
   miniOverlay?.addEventListener('pointerdown',showMiniControls,{passive:true});
   el.stage.addEventListener('pointerdown',()=>{if(el.stage.classList.contains('mini-pip-visible'))showMiniControls();},{passive:true});
+  window.addEventListener('marmalade:native-floating',event=>{
+    const active=!!event.detail?.active;
+    nativePipActive=false;
+    document.body.classList.toggle('native-pip-active',active);
+    document.body.classList.toggle('floating-overlay-active',active);
+    setMiniOverlay(active);
+    window.MarmaladeSubtitleRefresh?.();
+    if(!active)revealControls();
+  });
   window.addEventListener('marmalade:native-pip',event=>{
     const active=!!event.detail?.active;
     nativePipActive=active;
@@ -3673,14 +3685,16 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
   });
   miniReturn?.addEventListener('click',event=>{
     event.stopPropagation();
-    if(window.MarmaladeNativePictureInPicture?.returnToApp){
+    if(window.MarmaladeNativeFloatingPlayer?.returnToApp&&document.body.classList.contains('floating-overlay-active')){
+      void window.MarmaladeNativeFloatingPlayer.returnToApp().catch(error=>notify('Cannot restore mini-player: '+error?.message));
+    } else if(window.MarmaladeNativePictureInPicture?.returnToApp&&nativePipActive){
       void window.MarmaladeNativePictureInPicture.returnToApp().catch(()=>{});
     } else if(window.documentPictureInPicture?.window){
       window.documentPictureInPicture.window.close();
     } else if(typeof pipWindow!=='undefined'&&pipWindow){
       pipWindow.close();
     }
-    document.body.classList.remove('native-pip-active');
+    document.body.classList.remove('native-pip-active','floating-overlay-active');
     setMiniOverlay(false);
   });
 
@@ -3710,6 +3724,21 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
     if(!window.MarmaladeNativePictureInPicture?.enter && /Android/i.test(navigator.userAgent) && window.Capacitor){
       const cap=window.Capacitor;
       window.MarmaladeNativePictureInPicture={enter:()=>cap.Plugins?.MarmaladePictureInPicture?.enter?.() || cap.nativePromise?.('MarmaladePictureInPicture','enter',{}) || Promise.reject(new Error('Android native PiP bridge unavailable'))};
+    }
+    // Prefer our own Android overlay window: real WebView touch controls,
+    // draggable/resizable mini-player and no Android PiP control panel.
+    // The OS requires "Display over other apps" permission once.
+    if(window.MarmaladeNativeFloatingPlayer?.enter){
+      document.body.classList.add('native-pip-active','floating-overlay-active');
+      setMiniOverlay(true);
+      window.MarmaladeSubtitleRefresh?.();
+      try{await window.MarmaladeNativeFloatingPlayer.enter();return;}
+      catch(error){
+        document.body.classList.remove('native-pip-active','floating-overlay-active');
+        setMiniOverlay(false);
+        notify(error?.message||'Enable Display over other apps to use the interactive mini-player.');
+        return;
+      }
     }
     if(window.MarmaladeNativePictureInPicture?.enter){
       // Android OS PiP remains above other apps, supports pinch-resize and

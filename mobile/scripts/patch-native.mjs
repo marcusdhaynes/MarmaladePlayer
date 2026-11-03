@@ -153,20 +153,21 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
     }
     public static boolean restoreFloating(Activity activity){
         if(floatingFrame==null||floatedWeb==null)return false;
+        floatingHeartbeat.removeCallbacks(refreshCaptions);
         try{
-            floatingHeartbeat.removeCallbacks(refreshCaptions);
             ViewGroup actual=(ViewGroup)floatedWeb.getParent();
             if(actual!=null)actual.removeView(floatedWeb);
-            floatingManager.removeViewImmediate(floatingFrame);
-            floatingFrame=null;floatingParams=null;floatingManager=null;
+        }catch(Exception error){android.util.Log.e("MarmaladeFloat","Detach failed",error);}
+        try{
+            if(floatingManager!=null)floatingManager.removeViewImmediate(floatingFrame);
+        }catch(Exception error){android.util.Log.w("MarmaladeFloat","Overlay already closed",error);}
+        floatingFrame=null;floatingParams=null;floatingManager=null;
+        try{
             if(originalParent!=null)originalParent.addView(floatedWeb,
                 Math.min(originalIndex,originalParent.getChildCount()),originalLayout);
-            notifyWeb(false);
-        }catch(Exception error){android.util.Log.e("MarmaladeFloat","Restore failed",error);}
-        finally{
-            originalParent=null;originalLayout=null;originalActivity=null;
-            floatedWeb=null;
-        }
+        }catch(Exception error){android.util.Log.e("MarmaladeFloat","Reattach failed",error);}
+        notifyWeb(false);
+        originalParent=null;originalLayout=null;originalActivity=null;floatedWeb=null;
         return true;
     }
     @PluginMethod
@@ -461,7 +462,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        if(Build.VERSION.SDK_INT>=26 && !isInPictureInPictureMode())notifyRestored();
+        // Reopening the main application via its launcher restores the same
+        // live WebView from the overlay instead of leaving the activity blank.
+        if(MarmaladePictureInPicturePlugin.restoreFloating(this))notifyRestored();
+        else if(Build.VERSION.SDK_INT>=26 && !isInPictureInPictureMode())notifyRestored();
     }
     @Override
     public void onDestroy() {
