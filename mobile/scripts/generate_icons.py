@@ -1,4 +1,4 @@
-"""Generate native launcher icons from MarmaladePlayer's orange/citrus identity.
+"""Generate native launcher icons from MarmaladePlayer's marmalade-jar identity.
 Run after generating Android/iOS projects; requires Pillow only.
 """
 from pathlib import Path
@@ -9,14 +9,16 @@ IOS = ROOT / "ios/App/App/Assets.xcassets/AppIcon.appiconset"
 S=1024
 canvas=Image.new("RGBA",(S,S),(0,0,0,0))
 d=ImageDraw.Draw(canvas)
-# Match favicon.svg: orange rounded tile, golden wheel, ivory spokes.
-d.rounded_rectangle((12,12,1012,1012), radius=250, fill="#ffa348")
-d.ellipse((160,160,864,864), fill="#ffbd67")
-d.ellipse((240,240,784,784),outline="#fff0d6",width=32)
-for pts in [[(512,165),(512,859)],[(165,512),(859,512)],
-            [(300,300),(724,724)],[(724,300),(300,724)]]:
-    d.line(pts,fill="#fff0d6",width=43)
-d.ellipse((447,447,577,577),fill="#76452a")
+# High-contrast marmalade jar + play triangle, aligned to the PWA SVG identity.
+d.rounded_rectangle((0,0,1023,1023),radius=232,fill="#25151a")
+d.ellipse((135,660,455,905),fill="#73361e")
+d.ellipse((570,660,890,905),fill="#73361e")
+d.rounded_rectangle((274,290,750,895),radius=134,fill="#bc431e",outline="#ffd483",width=21)
+d.rounded_rectangle((306,353,719,850),radius=105,fill="#f38b26")
+d.rounded_rectangle((323,372,368,765),radius=22,fill="#ffd67a")
+d.rounded_rectangle((292,206,733,337),radius=45,fill="#dfa44f",outline="#fff0ba",width=14)
+d.line((339,253,689,253),fill="#fff2c7",width=15)
+d.polygon([(438,456),(438,720),(674,588)],fill="#fff8e8")
 def save(path, size, content=canvas):
     path.parent.mkdir(parents=True,exist_ok=True)
     content.resize((size,size),Image.Resampling.LANCZOS).save(path,format="PNG",optimize=True)
@@ -28,14 +30,14 @@ if ANDROID.exists():
     # Adaptive Android icon has its own transparent foreground on the
     # orange themed background; remove the default Capacitor foreground.
     foreground=Image.new("RGBA",(432,432),(0,0,0,0))
-    mark=canvas.resize((276,276),Image.Resampling.LANCZOS)
+    mark=canvas.resize((320,320),Image.Resampling.LANCZOS)
     foreground.alpha_composite(mark,((432-276)//2,(432-276)//2))
     for vector in ANDROID.rglob("ic_launcher_foreground.xml"):
         vector.unlink()
     save(ANDROID/"drawable/ic_launcher_foreground.png",432,foreground)
     bg=ANDROID/"values/ic_launcher_background.xml"
     bg.parent.mkdir(parents=True,exist_ok=True)
-    bg.write_text('<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="ic_launcher_background">#ffa348</color></resources>\n')
+    bg.write_text('<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="ic_launcher_background">#25151a</color></resources>\n')
     print("Android launcher icons updated.")
 if IOS.exists():
     icon_files=list(IOS.glob("*.png"))
