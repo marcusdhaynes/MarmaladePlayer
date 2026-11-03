@@ -290,7 +290,7 @@ body.theater-open{overflow:hidden}
 .stage-quick-actions{display:flex;gap:5px;justify-content:flex-end;align-items:center;margin-top:3px;pointer-events:auto}
 .stage-quick-actions .theater-pill{opacity:1!important;display:inline-flex;align-items:center;justify-content:center;width:33px;height:29px;min-height:29px;padding:4px!important;color:#e9d9ce;background:#111319d9!important;border:1px solid #ffffff32!important;border-radius:7px!important;pointer-events:auto;transition:background .16s ease,border-color .16s ease}
 .stage-quick-actions svg{width:18px;height:18px;display:block}
-.stage-quick-actions .quick-share-btn{width:auto;min-width:70px;padding:4px 8px!important;gap:6px;text-transform:uppercase;font-size:9px;letter-spacing:.45px;font-weight:750}
+.stage-quick-actions .quick-share-btn{width:33px;min-width:33px;padding:4px!important}
 .stage-quick-actions .theater-pill:hover:not(:disabled),.stage-quick-actions .theater-pill:focus-visible{background:#3a2b29!important;border-color:#ffa862!important}
 .stage-quick-actions .theater-pill:disabled{opacity:.4!important;cursor:not-allowed}
 .stage-quick-actions .quick-link-btn{touch-action:manipulation;-webkit-touch-callout:none;user-select:none;position:relative}
@@ -300,7 +300,7 @@ body.theater-open{overflow:hidden}
 .local-copy-feedback{font-size:10px;color:#e9c59e;line-height:1.4;margin:0 4px 10px;max-width:780px}
 .local-copy-feedback[hidden]{display:none!important}
 #hostVideoDiagnostic{display:none!important}
-@media(max-width:450px){.stage-quick-actions .theater-pill{width:29px;height:27px;min-height:27px}.stage-quick-actions svg{width:16px;height:16px}.stage-quick-actions .quick-share-btn{width:auto;min-width:64px;padding:4px 6px!important;gap:4px}}
+@media(max-width:450px){.stage-quick-actions .theater-pill{width:29px;height:27px;min-height:27px}.stage-quick-actions svg{width:16px;height:16px}.stage-quick-actions .quick-share-btn{width:29px;min-width:29px;padding:4px!important}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -337,8 +337,8 @@ body.theater-open{overflow:hidden}
   <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 13.9a5 5 0 0 0 7.4.5l2.1-2.1a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M14.2 10.1a5 5 0 0 0-7.4-.5l-2.1 2.1a5 5 0 0 0 7.1 7.1l1.2-1.2"/></svg>
   </button>
-  <button type="button" id="copyLink" class="theater-pill quick-share-btn" disabled title="Share: Copy Room Link" aria-label="Share: Copy Room Link">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5"/><path d="M5 13v5.3A2.7 2.7 0 0 0 7.7 21h8.6a2.7 2.7 0 0 0 2.7-2.7V13"/></svg><span>Share</span>
+  <button type="button" id="copyLink" class="theater-pill quick-share-btn" disabled title="Copy Room Link" aria-label="Copy Room Link">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5"/><path d="M5 13v5.3A2.7 2.7 0 0 0 7.7 21h8.6a2.7 2.7 0 0 0 2.7-2.7V13"/></svg> 
   </button>
 </div>
             </div>
@@ -346,7 +346,7 @@ body.theater-open{overflow:hidden}
           <div class="subtitle-overlay" id="subtitleOverlay" hidden></div>
           <button class="exit-theater" id="exitTheater" type="button" aria-label="Exit theater mode" title="Exit theater mode">✕</button>
           <div class="theater-controls" id="theaterControls" aria-label="Video controls">
-            <div class="theater-title"><strong id="fileName">Nothing selected</strong><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 watching</span></span></div>
+            <div class="theater-title"><strong id="fileName">Nothing Selected</strong><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 Watching</span></span></div>
             <div class="theater-seek" id="seekArea">
               <span class="timecode" id="currentTime">00:00</span>
               <div class="seek-stack"><div id="bufferedFill" class="buffered-fill" aria-hidden="true"></div><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled></div>
@@ -371,43 +371,40 @@ body.theater-open{overflow:hidden}
             </div>
             <span id="networkLabel" hidden aria-hidden="true"></span>
           </div>
-          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><div class="popover-heading"><strong>Subtitles</strong><button type="button" id="closeSubtitlePanel" aria-label="Close subtitles">✕</button></div><p id="subtitleName">Off · Supports .srt and .vtt</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" hidden></div>
+          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><div class="popover-heading"><strong>Subtitles</strong><button type="button" id="closeSubtitlePanel" aria-label="Close subtitles">✕</button></div><p id="subtitleName">Off · Supports .srt and .vtt</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load Captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" hidden></div>
           <div class="theater-popover settings-popover" id="settingsPanel" hidden>
-            <div class="popover-heading"><strong>Playback settings</strong><button type="button" id="closeSettingsPanel" aria-label="Close settings">✕</button></div>
-            <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (recommended)</option></select></label>
+            <div class="popover-heading"><strong>Playback Settings</strong><button type="button" id="closeSettingsPanel" aria-label="Close settings">✕</button></div>
+            <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
-            <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast">Lowest delay</option></select></label>
-            <label><input type="checkbox" id="strictSync" checked> Keep everyone together</label>
-            <label><input type="checkbox" id="peerAssist" checked> Peer rescue</label>
+            <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast">Lowest Delay</option></select></label>
+            <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
+            <label><input type="checkbox" id="peerAssist" checked> Peer Rescue</label>
             <button type="button" id="diagnosticsToggle" aria-expanded="false">Diagnostics</button>
             <div class="stability-info" id="stabilityInfo" hidden role="status" aria-live="off">Waiting for playback statistics.</div>
             <div class="settings-tools">
-              <button type="button" id="screenShareBtn" class="settings-utility">Share a video-player window</button>
+              <button type="button" id="screenShareBtn" class="settings-utility">Share a Video-Player Window</button>
             </div>
           </div>
         </div>
         <div class="below-stage"><span><span class="small-shield">✳</span> Video streams peer-to-peer. No video file upload.</span><span id="mediaHint">Optimized for low latency, not zero latency.</span></div>
         <div class="local-copy-feedback" id="localCopyPanel" hidden role="status" aria-live="polite"><small id="localCopyStatus">Waiting for Host Video…</small></div>
         <input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg" hidden>
-        <section class="room-join-inline" id="joinSection" aria-label="Join Room">
-          <input id="roomInput" class="text-input" type="text" placeholder="Paste a Room Invitation Link or Code" autocomplete="off" spellcheck="false" aria-label="Room Invitation or Code">
-          <button id="retryJoin" type="button" class="compact-retry" hidden>Retry</button>
-        </section>
+ 
 
         <section class="media-info" id="mediaInfoPanel" aria-label="Movie and TV information" hidden>
-          <div class="mi-header"><strong>Movie &amp; series information</strong><div class="mi-header-right"><span id="miStatus" class="mi-muted" role="status" aria-live="polite">No video selected</span><button type="button" id="miClose" aria-label="Close movie information">✕</button></div></div>
+          <div class="mi-header"><strong>Movie &amp; Series Information</strong><div class="mi-header-right"><span id="miStatus" class="mi-muted" role="status" aria-live="polite">No Video Selected</span><button type="button" id="miClose" aria-label="Close movie information">✕</button></div></div>
           <form id="miSearchForm" class="mi-search-row" role="search">
-            <input id="miSearch" type="search" aria-label="Search title" placeholder="Movie or series title" autocomplete="off" maxlength="160">
-            <select id="miKind" aria-label="Movie or TV series"><option value="movie">Movie</option><option value="tv">TV</option></select>
+            <input id="miSearch" type="search" aria-label="Search Title" placeholder="Movie or Series Title" autocomplete="off" maxlength="160">
+            <select id="miKind" aria-label="Movie or TV Series"><option value="movie">Movie</option><option value="tv">TV</option></select>
             <button type="submit">Find</button>
           </form>
           <details class="mi-credentials" id="miSources">
-            <summary>Information sources · API access</summary>
+            <summary>Information Sources · API Access</summary>
             <p class="mi-settings-help">Use your own keys. They are stored in this browser, never in the repository or sent to watch-party guests. Only metadata lookups contact the services; the video file stays local.</p>
-            <div class="mi-settings-row"><label for="miTmdbToken">TMDB API key or Read Access Token (primary)</label><input type="password" id="miTmdbToken" autocomplete="off" spellcheck="false" placeholder="Required for full filmography"></div>
-            <div class="mi-settings-row"><label for="miOmdbKey">OMDb key (optional: IMDb, Rotten Tomatoes, Metacritic, awards)</label><input type="password" id="miOmdbKey" autocomplete="off" spellcheck="false" placeholder="Optional"></div>
-            <div class="mi-settings-row"><label for="miSubtitlesKey">OpenSubtitles API key (optional: file-hash identification)</label><input type="password" id="miSubtitlesKey" autocomplete="off" spellcheck="false" placeholder="Optional"></div>
-            <div class="mi-settings-row"><button type="button" id="miSave">Save sources &amp; look up</button><button type="button" id="miForget">Forget keys</button></div>
+            <div class="mi-settings-row"><label for="miTmdbToken">TMDB API Key or Read Access Token (Primary)</label><input type="password" id="miTmdbToken" autocomplete="off" spellcheck="false" placeholder="Required for full filmography"></div>
+            <div class="mi-settings-row"><label for="miOmdbKey">OMDb Key (Optional: IMDb, Rotten Tomatoes, Metacritic, Awards)</label><input type="password" id="miOmdbKey" autocomplete="off" spellcheck="false" placeholder="Optional"></div>
+            <div class="mi-settings-row"><label for="miSubtitlesKey">OpenSubtitles API Key (Optional: File-Hash Identification)</label><input type="password" id="miSubtitlesKey" autocomplete="off" spellcheck="false" placeholder="Optional"></div>
+            <div class="mi-settings-row"><button type="button" id="miSave">Save Sources &amp; Look Up</button><button type="button" id="miForget">Forget Keys</button></div>
             <p class="mi-settings-help">Get credentials: <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">TMDB</a> · <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener noreferrer">OMDb</a> · <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noopener noreferrer">OpenSubtitles</a>. Some services limit free usage.</p>
           </details>
           <div id="miMatches"></div>
@@ -423,31 +420,35 @@ body.theater-open{overflow:hidden}
           <p class="compact-help">Keep this page open while Marmalade connects.</p>
         </section>
         <section id="hostActive" class="compact-room" hidden>
-          <div class="compact-heading"><span class="room-indicator"></span><strong>Hosting</strong><button id="endRoom" type="button" class="compact-text-btn">End room</button></div>
+          <div class="compact-heading"><span class="room-indicator"></span><strong>Hosting</strong><button id="endRoom" type="button" class="compact-text-btn">End Room</button></div>
           <input id="inviteLink" type="hidden" readonly>
           <p class="compact-help">Copy this link to invite someone.</p>
         </section>
         <section id="joinActive" class="compact-room" hidden>
-          <div class="compact-heading"><span class="room-indicator"></span><strong>Watching together</strong><button id="leaveRoom" type="button" class="compact-text-btn">Leave</button></div>
+          <div class="compact-heading"><span class="room-indicator"></span><strong>Watching Together</strong><button id="leaveRoom" type="button" class="compact-text-btn">Leave</button></div>
           <span id="joinedCode" class="compact-room-code">—</span>
           <!-- Guest local file controls are now beside the Share action. -->
         </section>
         <div class="compact-separator"></div>
         <section class="hosted-link compact-cdn" aria-label="Buffer-first CDN video">
-          <small><strong>Buffer-first / CDN option:</strong> enter your own public HLS (.m3u8) or MP4 URL. This distributes video directly from its host instead of your upload connection. Requires CORS-enabled hosting.</small>
+          <small><strong>Buffer-First / CDN Option:</strong> enter your own public HLS (.m3u8) or MP4 URL. This distributes video directly from its host instead of your upload connection. Requires CORS-enabled hosting.</small>
           <input type="url" id="hostedUrl" placeholder="https://your-media-host/movie.m3u8" aria-label="Hosted video URL" autocomplete="off">
-          <input type="url" id="fallbackUrl" placeholder="Optional backup URL (failover)" aria-label="Fallback video URL" autocomplete="off">
-          <button type="button" id="hostedStart">Use hosted video + create room</button>
+          <input type="url" id="fallbackUrl" placeholder="Optional Backup URL (Failover)" aria-label="Fallback video URL" autocomplete="off">
+          <button type="button" id="hostedStart">Use Hosted Video + Create Room</button>
         </section>
       </div>
       <div class="compatibility-controls" hidden aria-hidden="true">
+        <section id="joinSection" hidden>
+          <input id="roomInput" type="text" autocomplete="off" aria-label="Room Invitation Code">
+          <button id="retryJoin" type="button" hidden>Retry</button>
+        </section>
         <div class="role-tabs"><button id="hostTab" type="button">Host</button><button id="joinTab" type="button">Join</button></div>
         <div id="hostPanel">
-          <button id="chooseFile" type="button">Choose video</button>
+          <button id="chooseFile" type="button">Choose Video</button>
           <input id="fileInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg">
           <span id="fileInfo"></span>
-          <button id="createRoom" type="button">Create room</button>
-          <button id="startBroadcast" type="button">Start broadcast</button>
+          <button id="createRoom" type="button">Create Room</button>
+          <button id="startBroadcast" type="button">Start Broadcast</button>
         </div>
         <div id="joinPanel"><button id="joinRoom" type="button">Join</button></div>
       </div>   </main>
@@ -1719,7 +1720,7 @@ body.theater-open{overflow:hidden}
   }
   function updateRoomPanel() {
     updateRoomActions();
-    el.joinSection.hidden = !el.hostActive.hidden || !el.joinActive.hidden || state.connecting;
+    el.joinSection.hidden = true;
     el.joinProgress.hidden = !state.connecting || state.role !== 'guest';
     el.retryJoin.hidden = !state.joinFailure || state.connecting;
     const canPick = (!state.source || (state.source === 'file' && !!media.error)) && !state.connecting;
