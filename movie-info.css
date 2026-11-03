@@ -68,3 +68,7 @@
   .mi-user-rating-head,.mi-user-rating-number{font-size:10px}
   .mi-user-rating-note{font-size:8px}
 }
+
+/* Equal width/height IMDb identity block across screen sizes. */
+.mi-user-rating{width:112px;height:112px;aspect-ratio:1;max-width:44%;padding:7px!important;justify-content:center}
+@media(max-width:510px){.mi-user-rating{width:94px;height:94px;max-width:43%;padding:4px!important}.mi-user-rating-note{font-size:8px}}

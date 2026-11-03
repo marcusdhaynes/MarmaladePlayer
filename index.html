@@ -360,6 +360,35 @@ body.native-pip-active .stage .exit-theater{display:none!important}
 @media(max-width:800px){.topbar{height:64px;min-height:64px}.workspace{margin-top:9px}}
 @media(max-width:510px){.topbar{height:58px;min-height:58px}.identity{gap:7px}.brand strong{font-size:16px}.brand>span{font-size:8px;letter-spacing:2.5px}.logo-mark,.logo-mark img{width:34px;height:34px}.top-actions .header-room-actions{gap:4px}.top-actions .header-room-actions .theater-pill{width:30px;min-width:30px;height:30px;min-height:30px;padding:4px!important}.top-actions .header-room-actions svg{width:16px;height:16px}.workspace{margin-top:8px}}
 @media(max-width:360px){.brand strong{font-size:14px}.identity{gap:5px}.top-actions .header-room-actions{gap:2px}.top-actions .header-room-actions .theater-pill{width:27px;min-width:27px}}
+
+/* Cosmic theme is opt-in and never interferes with player overlays. */
+body.cosmic-background{background:#090719!important}
+body.cosmic-background::before{content:"";position:fixed;z-index:-1;inset:-22%;pointer-events:none;
+background:radial-gradient(ellipse 42% 32% at 28% 28%,#ba2caa99 0%,#661ca566 42%,transparent 90%),
+radial-gradient(ellipse 37% 40% at 76% 61%,#1474d6a8 0%,#392d9d88 45%,transparent 90%),
+radial-gradient(ellipse 44% 35% at 47% 78%,#e33e8d7d 0%,#30116e84 60%,transparent 95%),
+radial-gradient(ellipse 38% 30% at 81% 14%,#614def99 0%,transparent 90%),#070615;
+filter:blur(23px) saturate(1.25)}
+body.cosmic-background::after{content:"";pointer-events:none;position:fixed;inset:0;z-index:-1;opacity:.9;
+background-image:radial-gradient(1px 1px at 8% 12%,#fff,transparent),radial-gradient(2px 2px at 24% 68%,#ffc6f9,transparent),
+radial-gradient(2px 2px at 62% 19%,#fff,transparent),radial-gradient(1px 1px at 84% 44%,#a7ddff,transparent),
+radial-gradient(2px 2px at 91% 83%,#e8b7ff,transparent),radial-gradient(1px 1px at 43% 90%,#fff,transparent),
+radial-gradient(1.5px 1.5px at 75% 74%,#fff,transparent),radial-gradient(1px 1px at 37% 43%,#ffb0ec,transparent);
+background-size:317px 271px,463px 397px,521px 411px,383px 509px,617px 431px,401px 307px,557px 461px,353px 373px}
+.cosmic-setting{display:flex;align-items:center;gap:9px;padding:9px 2px;color:#f0d5ff;font-size:12px;font-weight:650}
+.cosmic-setting input{accent-color:#b66bff;width:17px;height:17px}
+.stage-poster-preview{position:absolute;inset:-12px;z-index:1;opacity:0;transition:opacity .28s ease;pointer-events:none;
+background-position:center;background-repeat:no-repeat;background-size:cover;filter:none}
+.stage-poster-preview::before{content:"";position:absolute;inset:-24px;background:inherit;background-size:cover;
+filter:blur(23px) brightness(.45) saturate(1.12);transform:scale(1.13)}
+.stage-poster-preview::after{content:"";position:absolute;inset:0;background:linear-gradient(#08060c1f,#08060c40)}
+.stage.poster-preview-active .stage-poster-preview{opacity:1}
+.stage.poster-preview-active .stage-empty{display:none!important}
+body.native-pip-active .stage .subtitle-overlay{display:block!important;bottom:8%!important;left:6%!important;right:6%!important;
+font-size:clamp(11px,2.8vw,23px)!important;z-index:12!important}
+body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
+body.document-pip .stage-poster-preview{display:none!important}
+
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -387,6 +416,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
       <section class="screen-column" aria-label="Video player">
         <div class="stage" id="dropZone" tabindex="0" aria-label="Video theater, tap to reveal controls">
           <video id="player" playsinline preload="metadata"></video>
+          <div class="stage-poster-preview" id="stagePosterPreview" aria-hidden="true"></div>
           <div id="hostVideoDiagnostic" role="status" aria-live="polite" hidden style="position:absolute;z-index:7;left:12px;right:12px;top:54px;max-width:520px;background:#1a1518ed;color:#ffe6cb;border:1px solid #bc8660;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-start;gap:8px"><span id="videoDiagnosticText"></span><button type="button" id="videoRecoveryAction" hidden style="background:#ffb86b;color:#2b1a11;border:0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12px">Retry picture</button></div>
           <div class="stage-empty" id="stageEmpty">
             <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="m12 8 13 8-13 8V8Z" fill="currentColor"/></svg></span></div>
@@ -436,6 +466,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
             <div class="popover-heading"><strong>Playback Settings</strong><button type="button" id="closeSettingsPanel" aria-label="Close settings">✕</button></div>
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
+             <label class="cosmic-setting"><input id="cosmicBackgroundToggle" type="checkbox"> Cosmic Nebula Background</label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast">Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
             <label><input type="checkbox" id="peerAssist" checked> Peer Rescue</label>
@@ -555,6 +586,45 @@ body.native-pip-active .stage .exit-theater{display:none!important}
     joinSection: $('joinSection'),
   };
   const media = el.player;
+
+  // Keep cosmetic preferences device-local and restore without a layout flash.
+  const cosmicToggle=document.getElementById('cosmicBackgroundToggle');
+  try {document.body.classList.toggle('cosmic-background',localStorage.getItem('marmalade:cosmic-background')==='true');}catch{}
+  if(cosmicToggle){
+    cosmicToggle.checked=document.body.classList.contains('cosmic-background');
+    cosmicToggle.addEventListener('change',()=>{
+      document.body.classList.toggle('cosmic-background',cosmicToggle.checked);
+      try{localStorage.setItem('marmalade:cosmic-background',String(cosmicToggle.checked));}catch{}
+    });
+  }
+  // Poster is purely visual and never uploaded. Keep it until playback starts.
+  const posterPreview=document.getElementById('stagePosterPreview');
+  let posterHasPlayed=false;
+  window.addEventListener('marmalade:video-selected',()=>{
+    posterHasPlayed=false;
+    posterPreview.style.backgroundImage='';
+    el.stage.classList.remove('poster-preview-active');
+  });
+  window.addEventListener('marmalade:media-cleared',()=>{
+    posterHasPlayed=false;
+    posterPreview.style.backgroundImage='';
+    el.stage.classList.remove('poster-preview-active');
+  });
+  window.addEventListener('marmalade:movie-artwork',event=>{
+    const url=event.detail?.backdrop||event.detail?.poster;
+    if(posterHasPlayed||!url||!/^https:\/\//i.test(url))return;
+    // An Image loader rejects broken remote metadata URLs and avoids injecting CSS.
+    const artwork=new Image();
+    artwork.onload=()=>{
+      if(posterHasPlayed||!el.stage.classList.contains('has-video'))return;
+      posterPreview.style.backgroundImage='url("'+artwork.src.replace(/"/g,'%22')+'")';
+      el.stage.classList.add('poster-preview-active');
+    };
+    artwork.src=url;
+  });
+  media.addEventListener('play',()=>{posterHasPlayed=true;el.stage.classList.remove('poster-preview-active');});
+  media.addEventListener('playing',()=>{posterHasPlayed=true;el.stage.classList.remove('poster-preview-active');});
+
   const PEER_PREFIX = 'marmalade-';
   const isAppleTouch = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -3454,41 +3524,71 @@ body.native-pip-active .stage .exit-theater{display:none!important}
     }catch(e){notify('Subtitle file could not be read. Try .srt or .vtt.');}
     el.subtitleFile.value='';
   });
+  // Document Picture-in-Picture keeps the actual video, timed subtitles,
+  // existing controls and shared playback state in one independently resizable OS window.
+  let pipWindow=null,stagePlaceholder=null,restoringPip=false;
+  const restoreDocumentPip=()=>{
+    if(restoringPip||!stagePlaceholder)return;
+    restoringPip=true;
+    if(stagePlaceholder.parentNode)stagePlaceholder.replaceWith(el.stage);
+    else document.querySelector('.screen-column')?.prepend(el.stage);
+    stagePlaceholder=null;pipWindow=null;restoringPip=false;
+    revealControls();
+  };
   el.popoutBtn.addEventListener('click',async ()=>{
-    if(el.stage.classList.contains('floating-player')){
-      el.stage.classList.remove('floating-player');revealControls();return;
-    }
+    if(pipWindow){pipWindow.close();restoreDocumentPip();return;}
     if(document.pictureInPictureElement){
       try{await document.exitPictureInPicture();}catch{}return;
     }
     if(media.webkitPresentationMode==='picture-in-picture'&&media.webkitSetPresentationMode){
       try{media.webkitSetPresentationMode('inline');}catch{}return;
     }
-    // A paused decoded frame remains eligible for native PiP on supported
-    // browsers. Never call play() just to open the popout: doing so would
-    // broadcast a false Play command to everybody else.
     if(media.readyState<2||!el.stage.classList.contains('has-video')){
       notify('Load a video before opening Pop-Out.');return;
     }
     if(window.MarmaladeNativePictureInPicture?.enter){
-      // On native Android, show only the movie in the OS-level PiP window.
-      // No media.play() call: a paused movie remains paused for all viewers.
+      // Android OS PiP remains above other apps, supports pinch-resize and
+      // retains the WebView subtitle overlay with its own system controls.
       document.body.classList.add('native-pip-active');
       try{await window.MarmaladeNativePictureInPicture.enter();return;}
       catch{document.body.classList.remove('native-pip-active');}
     }
+    if(window.documentPictureInPicture?.requestWindow){
+      try{
+        const pop=await window.documentPictureInPicture.requestWindow({width:520,height:340});
+        pipWindow=pop;
+        stagePlaceholder=document.createComment('Marmalade video pop-out position');
+        el.stage.replaceWith(stagePlaceholder);
+        const style=pop.document.createElement('style');
+        style.textContent=[...document.querySelectorAll('style')].map(s=>s.textContent).join('\n')+
+          '\nhtml,body{margin:0!important;background:#060509!important;width:100%!important;height:100%!important;overflow:hidden!important}'+
+          '\n.stage{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;aspect-ratio:auto!important;border-radius:0!important;border:0!important}'+
+          '\n.stage .theater-controls{opacity:1!important;pointer-events:auto!important;transform:none!important}'+
+          '\n.stage .subtitle-overlay{z-index:12!important}'+
+          '\n#pipReturn{position:fixed;top:7px;right:8px;z-index:10000;display:grid;place-items:center;width:26px;height:26px;background:#17131ad9;color:white;border:1px solid #ffffff65;border-radius:7px;cursor:pointer}';
+        pop.document.head.appendChild(style);
+        pop.document.body.appendChild(el.stage);
+        el.stage.classList.add('controls-visible');
+        const close=pop.document.createElement('button');
+        close.id='pipReturn';close.type='button';close.title='Return to Marmalade Player';close.setAttribute('aria-label','Close pop-out and return to app');close.textContent='×';
+        close.addEventListener('click',()=>pop.close());
+        pop.document.body.appendChild(close);
+        pop.addEventListener('pagehide',restoreDocumentPip,{once:true});
+        return;
+      }catch(error){
+        try{pipWindow?.close();}catch{}
+        restoreDocumentPip();
+      }
+    }
+    // System video PiP provides playback/resizing where Document PiP is absent.
+    // Web overlays are not retained in legacy video PiP; never pretend otherwise.
     if(document.pictureInPictureEnabled&&media.requestPictureInPicture){
       try{await media.requestPictureInPicture();return;}catch{}
     }
     if(media.webkitSetPresentationMode){
       try{media.webkitSetPresentationMode('picture-in-picture');return;}catch{}
     }
-    // Android/iOS WebViews may forbid system PiP. An always-on-top in-app
-    // miniature is still usable during pause, without changing media time.
-    el.stage.classList.add('floating-player');
-    el.settingsPanel.hidden=true;
-    el.subtitlePanel.hidden=true;
-    notify('Floating Video Enabled · Tap the Mini-Player to Return.');
+    notify('External Picture-in-Picture is unavailable on this device.');
   });
   window.setInterval(()=>{updateBufferDisplay();updateSubtitles();updateStatusDisplay();},500);
 
@@ -3643,11 +3743,32 @@ body.native-pip-active .stage .exit-theater{display:none!important}
   const seekTime = () => (state.role === 'guest' ? state.sharedDuration : media.duration) * Number(el.seek.value) / 1000;
   el.seek.addEventListener('pointerdown', () => { state.seeking = true; });
   el.seek.addEventListener('input', () => { state.seeking = true; el.current.textContent = timeString(seekTime()); });
-  el.seek.addEventListener('change', () => {
-    const time = seekTime();
-    state.seeking = false;
-    if (state.role === 'guest') guestCommand('seek', time);
-    else applyTransport('seek', time);
+  let previousSeek={at:0,time:-1};
+  const commitSeek=(time)=>{
+    if(!Number.isFinite(time))return;
+    const duration=state.role==='guest'?state.sharedDuration:media.duration;
+    if(!Number.isFinite(duration)||duration<=0)return;
+    time=Math.max(0,Math.min(duration,time));
+    if(performance.now()-previousSeek.at<180&&Math.abs(previousSeek.time-time)<.2)return;
+    previousSeek={at:performance.now(),time};
+    state.seeking=false;
+    if(state.role==='guest')guestCommand('seek',time);
+    else applyTransport('seek',time);
+    revealControls();
+  };
+  el.seek.addEventListener('change',()=>commitSeek(seekTime()));
+  // Native range inputs can fail to emit change when merely tapped on Android.
+  // Explicit click-to-time seeking works without initiating a thumb drag.
+  let seekStart=null;
+  el.seek.addEventListener('pointerdown',event=>{seekStart={x:event.clientX,y:event.clientY};});
+  el.seek.addEventListener('click',event=>{
+    if(el.seek.disabled||!seekStart)return;
+    if(Math.hypot(event.clientX-seekStart.x,event.clientY-seekStart.y)>8)return;
+    const rect=el.seek.getBoundingClientRect();
+    if(!rect.width)return;
+    el.seek.value=String(Math.round(Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width))*1000));
+    commitSeek(seekTime());
+    seekStart=null;
   });
   el.seek.addEventListener('blur', () => { state.seeking = false; });
   el.volume.addEventListener('input', () => {

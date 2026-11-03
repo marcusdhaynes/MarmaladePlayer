@@ -99,7 +99,8 @@
   function closePanel() { ui.panel.hidden = true; if (ui.reopen) { ui.reopen.parentElement.hidden = false; ui.reopen.setAttribute('aria-expanded', 'false'); } ui.toggle.setAttribute('aria-expanded', 'false'); }
   ui.toggle.addEventListener('click', () => ui.panel.hidden ? openPanel(true) : closePanel());
   ui.close.addEventListener('click', closePanel);
-  if (ui.reopen) { ui.reopen.parentElement.hidden = !ui.panel.hidden; ui.reopen.addEventListener('click', () => openPanel(true)); }
+  if (ui.reopen) { ui.reopen.parentElement.hidden = true; ui.reopen.addEventListener('click', () => openPanel(true)); }
+  openPanel(false);
   function normalize(value) {
     return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
       .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -526,6 +527,7 @@
     return sec;
   }
   function render(data) {
+    window.dispatchEvent(new CustomEvent('marmalade:movie-artwork',{detail:{poster:data.poster||'',backdrop:data.backdrop||''}}));
     ui.results.replaceChildren();
     const hero = line(ui.results,'div','mi-hero');
     if (data.poster) {
@@ -720,7 +722,7 @@
   window.addEventListener('marmalade:media-cleared', () => {
     ++sequence;activeFile=null;detected=null;displayed=null;
     ui.matches.replaceChildren();ui.results.replaceChildren();
-    status('No Video Selected');closePanel();
+    status('No Video Selected');openPanel(false);
   });
   window.MarmaladeInfoShare = () => share(displayed);
   window.MarmaladeInfoReceive = payload => {
@@ -728,7 +730,7 @@
       displayed = null; detected = null;
       ui.matches.replaceChildren();ui.results.replaceChildren();
       status('Host Is Identifying the Video');
-      closePanel(); return;
+      openPanel(false); return;
     }
     if (!payload || typeof payload !== 'object' || typeof payload.title !== 'string' ||
       payload.title.length > 250 || !['movie','tv'].includes(payload.kind) ||

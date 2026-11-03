@@ -45,6 +45,11 @@ if(existsSync(activity)){
 
 import android.app.Activity;
 import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.graphics.drawable.Icon;
+import java.util.Collections;
 import android.os.Build;
 import android.util.Rational;
 import android.view.View;
@@ -66,8 +71,19 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
         Activity activity = getActivity();
         activity.runOnUiThread(() -> {
             try {
+                // Android supplies resize, playback, and dismiss actions.
+                // Provide an explicit return-to-app affordance in its OS PiP menu.
+                Intent resume = new Intent(activity, MainActivity.class);
+                resume.setAction("app.marmaladeplayer.RETURN_FROM_PIP");
+                resume.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                PendingIntent actionIntent = PendingIntent.getActivity(activity, 88, resume,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                RemoteAction returnAction = new RemoteAction(
+                    Icon.createWithResource(activity, android.R.drawable.ic_menu_revert),
+                    "Return to Player", "Close pop-out and return to Marmalade Player", actionIntent);
                 PictureInPictureParams params = new PictureInPictureParams.Builder()
-                    .setAspectRatio(new Rational(16, 9)).build();
+                    .setAspectRatio(new Rational(16, 9))
+                    .setActions(Collections.singletonList(returnAction)).build();
                 if (activity.enterPictureInPictureMode(params)) call.resolve();
                 else call.reject("System Picture-in-Picture was declined.");
             } catch (Exception error) {
@@ -119,6 +135,10 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
 
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.os.Build;
+import android.view.WindowInsets;
+import android.view.View;
+import android.graphics.Color;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -126,6 +146,25 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(MarmaladePictureInPicturePlugin.class);
         super.onCreate(savedInstanceState);
+        // Android 15 can lay out WebViews underneath status/navigation bars.
+        // Always apply the *actual* window insets, not guessed CSS pixel offsets.
+        getWindow().setStatusBarColor(Color.rgb(13,7,34));
+        if (bridge != null && bridge.getWebView() != null) {
+            View web = bridge.getWebView();
+            web.setOnApplyWindowInsetsListener((view, insets) -> {
+                int top, bottom;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());
+                    top=bars.top;bottom=bars.bottom;
+                } else {
+                    top=insets.getSystemWindowInsetTop();
+                    bottom=insets.getSystemWindowInsetBottom();
+                }
+                view.setPadding(0, top, 0, bottom);
+                return insets;
+            });
+            web.requestApplyInsets();
+        }
     }
 
     @Override
