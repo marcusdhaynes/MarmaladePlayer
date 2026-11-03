@@ -55,6 +55,7 @@
   const syncSettings=document.createElement('section');
   syncSettings.className='host-sync-settings';
   syncSettings.id='hostSyncSettings';
+  syncSettings.hidden=true;
   syncSettings.innerHTML=
     '<strong>Host / Guest A/V Alignment</strong>'+
     '<label for="hostSyncMode">Alignment <select id="hostSyncMode"><option value="auto">Auto (Guest Timing)</option><option value="manual">Manual</option><option value="off">Off</option></select></label>'+
@@ -139,8 +140,11 @@
     }finally{previewBusy=false;}
   }
   function updateMonitor(){
-    syncSettings.hidden=state.role!=='host';
-    if(state.role!=='host'||state.source!=='file'||!state.broadcasting||
+    const host=state.role==='host';
+    syncSettings.hidden=!host;
+    modeInput.disabled=!host;
+    delayInput.disabled=!host;
+    if(!host||state.source!=='file'||!state.broadcasting||
        !state.fileUrl||media.error||syncMode==='off'){
       if(state.hostSyncActive||previewSource)stopMonitor();
       return;
@@ -192,8 +196,12 @@
     }
     if(!previewAudioActive)connectMonitorAudio();
   }
-  modeInput.addEventListener('change',()=>{syncMode=modeInput.value;stopMonitor();updateMonitor();});
+  modeInput.addEventListener('change',()=>{
+    if(state.role!=='host'){modeInput.value='off';syncMode='off';return;}
+    syncMode=modeInput.value;stopMonitor();updateMonitor();
+  });
   delayInput.addEventListener('input',()=>{
+    if(state.role!=='host')return;
     manualSeconds=Number(delayInput.value);
     delayOutput.textContent=manualSeconds.toFixed(2)+'s';
     if(syncMode==='manual')updateMonitor();
@@ -276,15 +284,30 @@
     overlay.style.background='transparent';
     overlay.style.padding='4px 7px';
     overlay.style.width='max-content';
-    overlay.style.maxWidth='90%';
     overlay.style.textAlign=prefs.alignment;
     const parts=prefs.position.split('-');
     const y=parts[0],x=parts[1];
-    overlay.style.left=x==='left'?'4%':x==='center'?'50%':'auto';
-    overlay.style.right=x==='right'?'4%':'auto';
-    overlay.style.top=y==='top'?'8%':y==='middle'?'50%':'auto';
-    overlay.style.bottom=y==='bottom'?'98px':'auto';
-    overlay.style.transform='translate('+(x==='center'?'-50%':'0')+','+(y==='middle'?'-50%':'0')+')';
+    // Anchor each grid cell to the actual picture, excluding letterbox bars.
+    const stageWidth=Math.max(1,el.stage.clientWidth);
+    const stageHeight=Math.max(1,el.stage.clientHeight);
+    const videoWidth=media.videoWidth||stageWidth;
+    const videoHeight=media.videoHeight||stageHeight;
+    const scale=Math.min(stageWidth/videoWidth,stageHeight/videoHeight);
+    const pictureWidth=Math.min(stageWidth,videoWidth*scale);
+    const pictureHeight=Math.min(stageHeight,videoHeight*scale);
+    const edgeX=(stageWidth-pictureWidth)/2;
+    const edgeY=(stageHeight-pictureHeight)/2;
+    const padX=clamp(Math.round(pictureWidth*.04),7,24);
+    const padY=clamp(Math.round(pictureHeight*.08),7,40);
+    overlay.style.maxWidth=Math.max(24,Math.round(pictureWidth-2*padX))+'px';
+    overlay.style.left=x==='left'?Math.round(edgeX+padX)+'px':
+      x==='center'?'50%':'auto';
+    overlay.style.right=x==='right'?Math.round(edgeX+padX)+'px':'auto';
+    overlay.style.top=y==='top'?Math.round(edgeY+padY)+'px':
+      y==='middle'?'50%':'auto';
+    overlay.style.bottom=y==='bottom'?Math.round(edgeY+padY)+'px':'auto';
+    overlay.style.transform='translate('+(x==='center'?'-50%':'0')+','+
+      (y==='middle'?'-50%':'0')+')';
     subStyle.querySelectorAll('[data-sub-position]').forEach(button=>
       button.setAttribute('aria-pressed',String(button.dataset.subPosition===prefs.position)));
     for(const output of subStyle.querySelectorAll('[data-sub-value]')){
@@ -302,10 +325,18 @@
     const key=field.dataset.subKey;
     prefs[key]=field.type==='range'?(key.endsWith('Alpha')?100-Number(field.value):Number(field.value)):field.value;
     applySubtitleStyle();saveStyle();
+    window.MarmaladeSubtitleRefresh?.();
   });
   subStyle.querySelectorAll('[data-sub-position]').forEach(button=>button.addEventListener('click',()=>{
     prefs.position=button.dataset.subPosition;applySubtitleStyle();saveStyle();
+    window.MarmaladeSubtitleRefresh?.();
   }));
+  window.MarmaladeSubtitleReposition=applySubtitleStyle;
+  addEventListener('resize',applySubtitleStyle,{passive:true});
+  addEventListener('orientationchange',applySubtitleStyle,{passive:true});
+  document.addEventListener('fullscreenchange',applySubtitleStyle);
+  for(const event of ['loadedmetadata','resize'])
+    media.addEventListener(event,applySubtitleStyle);
   state.subtitleOffsetSeconds=Number(prefs.timing);
   // Read existing local cues only. Never transmit subtitle bytes or settings.
   window.MarmaladeSubtitleClock=(time)=>{
