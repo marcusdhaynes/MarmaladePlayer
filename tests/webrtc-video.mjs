@@ -26,7 +26,7 @@ const server=createServer((req,res)=>{
   }else if(req.url?.startsWith('/public-movie-info.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../public-movie-info.js',import.meta.url)));
-  }else if(req.url==='/movie-info.js' || req.url==='/movie-info.css'){
+  }else if(req.url?.startsWith('/movie-info.js') || req.url?.startsWith('/movie-info.css')){
     const css=req.url.endsWith('.css');
     res.writeHead(200,{'content-type':css?'text/css':'application/javascript'});
     res.end(readFileSync(new URL('..'+req.url,import.meta.url)));
