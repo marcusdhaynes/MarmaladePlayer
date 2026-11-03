@@ -70,7 +70,7 @@
     if(info.type==='disambiguation')throw Error('This title has multiple editions.');
     if(!/film|movie/i.test(info.description||'')&&!/film|movie/i.test(info.title||''))
       throw Error('This article could not be verified as a film.');
-    const year=parsed.year||Number((info.title||'').match(/\b(?:19|20)\d{2}\b/)?.[0]||0)||'';
+    const year=Number((info.title||'').match(/\b(?:19|20)\d{2}\b/)?.[0]||0)||parsed.year||'';
     const page=info.content_urls?.desktop?.page||
       'https://en.wikipedia.org/wiki/'+encodeURIComponent(title.replace(/ /g,'_'));
     return empty(parsed,{source:'wikipedia',id:info.pageid||null,sourceUrl:page,
