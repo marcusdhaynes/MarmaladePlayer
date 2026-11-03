@@ -13,6 +13,12 @@
   };
   if (!ui.panel || !ui.toggle) return;
   const STORE = 'marmalade:media-info-keys:v1';
+  const MY_RATINGS_STORE='marmalade:personal-movie-ratings:v1';
+  let myRatings={};
+  try{
+    const stored=JSON.parse(localStorage.getItem(MY_RATINGS_STORE)||'{}');
+    if(stored&&typeof stored==='object'&&!Array.isArray(stored))myRatings=stored;
+  }catch{}
   let activeFile = null;
   let detected = null;
   let displayed = null;
@@ -38,6 +44,57 @@
     parent.append(a);
   }
   function status(value) { ui.status.textContent = value; }
+  // All personal ratings are saved to this browser only. Do not include them
+  // in shared room payloads or imply that these are votes on IMDb.
+  function personalRatingKey(data){
+    const type=data.kind==='tv'?'tv':'movie';
+    const year=String(data.year||'').slice(0,4);
+    const episode=type==='tv'&&data.season>0&&data.episode>0
+      ?':s'+data.season+'e'+data.episode:'';
+    return type+':'+normalize(data.title||'')+':'+year+episode;
+  }
+  function savePersonalRating(key,value){
+    if(!key)return;
+    if(Number.isInteger(value)&&value>=1&&value<=10)
+      myRatings[key]={value,updated:Date.now()};
+    else delete myRatings[key];
+    myRatings=Object.fromEntries(Object.entries(myRatings).filter(([,record])=>
+      record&&Number.isInteger(record.value)&&record.value>=1&&record.value<=10)
+      .sort((a,b)=>(b[1].updated||0)-(a[1].updated||0)).slice(0,1000));
+    try{localStorage.setItem(MY_RATINGS_STORE,JSON.stringify(myRatings));}catch{}
+  }
+  function personalRatingCard(parent,data){
+    const key=personalRatingKey(data);
+    const card=line(parent,'div','mi-user-rating');
+    card.setAttribute('role','group');
+    card.setAttribute('aria-label','Your Personal Rating');
+    line(card,'span','mi-user-rating-head','Your Rating');
+    const stars=line(card,'div','mi-user-rating-stars');
+    const number=line(card,'output','mi-user-rating-number');
+    const buttons=[];
+    let current=Number(myRatings[key]?.value)||0;
+    const update=()=>{
+      number.textContent=current?current+'/10':'— /10';
+      for(const [i,button] of buttons.entries()){
+        button.setAttribute('aria-pressed',String(i+1<=current));
+        button.title='Rate '+(i+1)+' Out of 10';
+      }
+    };
+    for(let value=1;value<=10;value++){
+      const button=line(stars,'button','mi-user-rating-star','★');
+      button.type='button';
+      button.setAttribute('aria-label','Rate '+value+' Out of 10');
+      button.addEventListener('click',()=>{
+        current=current===value?0:value;
+        savePersonalRating(key,current);
+        update();
+      });
+      buttons.push(button);
+    }
+    update();
+    line(card,'small','mi-user-rating-note','Saved on This Device');
+    return card;
+  }
   function openPanel(scroll = false) {
     ui.panel.hidden = false;
     ui.toggle.setAttribute('aria-expanded', 'true');
@@ -390,7 +447,9 @@
       hero.append(img);
     }
     const copy = line(hero,'div','mi-hero-copy');
-    line(copy,'h2','',data.title + (data.year ? ' (' + data.year + ')' : ''));
+    const titleRow=line(copy,'div','mi-title-line');
+    line(titleRow,'h2','',data.title + (data.year ? ' (' + data.year + ')' : ''));
+    personalRatingCard(titleRow,data);
     if (data.episodeTitle) line(copy,'p','mi-kicker',
       'Season ' + data.season + ', Episode ' + data.episode + ' — ' + data.episodeTitle);
     if (data.tagline) line(copy,'p','mi-tagline',data.tagline);
@@ -404,7 +463,9 @@
     else if(!data.source||data.source==='tmdb')
       link(refs,'TMDB', 'https://www.themoviedb.org/' + data.kind + '/' + data.id);
     if (data.imdbId && /^tt\d+$/.test(data.imdbId))
-      link(refs,'IMDb','https://www.imdb.com/title/' + data.imdbId + '/');
+      link(refs,'Rate on IMDb','https://www.imdb.com/title/' + data.imdbId + '/');
+    else link(refs,'Find on IMDb','https://www.imdb.com/find/?q='+
+      encodeURIComponent(data.title+(data.year?' '+data.year:'')));
     const score = section(ui.results,'Ratings & Reception');
     const scoreGrid = line(score,'div','mi-stats');
     labeled(scoreGrid,data.source==='tvmaze'?'TVmaze Viewers':
