@@ -10,16 +10,21 @@
   style.textContent=[
     '#dropZone .host-sync-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent;z-index:2;pointer-events:none;display:none}',
     '#dropZone.host-sync-active .host-sync-preview{display:block}',
-    '.subtitle-popover{width:min(355px,calc(100% - 24px));max-height:min(75%,560px)}',
-    '.subtitle-style{border-top:1px solid #ffffff24;padding-top:10px;display:flex;flex-direction:column;gap:9px}',
-    '.subtitle-style h3{font-size:11px;color:#ffd4a2;margin:1px 0 4px}',
-    '.subtitle-style .subtitle-style-row{display:grid;grid-template-columns:1fr auto auto;gap:7px;align-items:center}',
-    '.subtitle-style-row span{font-size:10px;color:#d5ccd0}',
-    '.subtitle-style-row input[type=color]{width:35px;height:28px;padding:2px;border:1px solid #655656;border-radius:5px;background:transparent}',
-    '.subtitle-style-row input[type=range]{width:89px;accent-color:#ffaf63}',
+    '.subtitle-popover{width:min(344px,calc(100% - 24px));max-height:min(75%,560px)}',
+    '.subtitle-style{border-top:1px solid #ffffff24;padding-top:7px;display:flex;flex-direction:column;gap:5px}',
+    '.subtitle-style h3{font-size:10px;color:#ffd4a2;margin:4px 0 2px}',
+    '.subtitle-style .subtitle-style-row{display:grid;grid-template-columns:minmax(0,1fr) 26px minmax(80px,102px) 45px;gap:5px;align-items:center;min-height:25px}',
+    '.subtitle-style-row span,.subtitle-style-row label{font-size:10px;color:#d5ccd0;line-height:1.2}',
+    '.subtitle-style-row label{display:block}',
+    '.subtitle-style-row input[type=color]{width:26px;height:26px;min-width:26px;padding:1px;border:1px solid #655656;border-radius:3px;background:transparent;aspect-ratio:1;justify-self:center}',
+    '.subtitle-style-row input[type=range]{width:100%;min-width:0;margin:0;accent-color:#ffaf63}',
+    '.subtitle-style-row .sub-swatch-spacer{display:block;width:26px;height:1px}',
+    '.subtitle-style-row .sub-setting-value{width:45px;min-width:45px;justify-self:end;text-align:right;font-size:9px;color:#ffd8ac;font-variant-numeric:tabular-nums;white-space:nowrap}',
+    '.subtitle-style>label{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,160px);gap:6px;align-items:center;min-height:28px}',
+    '.subtitle-style>label select{min-width:0;width:100%;max-width:160px;padding:4px 6px}',
     '.subtitle-style-row select{max-width:175px}',
     '.subtitle-position-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;width:135px;align-self:center}',
-    '.subtitle-position-grid button{min-width:36px;min-height:30px;padding:4px;background:#302831;color:#e7d4c4}',
+    '.subtitle-position-grid button{min-width:36px;min-height:25px;padding:3px;background:#302831;color:#e7d4c4}',
     '.subtitle-position-grid button[aria-pressed=true]{border-color:#ffb874;background:#624331;color:white}',
     '.subtitle-settings-note{font-size:9px;color:#a9a0a9}',
     '.host-sync-settings{display:flex;flex-direction:column;gap:5px;padding:9px 0;border-top:1px solid #ffffff24}',
@@ -28,7 +33,7 @@
     '.host-sync-settings small{color:#aaa0a5;line-height:1.4}',
     '.host-sync-settings input[type=range]{accent-color:#ffad60}',
     '#subtitleOverlay{max-width:92%;box-sizing:border-box;pointer-events:none;overflow-wrap:anywhere}',
-    '@media(max-width:450px){.subtitle-popover{max-height:67%}.subtitle-style-row input[type=range]{width:76px}}'
+    '@media(max-width:450px){.subtitle-popover{max-height:67%}.subtitle-style .subtitle-style-row{grid-template-columns:minmax(0,1fr) 24px minmax(70px,92px) 43px;gap:4px}.subtitle-style-row input[type=color]{width:24px;height:24px;min-width:24px}}'
   ].join('\n');
   document.head.appendChild(style);
   const preview=document.createElement('video');
@@ -209,18 +214,21 @@
   for(const [key,value] of Object.entries(presets))
     if(typeof saved[key]===typeof value)prefs[key]=saved[key];
   function colorRow(label,key){
+    const maximum=key==='text'?64:key==='outline'?8:key==='glow'?36:30;
     return '<div class="subtitle-style-row"><span>'+label+'</span>'+
-      '<input type="color" data-sub-key="'+key+'Color" aria-label="'+label+' color">'+
-      '<input type="range" data-sub-key="'+key+'Size" aria-label="'+label+' size" min="0" max="'+
-      (key==='text'?'64':key==='outline'?'8':key==='glow'?'36':'30')+'" step="1"></div>'+
-      '<label class="subtitle-style-row" for="sub-'+key+'-alpha"><span>'+label+' transparency</span>'+
-      '<input id="sub-'+key+'-alpha" type="range" data-sub-key="'+key+'Alpha" min="0" max="100" step="1" aria-label="'+label+' opacity"></label>';
+      '<input type="color" data-sub-key="'+key+'Color" aria-label="'+label+' Color">'+
+      '<input type="range" data-sub-key="'+key+'Size" aria-label="'+label+' Size" min="0" max="'+maximum+'" step="1">'+
+      '<output class="sub-setting-value" data-sub-value="'+key+'Size"></output></div>'+
+      '<label class="subtitle-style-row" for="sub-'+key+'-alpha"><span>'+label+' Transparency</span>'+
+      '<i class="sub-swatch-spacer" aria-hidden="true"></i>'+
+      '<input id="sub-'+key+'-alpha" type="range" data-sub-key="'+key+'Alpha" min="0" max="100" step="1" aria-label="'+label+' Transparency">'+
+      '<output class="sub-setting-value" data-sub-value="'+key+'Alpha"></output></label>';
   }
   const subStyle=document.createElement('section');
   subStyle.className='subtitle-style';
   subStyle.setAttribute('aria-label','My subtitle appearance');
   subStyle.innerHTML=
-    '<h3>Subtitle appearance · Only for me</h3>'+
+    '<h3>Subtitle Appearance · Only for Me</h3>'+
     '<label for="subtitleFont">Font <select id="subtitleFont" data-sub-key="font">'+
     '<option value="Arial, Helvetica, sans-serif">Arial</option>'+
     '<option value="Verdana, Geneva, sans-serif">Verdana</option>'+
@@ -240,8 +248,8 @@
     '<label for="subtitleAlign">Alignment <select id="subtitleAlign" data-sub-key="alignment">'+
     '<option value="left">Left</option><option value="center">Center</option>'+
     '<option value="right">Right</option><option value="justify">Justified</option></select></label>'+
-    '<label for="subtitleTiming">Subtitle timing <output id="subtitleTimingValue">0.00s</output></label>'+
-    '<input id="subtitleTiming" type="range" data-sub-key="timing" min="-6" max="6" step="0.05">'+
+    '<div class="subtitle-style-row subtitle-timing-row"><label for="subtitleTiming">Subtitle Timing</label><i class="sub-swatch-spacer" aria-hidden="true"></i>'+
+    '<input id="subtitleTiming" type="range" data-sub-key="timing" min="-6" max="6" step="0.05"><output id="subtitleTimingValue" class="sub-setting-value">0.00s</output></div>'+
     '<small class="subtitle-settings-note">Each viewer loads and styles their own .srt/.vtt subtitles. Appearance and timing stay on this device.</small>';
   el.subtitlePanel.appendChild(subStyle);
   const fields=[...subStyle.querySelectorAll('[data-sub-key]')];
@@ -279,6 +287,11 @@
     overlay.style.transform='translate('+(x==='center'?'-50%':'0')+','+(y==='middle'?'-50%':'0')+')';
     subStyle.querySelectorAll('[data-sub-position]').forEach(button=>
       button.setAttribute('aria-pressed',String(button.dataset.subPosition===prefs.position)));
+    for(const output of subStyle.querySelectorAll('[data-sub-value]')){
+      const key=output.dataset.subValue;
+      const number=key.endsWith('Alpha')?100-Number(prefs[key]):Number(prefs[key]);
+      output.textContent=Math.round(number)+(key.endsWith('Alpha')?'%':'px');
+    }
     subStyle.querySelector('#subtitleTimingValue').textContent=(Number(prefs.timing)>0?'+':'')+
       Number(prefs.timing).toFixed(2)+'s';
   }
