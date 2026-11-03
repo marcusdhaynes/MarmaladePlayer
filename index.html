@@ -3279,6 +3279,12 @@ body.native-pip-active .stage .exit-theater{display:none!important}
   function releaseOrientation(){
     try{screen.orientation?.unlock?.();}catch{}
   }
+  async function setNativeFullscreen(enter){
+    try{
+      const native=window.MarmaladeNativeFullscreen;
+      if(native)await (enter?native.enter():native.exit());
+    }catch{}
+  }
   function leaveTheater(){
     if(document.fullscreenElement===el.stage)
       void document.exitFullscreen().catch(()=>{});
@@ -3288,6 +3294,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
     el.stage.classList.remove('fullscreen-fallback');
     document.body.classList.remove('theater-open');
     releaseOrientation();
+    void setNativeFullscreen(false);
     revealControls();
   }
   async function lockLandscape(){
@@ -3306,6 +3313,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
     try{
       if(el.stage.requestFullscreen){
         await el.stage.requestFullscreen();
+        await setNativeFullscreen(true);
         await lockLandscape();
         revealControls();
         return;
@@ -3319,6 +3327,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
     state.theaterMode=true;
     el.stage.classList.add('fullscreen-fallback');
     document.body.classList.add('theater-open');
+    await setNativeFullscreen(true);
     await lockLandscape();
     revealControls();
   }
@@ -3327,6 +3336,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
       revealControls();
     }else{
       releaseOrientation();
+      void setNativeFullscreen(false);
       el.stage.classList.remove('fullscreen-fallback');
       state.theaterMode=false;
       document.body.classList.remove('theater-open');
