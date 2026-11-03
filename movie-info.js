@@ -146,7 +146,7 @@
     ui.matches.replaceChildren();
     if (!items.length) return;
     const wrapper = line(ui.matches, 'div', 'mi-match-row');
-    line(wrapper, 'span', 'mi-muted', 'Other matches');
+    line(wrapper, 'span', 'mi-muted', 'Other Matches');
     for (const item of items.slice(0, 5)) {
       const year = (item.release_date || item.first_air_date || '').slice(0,4);
       const button = line(wrapper, 'button', 'mi-choice', (item.title || item.name) + (year ? ' (' + year + ')' : ''));
@@ -405,7 +405,7 @@
       link(refs,'TMDB', 'https://www.themoviedb.org/' + data.kind + '/' + data.id);
     if (data.imdbId && /^tt\d+$/.test(data.imdbId))
       link(refs,'IMDb','https://www.imdb.com/title/' + data.imdbId + '/');
-    const score = section(ui.results,'Ratings & reception');
+    const score = section(ui.results,'Ratings & Reception');
     const scoreGrid = line(score,'div','mi-stats');
     labeled(scoreGrid,data.source==='tvmaze'?'TVmaze Viewers':
       data.source==='wikipedia'?'Wikipedia':'TMDB Community',
@@ -416,17 +416,17 @@
     for (const rating of data.ratings || []) {
       if (!/Internet Movie Database|Metacritic/i.test(rating.source || '')) labeled(scoreGrid,rating.source,rating.value);
     }
-    const production = section(ui.results,'Production & finances');
+    const production = section(ui.results,'Production & Finances');
     const financial = line(production,'div','mi-stats');
     labeled(financial,'Budget',data.kind === 'movie' ? plainMoney(data.budget) : 'Not consistently reported for TV');
-    labeled(financial,'Worldwide revenue',data.kind === 'movie' ? plainMoney(data.revenue) : 'Not consistently reported for TV');
-    if (data.omdbBoxOffice) labeled(financial,'Box office (OMDb)',data.omdbBoxOffice);
+    labeled(financial,'Worldwide Revenue',data.kind === 'movie' ? plainMoney(data.revenue) : 'Not consistently reported for TV');
+    if (data.omdbBoxOffice) labeled(financial,'Box Office (OMDb)',data.omdbBoxOffice);
     if (data.runtime) labeled(financial,'Runtime',String(data.runtime) + ' min');
-    if (data.release) labeled(financial,'Release / premiere',data.release);
+    if (data.release) labeled(financial,'Release / Premiere',data.release);
     if (data.status) labeled(financial,'Status',data.status);
     if (data.seasons !== null && data.seasons !== undefined) labeled(financial,'Seasons',data.seasons);
     if (data.episodes !== null && data.episodes !== undefined) labeled(financial,'Episodes',data.episodes);
-    if (data.airDate) labeled(financial,'Episode aired',data.airDate);
+    if (data.airDate) labeled(financial,'Episode Aired',data.airDate);
     if (data.companies.length) labeled(financial,'Studios',data.companies.join(', '));
     if (data.networks.length) labeled(financial,'Networks',data.networks.join(', '));
     if (data.countries.length) labeled(financial,'Countries',data.countries.join(', '));
@@ -449,21 +449,21 @@
       }
     }
     if (data.crew.length) {
-      const crew = section(ui.results,'Creators & crew');
+      const crew = section(ui.results,'Creators & Crew');
       const names = line(crew,'div','mi-credit-grid');
       for (const person of data.crew) labeled(names,person.job,person.name);
     }
-    const facts = section(ui.results,'Trivia & behind the scenes');
+    const facts = section(ui.results,'Trivia & Behind the Scenes');
     if (data.wiki?.text) {
       line(facts,'p','mi-overview',data.wiki.text);
-      link(facts,'Read production background on Wikipedia',data.wiki.url);
+      link(facts,'Read Production Background on Wikipedia',data.wiki.url);
     } else {
       line(facts,'p','mi-muted','No verified production anecdotes found in the linked public sources.');
     }
     if (data.imdbId && /^tt\d+$/.test(data.imdbId))
-      link(facts,'IMDb user-contributed trivia ↗','https://www.imdb.com/title/' + data.imdbId + '/trivia/');
+      link(facts,'IMDb User-Contributed Trivia ↗','https://www.imdb.com/title/' + data.imdbId + '/trivia/');
     if (data.fileDetails) {
-      const technical = section(ui.results,'Local video file');
+      const technical = section(ui.results,'Local Video File');
       const stats = line(technical,'div','mi-stats');
       for (const [key,value] of Object.entries({
         Container:data.fileDetails.format,Video:data.fileDetails.codec,
@@ -531,7 +531,7 @@
     };
     try {localStorage.setItem(STORE,JSON.stringify(credentials));} catch {}
     ui.sources.open = false;
-    status('Sources saved in this browser');
+    status('Sources Saved in This Browser');
     if(activeFile)void start(activeFile);
     else if(ui.search.value.trim()){
       const parsed={...(detected?.parsed||{season:null,episode:null,year:null}),
@@ -544,7 +544,7 @@
     ui.tmdb.value = ui.omdb.value = ui.subtitles.value = '';
     try {localStorage.removeItem(STORE);} catch {}
     ui.sources.open = true;
-    status('Source keys cleared');
+    status('Source Keys Cleared');
   });
   window.addEventListener('marmalade:video-selected', event => {
     if (event.detail?.file) void start(event.detail.file);
@@ -552,7 +552,7 @@
   window.addEventListener('marmalade:media-cleared', () => {
     ++sequence;activeFile=null;detected=null;displayed=null;
     ui.matches.replaceChildren();ui.results.replaceChildren();
-    status('No video selected');closePanel();
+    status('No Video Selected');closePanel();
   });
   window.MarmaladeInfoShare = () => share(displayed);
   window.MarmaladeInfoReceive = payload => {
@@ -574,6 +574,6 @@
       render(displayed);
       status('Shared by host');
       openPanel();
-    } catch {status('Movie information unavailable');}
+    } catch {status('Movie Information Unavailable');}
   };
 })();
