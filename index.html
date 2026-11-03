@@ -560,7 +560,8 @@ body.theater-open{overflow:hidden}
     remoteVideoConnectedAt: 0, remoteLastFrameAt: 0, remoteVideoFrameCount: 0,
     remoteVideoQualityFrames: 0, remoteFramesAvailable: false,
     statsReport: null, localFingerprint: null, remoteFingerprint: null, remoteFileName: '', localFileUrl: null,
-    localVerified: false, hostedUrl: '', backupUrl: '', hostedAttempt: 0, hls: null,
+    localVerified: false, localModeOff: false, localReturnPending: false, localSelectionId: 0,
+    hostedUrl: '', backupUrl: '', hostedAttempt: 0, hls: null,
     bufferedMode: false, waitingForBuffer: false, hostSyncVersion: 0, pendingHostedLoad: '', hostedFallbackOf: '',
     localLastSync: 0, hostedLastSync: 0, statsPrev: null, observedRtt: 0, statsSamples: [],
     peerCache: new Map(), peerCacheBytes: 0, peerTransfer: new Map(),
@@ -1475,10 +1476,11 @@ body.theater-open{overflow:hidden}
     state.remoteFramesAvailable = false;
     state.remoteVideoFrameCount = 0;
     state.remoteFingerprint = null;state.remoteFileName = '';state.localVerified=false;
+    state.localModeOff=false;state.localReturnPending=false;state.localSelectionId++;
     state.hostStreamLive = false;state.mediaRequestAt = 0;state.mediaAwaitingAt = 0;
     el.localCopyPanel.hidden = true;
-    el.localCopyButton.disabled = true;
     el.localCopyStatus.textContent = 'Waiting for the host\'s movie…';
+    updateRoomActions();
     state.hostPlaying = false; state.sharedDuration = 0; state.sharedTime = 0; state.sharedAt = 0;
     state.pendingTransport = null; state.lastAcceptedRevision = -1; state.lastTransportAck = null;
     state.sourceHeight = 0; state.sourceWidth = 0;
@@ -1556,7 +1558,25 @@ body.theater-open{overflow:hidden}
     buildQualitySelect();
   }
 
+  function updateRoomActions() {
+    const connected=state.role==='guest' && !!state.guestConn?.open;
+    el.localCopyButton.disabled=!connected;
+    el.localCopyButton.classList.toggle('local-suspended',!!state.localModeOff);
+    el.localCopyButton.setAttribute('aria-pressed',String(!!state.localVerified && !state.localModeOff));
+    el.localCopyButton.setAttribute('aria-label',state.localModeOff?'Local Video Off. Hold to Re-enable':'Select Local Video. Hold to Disable');
+    el.localCopyButton.title=state.role!=='guest'?'Only Guests Can Use Local Video':
+      state.localModeOff?'Local Video Off · Hold to Re-enable':
+      state.localVerified?'Local Video Verified · Click to Change · Hold to Stream':
+      'Choose Local Video · Hold to Turn Off';
+    el.copy.disabled=!state.code || !(state.peer?.open || state.guestConn?.open);
+  }
+  function localNotice(message) {
+    el.localCopyStatus.textContent=message;
+    el.localCopyPanel.hidden=!message;
+    if(message)notify(message);
+  }
   function updateRoomPanel() {
+    updateRoomActions();
     el.joinSection.hidden = !el.hostActive.hidden || !el.joinActive.hidden || state.connecting;
     el.joinProgress.hidden = !state.connecting || state.role !== 'guest';
     el.retryJoin.hidden = !state.joinFailure || state.connecting;
@@ -2160,6 +2180,7 @@ body.theater-open{overflow:hidden}
       state.code = code;
       el.inviteLink.value = inviteUrl(code);
       el.hostActive.hidden = false;
+      updateRoomActions();
       updateRoomPanel();
       el.createRoom.disabled = true;
       el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
@@ -2291,11 +2312,7 @@ body.theater-open{overflow:hidden}
         data.name.length > 0 && data.name.length <= 250) {
       state.remoteFingerprint = data.fingerprint || null;
       state.remoteFileName = data.name;
-      el.localCopyButton.disabled = !state.remoteFingerprint || state.localVerified;
-      el.localCopyPanel.hidden = state.role !== 'guest' || !state.guestConn?.open;
-      if (!state.localVerified) el.localCopyStatus.textContent = state.remoteFingerprint
-        ? `Host movie: ${data.name} · Choose the same filename to verify.`
-        : 'Waiting for the host to finish preparing the movie…';
+      updateRoomActions();
     }
     if(data.mediaKind==='hosted' && typeof data.hostedUrl==='string'){
       const url=validMediaUrl(data.hostedUrl);
@@ -2425,11 +2442,8 @@ body.theater-open{overflow:hidden}
         // Never cover an already playing video with the waiting-room stage.
         if (state.source !== 'remote' && !state.localVerified && !state.bufferedMode)
           setStage('Waiting for the host…','They’ll start the movie when they’re ready.','ROOM CONNECTED');
-        el.localCopyPanel.hidden = false;
-        el.localCopyButton.disabled = !state.remoteFingerprint || !state.remoteFileName;
-        el.localCopyStatus.textContent = state.remoteFileName
-          ? `Host movie: ${state.remoteFileName} · Choose the identically named file.`
-          : 'Waiting for the host\'s movie…';
+        el.localCopyPanel.hidden = true;
+        updateRoomActions();
         send(conn,{type:'hello'});
         // If the media connection raced ahead of the data channel, the
         // earlier acknowledgment could not have been transmitted.
@@ -2879,13 +2893,18 @@ body.theater-open{overflow:hidden}
     }
   }
   async function copyInvite() {
-    try { await navigator.clipboard.writeText(el.inviteLink.value); notify('Invite link copied!'); }
-    catch {
-      el.inviteLink.focus(); el.inviteLink.select(); el.inviteLink.setSelectionRange(0, el.inviteLink.value.length);
-      try {
-        if (!document.execCommand('copy')) throw new Error('Manual copy required');
-        notify('Invite link copied!');
-      } catch { notify('Select and copy the invite link.'); }
+    if(!state.code || !(state.peer?.open || state.guestConn?.open)){notify('Join or create a room before sharing.');return;}
+    const link=inviteUrl(state.code);
+    try{await navigator.clipboard.writeText(link);notify('Room Link Copied!');}
+    catch{
+      const fallback=document.createElement('textarea');
+      fallback.value=link;fallback.readOnly=true;
+      fallback.style.cssText='position:fixed;opacity:0;left:0;top:0;pointer-events:none';
+      document.body.appendChild(fallback);
+      fallback.focus();fallback.select();
+      let copied=false;try{copied=document.execCommand('copy');}catch{}
+      fallback.remove();
+      notify(copied?'Room Link Copied!':'Clipboard access blocked. Copy the room URL from your browser.');
     }
   }
   function leaveTheater() {
