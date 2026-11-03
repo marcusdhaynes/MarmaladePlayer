@@ -140,10 +140,11 @@ try {
     assert.equal(await page.locator('#muteBtn svg.glass-icon').count(),1,
       'Mute must retain thin SVG artwork when muted');
     assert.equal(await page.locator('#volumeMark').textContent(),'0%');
+    // A gentle magnetic snap near 100%, not a hard wall preventing 200%.
+    await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='99';el.dispatchEvent(new Event('input',{bubbles:true}));});
+    assert.equal(await page.locator('#volumeMark').textContent(),'100%','Soft 100% volume detent');
     await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='200';el.dispatchEvent(new Event('input',{bubbles:true}));});
-    assert.equal(await page.locator('#volumeMark').textContent(),'100%','100% volume detent');
-    await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='200';el.dispatchEvent(new Event('input',{bubbles:true}));});
-    assert.equal(await page.locator('#volumeMark').textContent(),'200%');
+    assert.equal(await page.locator('#volumeMark').textContent(),'200%','Moving away from the detent reaches 200%');
     await page.locator('#bufferToggle').click({force:true});
     assert.equal(await page.locator('#bufferToggle').getAttribute('aria-pressed'),'true');
     assert.equal(await page.locator('#bufferReadout').isVisible(),true);
