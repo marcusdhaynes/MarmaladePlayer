@@ -230,7 +230,7 @@
       await publicLookup(parsed,seq);
       return;
     }
-    status('Looking up filmography…');
+    status('Looking Up Filmography…');
     try {
       if (feature?.parent_tmdb_id && parsed.kind === 'tv') {
         await loadRecord('tv', feature.parent_tmdb_id, parsed, seq); return;
@@ -246,7 +246,7 @@
       }
       if (!parsed.title || parsed.title.length < 2) {
         clearResult('Enter a movie or show title to search.');
-        status('Title needed'); return;
+        status('Title Needed'); return;
       }
       const data = await tmdb('search/' + parsed.kind, {
         query:parsed.title, include_adult:'false', language:'en-US'
@@ -255,12 +255,12 @@
       const items = (data.results || []).filter(x => x.id).sort((a,b) => rank(b,parsed)-rank(a,parsed));
       if (!items.length) {
         clearResult('No matching title found. Try a different title or release year.');
-        status('No match'); return;
+        status('No Match'); return;
       }
       showChoices(items.slice(1), parsed, seq);
       if (rank(items[0], parsed) < 36) {
         showChoices(items, parsed, seq);
-        status('Choose a matching title');
+        status('Choose a Matching Title');
         ui.results.replaceChildren();
         line(ui.results, 'p', 'mi-empty', 'More than one title may match this file. Select the correct one above.');
         return;
@@ -309,7 +309,7 @@
   async function loadRecord(kind, id, parsed, seq) {
     if (seq !== sequence) return;
     ui.results.replaceChildren();
-    status('Loading details…');
+    status('Loading Details…');
     try {
       const extra = kind === 'movie'
         ? 'credits,external_ids,keywords,videos'
@@ -363,11 +363,11 @@
         fileDetails:detected?.metadata || null
       };
       render(displayed);
-      status('Details loaded');
+      status('Details Loaded');
       broadcast();
     } catch (error) {
       if (seq !== sequence) return;
-      status('Lookup unavailable');
+      status('Lookup Unavailable');
       clearResult(error.message || 'Could not load details.');
     }
   }
@@ -559,7 +559,7 @@
     if (payload === null) {
       displayed = null; detected = null;
       ui.matches.replaceChildren();ui.results.replaceChildren();
-      status('Host is identifying the video');
+      status('Host Is Identifying the Video');
       closePanel(); return;
     }
     if (!payload || typeof payload !== 'object' || typeof payload.title !== 'string' ||
@@ -572,7 +572,7 @@
       displayed = JSON.parse(valid);
       detected = null;
       render(displayed);
-      status('Shared by host');
+      status('Shared by Host');
       openPanel();
     } catch {status('Movie Information Unavailable');}
   };
