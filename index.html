@@ -1272,13 +1272,17 @@ body.theater-open{overflow:hidden}
     const expected = expectedHostTime();
     const drift = expected - media.currentTime;
     const revisionChanged = state.hostSyncVersion !== state.localLastSync;
-    if (force || revisionChanged || Math.abs(drift) > 1) {
-      if (Math.abs(drift) > .12 || force) try { media.currentTime = clamp(expected,0,media.duration); } catch {}
-      state.localLastSync = state.hostSyncVersion;
-      media.playbackRate = 1;
-    } else if (Math.abs(drift) >= .10) {
-      media.playbackRate = drift > 0 ? 1.02 : .98;
-    } else media.playbackRate = 1;
+    // Respond quickly to deliberate host seeks while nudging smaller drift
+    // with a capped playback-rate correction instead of constant hard jumps.
+    if(force || (revisionChanged&&Math.abs(drift)>.075) || Math.abs(drift)>.48){
+      if(Math.abs(drift)>.075||force)
+        try{media.currentTime=clamp(expected,0,media.duration);}catch{}
+      state.localLastSync=state.hostSyncVersion;
+      media.playbackRate=1;
+    }else{
+      state.localLastSync=state.hostSyncVersion;
+      media.playbackRate=Math.abs(drift)<.04?1:drift>0?1.035:.965;
+    }
     if (state.hostPlaying && media.paused && !state.waitingForBuffer) {
       try { await media.play(); needsTapToPlay(false); } catch { needsTapToPlay(true); }
     } else if (!state.hostPlaying && !media.paused) media.pause();
@@ -1524,6 +1528,7 @@ body.theater-open{overflow:hidden}
     state.remoteFramesAvailable = false;
     state.remoteVideoFrameCount = 0;
     state.remoteFingerprint = null;state.remoteFileName = '';state.localVerified=false;
+    state.verifiedHostFingerprint=null;
     state.localModeOff=false;state.localReturnPending=false;state.localSelectionId++;
     state.hostStreamLive = false;state.mediaRequestAt = 0;state.mediaAwaitingAt = 0;
     el.localCopyPanel.hidden = true;
@@ -2375,6 +2380,12 @@ body.theater-open{overflow:hidden}
     if (data.mediaKind === 'file' && typeof data.fingerprint === 'string' &&
         data.fingerprint.length < 120 && typeof data.name === 'string' &&
         data.name.length > 0 && data.name.length <= 250) {
+      if(state.localVerified && state.verifiedHostFingerprint && data.fingerprint &&
+          state.verifiedHostFingerprint!==data.fingerprint && !state.localReturnPending){
+        state.localModeOff=true;
+        requestReturnToStream();
+        localNotice('Host switched movies. Returning to the new streamed video…');
+      }
       state.remoteFingerprint = data.fingerprint || null;
       state.remoteFileName = data.name;
       updateRoomActions();
@@ -3134,8 +3145,47 @@ body.theater-open{overflow:hidden}
   el.stage.addEventListener('drop', (event) => { event.preventDefault(); el.stage.classList.remove('dragover'); if (event.dataTransfer.files?.[0]) selectHostFile(event.dataTransfer.files[0]); });
   el.screenShare.addEventListener('click', shareScreen);
   el.hostedStart.addEventListener('click',beginHostedStream);
-  el.localCopyButton.addEventListener('click',()=>el.localCopyInput.click());
-  el.localCopyInput.addEventListener('change',(event)=>{if(event.target.files?.[0])void chooseLocalCopy(event.target.files[0]);event.target.value='';});
+  // Click = choose/change video; hold = disable/enable local playback.
+  // The button remains focusable in the guest's disabled-mode state so a
+  // second hold always restores it. Only hosts get a real disabled control.
+  let localHoldTimer=0,suppressLocalClick=false;
+  const cancelLocalHold=()=>{clearTimeout(localHoldTimer);localHoldTimer=0;};
+  const beginLocalHold=()=>{
+    if(state.role!=='guest'||!state.guestConn?.open)return;
+    cancelLocalHold();
+    localHoldTimer=setTimeout(()=>{
+      localHoldTimer=0;suppressLocalClick=true;
+      toggleLocalModeHeld();
+    },580);
+  };
+  el.localCopyButton.addEventListener('pointerdown',event=>{
+    if(event.button!==0)return;
+    suppressLocalClick=false;beginLocalHold();
+  });
+  for(const eventName of ['pointerup','pointercancel','pointerleave'])
+    el.localCopyButton.addEventListener(eventName,cancelLocalHold);
+  el.localCopyButton.addEventListener('contextmenu',event=>{
+    if(state.role==='guest'){event.preventDefault();cancelLocalHold();}
+  });
+  el.localCopyButton.addEventListener('keydown',event=>{
+    if(event.repeat)return;
+    if(event.key===' '||event.key==='Enter')beginLocalHold();
+  });
+  el.localCopyButton.addEventListener('keyup',event=>{
+    if(event.key===' '||event.key==='Enter')cancelLocalHold();
+  });
+  el.localCopyButton.addEventListener('blur',cancelLocalHold);
+  el.localCopyButton.addEventListener('click',()=>{
+    if(suppressLocalClick){suppressLocalClick=false;return;}
+    if(state.role!=='guest'||!state.guestConn?.open)return;
+    if(state.localModeOff){localNotice('Local Video is off. Hold Link to enable it.');return;}
+    el.localCopyInput.click();
+  });
+  el.localCopyInput.addEventListener('change',event=>{
+    const file=event.target.files?.[0];
+    if(file)void chooseLocalCopy(file);
+    event.target.value='';
+  });
   el.stabilityMode.addEventListener('change',()=>{
     state.highPlayoutTarget=0;
     state.highPlayoutLastSampleAt=0;
@@ -3430,7 +3480,13 @@ body.theater-open{overflow:hidden}
   media.addEventListener('timeupdate', () => {
     if (state.role === 'host' && ['file','hosted'].includes(state.source)) { updateTransport(); syncState(); }
   });
-  window.setInterval(() => { if (state.role === 'guest' && state.guestConn?.open && !state.seeking) updateTransport(); }, 250);
+  window.setInterval(() => {
+    if(state.role==='guest'&&state.guestConn?.open&&!state.seeking){
+      updateTransport();
+      if(state.localVerified&&media.readyState>=HTMLMediaElement.HAVE_METADATA)
+        void syncSeekablePlayback();
+    }
+  },250);
   window.setInterval(() => {
     if (state.role === 'guest' && state.guestConn?.open) {
       if (state.hostStreamLive && state.source !== 'remote' &&
