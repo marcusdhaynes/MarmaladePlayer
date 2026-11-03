@@ -293,8 +293,10 @@ body.theater-open{overflow:hidden}
 .stage-quick-actions .quick-share-btn{width:auto;min-width:70px;padding:4px 8px!important;gap:6px;text-transform:uppercase;font-size:9px;letter-spacing:.45px;font-weight:750}
 .stage-quick-actions .theater-pill:hover:not(:disabled),.stage-quick-actions .theater-pill:focus-visible{background:#3a2b29!important;border-color:#ffa862!important}
 .stage-quick-actions .theater-pill:disabled{opacity:.4!important;cursor:not-allowed}
+.stage-quick-actions .quick-link-btn{touch-action:manipulation;-webkit-touch-callout:none;user-select:none;position:relative}
 .stage-quick-actions .quick-link-btn[aria-pressed=true]{color:#ffd09a;border-color:#f5b575!important;background:#513628!important}
-.stage-quick-actions .quick-link-btn.local-suspended{color:#92929b}
+.stage-quick-actions .quick-link-btn.local-suspended{color:#92929b;border-color:#77717a7d!important}
+.stage-quick-actions .quick-link-btn.local-suspended::after{content:"";position:absolute;width:21px;height:1px;top:50%;left:50%;background:#aca4ad;transform:translate(-50%,-50%) rotate(-43deg);pointer-events:none}
 .local-copy-feedback{font-size:10px;color:#e9c59e;line-height:1.4;margin:0 4px 10px;max-width:780px}
 .local-copy-feedback[hidden]{display:none!important}
 #hostVideoDiagnostic{display:none!important}
@@ -3157,7 +3159,7 @@ body.theater-open{overflow:hidden}
     localHoldTimer=setTimeout(()=>{
       localHoldTimer=0;suppressLocalClick=true;
       toggleLocalModeHeld();
-    },580);
+    },480);
   };
   el.localCopyButton.addEventListener('pointerdown',event=>{
     if(event.button!==0)return;
@@ -3166,7 +3168,14 @@ body.theater-open{overflow:hidden}
   for(const eventName of ['pointerup','pointercancel','pointerleave'])
     el.localCopyButton.addEventListener(eventName,cancelLocalHold);
   el.localCopyButton.addEventListener('contextmenu',event=>{
-    if(state.role==='guest'){event.preventDefault();cancelLocalHold();}
+    if(state.role!=='guest')return;
+    event.preventDefault();
+    // Mobile browsers may fire contextmenu before the hold timer completes.
+    if(localHoldTimer){
+      cancelLocalHold();
+      suppressLocalClick=true;
+      toggleLocalModeHeld();
+    }
   });
   el.localCopyButton.addEventListener('keydown',event=>{
     if(event.repeat)return;
