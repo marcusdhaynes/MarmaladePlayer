@@ -192,7 +192,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onDestroy() {
+    public void onDestroy() {
         try { unregisterReceiver(pipMediaReceiver); } catch (Exception ignored) {}
         super.onDestroy();
     }
