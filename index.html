@@ -985,7 +985,8 @@ body.theater-open{overflow:hidden}
       return;
     }
     const now = performance.now();
-    const current = Math.min(state.sharedDuration, state.sharedTime + (state.hostPlaying ? (now - state.sharedAt) / 1000 : 0));
+    const current = state.localVerified ? expectedHostTime() :
+      Math.min(state.sharedDuration, state.sharedTime + (state.hostPlaying ? (now - state.sharedAt) / 1000 : 0));
     if (action === 'toggle') state.hostPlaying = !state.hostPlaying;
     if (action === 'play') state.hostPlaying = true;
     if (action === 'pause') state.hostPlaying = false;
@@ -1308,10 +1309,45 @@ body.theater-open{overflow:hidden}
     }
     updateRoomActions();
   }
+  // In local-file mode sharedAt is the estimated *host sample time* mapped
+  // onto this browser's monotonic clock. Do not add RTT/2 twice: that pushed
+  // guests ahead, especially on very bad connections.
   function expectedHostTime() {
-    const transit = clamp(state.observedRtt / 2000, 0, .5);
-    return clamp(state.sharedTime + (state.hostPlaying ? (performance.now()-state.sharedAt)/1000 + transit : 0),
+    const transit = state.localVerified ? 0 : clamp(state.observedRtt / 2000, 0, .5);
+    return clamp(state.sharedTime + (state.hostPlaying ? Math.max(0,(performance.now()-state.sharedAt)/1000) + transit : 0),
       0, state.sharedDuration || Number.MAX_SAFE_INTEGER);
+  }
+  function localSampleAt(data, receivedAt) {
+    const sentAt=Number(data.sentAt);
+    if(Number.isFinite(sentAt)&&sentAt>=0&&Number.isFinite(state.localClockOffsetMs)){
+      // Host clock - guest clock = offset; derive when the frame time was sampled
+      // even if this packet took seconds to cross the network.
+      const sampleGuestTime=sentAt-state.localClockOffsetMs;
+      if(sampleGuestTime<=receivedAt+100 && receivedAt-sampleGuestTime<120000)
+        return sampleGuestTime;
+    }
+    // Bootstrap before the first good two-way clock calibration is available.
+    return receivedAt-clamp(state.observedRtt/2,0,2500);
+  }
+  function recordLocalClockSample(data, receivedAt){
+    const t0=Number(data.at),t1=Number(data.hostReceivedAt),t2=Number(data.hostSentAt);
+    if(!Number.isFinite(t0)||!Number.isFinite(t1)||!Number.isFinite(t2)||
+        t0<0||t1<0||t2<t1||t0>receivedAt)return;
+    const rtt=Math.max(0,(receivedAt-t0)-(t2-t1));
+    if(rtt>30000)return;
+    const offset=((t1-t0)+(t2-receivedAt))/2;
+    if(!Number.isFinite(offset))return;
+    const now=receivedAt,stale=now-state.localClockSampleAt>120000;
+    if(state.localClockOffsetMs===null||stale||rtt<state.localClockBestRtt){
+      state.localClockOffsetMs=offset;
+      state.localClockBestRtt=rtt;
+      state.localClockSampleAt=now;
+    }else if(rtt<=state.localClockBestRtt*1.2+10&&
+        Math.abs(offset-state.localClockOffsetMs)<150){
+      // Smooth equally good samples but disregard jittery or asymmetric outliers.
+      state.localClockOffsetMs=state.localClockOffsetMs*.9+offset*.1;
+      state.localClockSampleAt=now;
+    }
   }
   async function syncSeekablePlayback(force=false) {
     if (state.role !== 'guest' || !(state.localVerified || state.bufferedMode) || !Number.isFinite(media.duration) || !media.duration) return;
@@ -2423,6 +2459,11 @@ body.theater-open{overflow:hidden}
     send(state.guestConn,{type:'requestmedia',reason});
   }
   function receiveState(data) {
+    const receivedAt=performance.now();
+    if(state.localVerified&&Number.isSafeInteger(data.seq)){
+      if(data.seq<=state.lastLocalSnapshotSeq)return;
+      state.lastLocalSnapshotSeq=data.seq;
+    }
     if (typeof data.live === 'boolean' && data.mediaKind !== 'hosted') {
       state.hostStreamLive = data.live;
       if (data.live && state.source !== 'remote' && !state.mediaAwaitingAt)
@@ -2462,7 +2503,8 @@ body.theater-open{overflow:hidden}
       if (typeof data.playing === 'boolean') state.hostPlaying = data.playing;
       if (Number.isFinite(data.duration) && data.duration > 0) state.sharedDuration = data.duration;
       if (Number.isFinite(data.time) && data.time >= 0) {
-        state.sharedTime = data.time; state.sharedAt = performance.now();
+        state.sharedTime = data.time;
+        state.sharedAt = state.localVerified ? localSampleAt(data,receivedAt) : receivedAt;
         if(state.localVerified || state.bufferedMode)void syncSeekablePlayback();
       }
     }
@@ -2580,7 +2622,8 @@ body.theater-open{overflow:hidden}
       });
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
-        if (data.type === 'state') receiveState(data);
+        if(data.type==='state' || (data.type==='local-clock' && state.localVerified))
+          receiveState(data);
         if (data.type === 'media-error' && state.source !== 'remote' && !state.localVerified) {
           connection('Media connection failed','error');
           setStage('Video and sound not connected',
@@ -2616,8 +2659,10 @@ body.theater-open{overflow:hidden}
           updateQualityHint(data.limited ? 'Host bandwidth safety limit' : data.message || `Receiving ${data.height || '?'}p`);
         }
         if (data.type === 'pong' && typeof data.at === 'number') {
-          state.observedRtt=clamp(performance.now()-data.at,0,5000);
-          el.network.textContent = `${Math.max(0, Math.round(performance.now() - data.at))} MS RTT`;
+          const receivedAt=performance.now();
+          state.observedRtt=clamp(receivedAt-data.at,0,30000);
+          if(state.localVerified)recordLocalClockSample(data,receivedAt);
+          el.network.textContent = `${Math.max(0, Math.round(receivedAt-data.at))} MS RTT`;
         }
       });
       conn.on('close', () => {
