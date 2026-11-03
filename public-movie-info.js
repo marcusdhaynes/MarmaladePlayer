@@ -274,7 +274,10 @@
     const id=exactEpisode?data.imdbEpisodeId:
       validImdbId(data.imdbId)?data.imdbId:null;
     const cacheKey=id?'id:'+id:'title:'+type+':'+norm(data.title)+':'+(data.year||'');
-    if(!ratingRequests.has(cacheKey)){
+    const existing=ratingRequests.get(cacheKey);
+    if(existing && Date.now()-existing.at<(existing.failed?45000:600000))
+      return existing.promise;
+    {
       const job=(async()=>{
         let selectedId=id,foundMeta=null;
         if(!selectedId){
@@ -289,11 +292,13 @@
         if(!rating)return null;
         return {...rating,isSeriesRating:isEpisode&&!exactEpisode};
       })().catch(()=>null);
-      ratingRequests.set(cacheKey,job);
+      const entry={promise:job,at:Date.now(),failed:false};
+      ratingRequests.set(cacheKey,entry);
+      void job.then(value=>{entry.failed=!value;});
       // Prevent unlimited memory growth during long-running sessions.
       if(ratingRequests.size>120)ratingRequests.delete(ratingRequests.keys().next().value);
     }
-    return ratingRequests.get(cacheKey);
+    return ratingRequests.get(cacheKey)?.promise||null;
   }
   window.MarmaladePublicMovieInfo={
     async lookup(parsed){return parsed.kind==='tv'?television(parsed):movie(parsed);},
