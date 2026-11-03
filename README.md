@@ -47,10 +47,7 @@ optionally an OpenSubtitles moviehash lookup. No frames, audio, or video files
 are uploaded for identification. The OpenSubtitles hash reads only the beginning
 and end of the local file; only the hash/filename query leaves the browser.
 
-**One-time setup:** open the ⓘ drawer → **Information sources · API access** and
-enter your own [TMDB](https://www.themoviedb.org/settings/api) API v3 key or
-Read Access Token. TMDB authentication is needed for rich lookups because the
-public GitHub Pages site has no private backend or API key. Optional
+**Optional enhanced setup:** movie/series information can load from public Wikipedia and TVmaze sources without a key. To unlock detailed TMDB filmography, open the ⓘ drawer → **Information Sources · API Access** and add a personal [TMDB](https://www.themoviedb.org/settings/api) key or read-access token. Optional
 [OMDb](https://www.omdbapi.com/apikey.aspx) and
 [OpenSubtitles](https://www.opensubtitles.com/en/consumers) keys add
 IMDb/Metacritic/Rotten Tomatoes ratings and filehash identification.
@@ -85,16 +82,25 @@ Then visit `http://localhost:8080`. Chrome, Edge, and Firefox provide the strong
 
 Made for lightweight movie nights.
 
-## Cross-platform support
+## One Player Across Web, Windows, macOS, Linux, Android and iOS
 
-Marmalade Player is a **responsive web app**, not an OS-specific executable. Guests open the same HTTPS link in a modern browser. No guest installation is needed.
+MarmaladePlayer is an **omni-platform application** with one shared HTML/CSS/JavaScript playback engine. The web edition is available at
+[https://marcusdhaynes.github.io/MarmaladePlayer/](https://marcusdhaynes.github.io/MarmaladePlayer/).
+The packaged editions preserve its room, player, subtitles and synchronization logic rather than maintaining independent forks.
 
-| Platform | Local-file hosting | Guest playback | Window sharing |
-|---|---|---|---|
-| Windows, macOS, Linux (modern desktop browsers) | Supported for browser-decodable files | Supported | Supported if the browser/OS allows it |
-| Android browsers | Supported for browser-decodable files | Supported; touch to enable sound if prompted | Generally unavailable in mobile browsers |
-| iPhone / iPad Safari and other iOS browsers | Supported when the installed WebKit version can capture and encode media | Supported; tap-to-play may be required | Usually unavailable on iOS/iPadOS browsers |
-| Other platforms with current HTML5 + WebRTC browsers | Capability-dependent | Capability-dependent | Capability-dependent |
+| Platform | Package | Build or download |
+|---|---|---|
+| Web | HTTPS/PWA | [Live MarmaladePlayer](https://marcusdhaynes.github.io/MarmaladePlayer/) |
+| Windows | Tauri native installer (.exe) | [Windows, macOS, Linux build artifacts](https://github.com/marcusdhaynes/MarmaladePlayer/actions/workflows/desktop-native.yml) |
+| macOS | Tauri DMG | Same desktop build workflow |
+| Linux | Tauri AppImage | Same desktop build workflow |
+| Android | Capacitor APK | [Android APK builds](https://github.com/marcusdhaynes/MarmaladePlayer/actions/workflows/android-apk.yml); [latest verified preview release](https://github.com/marcusdhaynes/MarmaladePlayer/releases) |
+| iOS | Capacitor Xcode project and unsigned simulator build | [iOS simulator builds](https://github.com/marcusdhaynes/MarmaladePlayer/actions/workflows/ios-native.yml). Signing with an Apple developer identity is required for iPhone/App Store deployment. |
+
+**Android installation:** Download a signed **debug preview** APK from a successful Android build or its release; install with Android's package installer after explicitly allowing installation from your file manager/browser. Preview builds may use different debug-signing keys, so installing a subsequent preview might require uninstalling the earlier preview first. User app data can be lost on uninstall. Do not treat the debug APK as a Play Store-certified release.
+
+**Build instructions:** [Mobile](mobile/README.md) · [Desktop](desktop/README.md).
+The native apps bundle the same public web assets, require signaling connectivity, and share normal public HTTPS room invitation links. A native browser WebView is not functionally identical to Chrome/Safari; file codecs, capture APIs, fullscreen behavior, autoplay, and background audio vary by OS. Real-device acceptance testing remains required.
 
 Additional compatibility details:
 
