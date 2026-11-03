@@ -9,7 +9,11 @@ A small, zero-build watch-together app. The host plays a movie from their own de
 - Host a room and share a link with an 8-character invite code.
 - Stream from a local video/audio file. The file is **not uploaded** to GitHub or the room service.
 - Guest joins from another device with no copy of the file.
-- Host-driven playback, scrubbing, volume, and fullscreen; guest manages their own volume and fullscreen.
+- Host and guest playback controls share the authoritative movie timeline. Each guest keeps independent volume, subtitles, and fullscreen.
+- Compact Link and Share buttons sit beneath Buffer: Share copies the room invitation; Link lets connected guests choose a local video file and hold to switch local playback off/on.
+- Local video verification first checks a SHA-256 fingerprint sampled from file contents. Alternative encodes must pass conservative title, film release year or exact TV season/episode, runtime, and picture-proportion checks. Metadata-only matches are **probable**, not proof of identical movie content.
+- A verified local copy plays from the guest's disk rather than streaming the video; room commands still synchronize play/pause/seek with frequent drift correction. Hold Link to request the remote stream again without stopping the local movie before the incoming stream arrives. Re-enable Link by holding it again. The movie can be switched via another click.
+- Synchronization is as close as network, device clocks, and browser playback permit; **zero-latency or perfectly frame-identical playback cannot be guaranteed**.
 - Browser-based window/tab share fallback for files the browser can't decode (system-audio sharing depends on browser/OS).
 - WebRTC peer-to-peer streams; one data connection per guest. No build step, account, or application installation.
 
@@ -22,7 +26,7 @@ Repository must be named **`marcusdhaynes/marmaladeplayer`** for the address **h
 3. Select **Settings → Pages → Build and deployment → Source: Deploy from a branch → main / (root) → Save**.
 4. Visit **https://marcusdhaynes.github.io/marmaladeplayer/** once GitHub finishes publishing.
 
-**Quick test:** Open the live website in two different browsers/devices. Create a room on one; pick a supported video, copy its link; join from the other; click **Start watching** on the host. If playback with sound is blocked on the guest, click the central play button.
+**Quick test:** Open the live website in two different browsers/devices. Create a room on one; pick a supported video, copy its link; join from the other; click **Start watching** on the host. If autoplay with sound is blocked on the guest, click Play in the theater controls to enable sound.
 
 ## Technical notes / limitations
 
@@ -102,4 +106,4 @@ Additional compatibility details:
 - Connections need HTTPS and internet signaling. TURN relay infrastructure is required for reliable connectivity on more restrictive Wi-Fi, mobile networks, and corporate/firewall setups.
 - Tested using Chromium desktop and mobile viewport emulations, not a physical-device certification program. Verify with real iOS Safari, Android, and target desktop browsers before promising production compatibility.
 
-GitHub Pages deployment requires a **public** Pages-capable repository or a paid plan that supports private Pages, plus a repo rename to `marmaladeplayer`. The current source repository is still `marmaladeplayer05-21118134`.
+GitHub Pages deployment requires a public Pages-capable repository or a paid plan that supports private Pages. The source repository is `marcusdhaynes/MarmaladePlayer`.
