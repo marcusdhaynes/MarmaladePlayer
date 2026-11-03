@@ -47,6 +47,9 @@ import android.app.Activity;
 import android.app.PictureInPictureParams;
 import android.os.Build;
 import android.util.Rational;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -70,6 +73,43 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
             } catch (Exception error) {
                 call.reject("System Picture-in-Picture unavailable on this device.", error);
             }
+        });
+    }
+
+    @PluginMethod
+    public void enterFullscreen(PluginCall call) {
+        Activity activity = getActivity();
+        activity.runOnUiThread(() -> {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    WindowInsetsController control = activity.getWindow().getInsetsController();
+                    if (control != null) {
+                        control.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                        control.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    }
+                } else {
+                    activity.getWindow().getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+                }
+                call.resolve();
+            } catch (Exception error) { call.reject("Immersive fullscreen unavailable.", error); }
+        });
+    }
+
+    @PluginMethod
+    public void exitFullscreen(PluginCall call) {
+        Activity activity = getActivity();
+        activity.runOnUiThread(() -> {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    WindowInsetsController control = activity.getWindow().getInsetsController();
+                    if (control != null)
+                        control.show(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                } else activity.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+                call.resolve();
+            } catch (Exception error) { call.reject("Could not restore system bars.", error); }
         });
     }
 }
