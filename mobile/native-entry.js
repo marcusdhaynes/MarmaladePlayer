@@ -30,6 +30,10 @@
     window.MarmaladeNativePictureInPicture={
       enter:()=>native.nativePromise('MarmaladePictureInPicture','enter',{})
     };
+    window.MarmaladeNativeFullscreen={
+      enter:()=>native.nativePromise('MarmaladePictureInPicture','enterFullscreen',{}),
+      exit:()=>native.nativePromise('MarmaladePictureInPicture','exitFullscreen',{})
+    };
     window.addEventListener('marmalade:native-pip',event=>{
       document.body.classList.toggle('native-pip-active',!!event.detail?.active);
     });
