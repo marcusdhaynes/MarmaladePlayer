@@ -44,7 +44,8 @@
   // All rating changes happen on IMDb, using the person's IMDb session.
   function imdbRatingUrl(data){
     const episode=data.kind==='tv'&&Number(data.season)>0&&Number(data.episode)>0;
-    const exactId=episode?data.imdbEpisodeId:data.imdbId;
+    const exactId=episode?(data.imdbEpisodeId||
+      (data.imdbRatingIsSeries?data.imdbId:null)):data.imdbId;
     if(/^tt\d{6,10}$/.test(String(exactId||'')))
       return 'https://www.imdb.com/title/'+exactId+'/';
     const parts=[data.title||'',data.year||''];
@@ -64,9 +65,29 @@
     line(button,'span','mi-user-rating-head','IMDb');
     line(button,'span','mi-user-rating-stars','★★★★★').setAttribute('aria-hidden','true');
     const rating=Number(data.imdbScore);
-    line(button,'span','mi-user-rating-number',
-      Number.isFinite(rating)&&rating>0&&rating<=10?rating.toFixed(1)+'/10':'— /10');
-    line(button,'span','mi-user-rating-note','Rate on IMDb ↗');
+    const valid=Number.isFinite(rating)&&rating>0&&rating<=10;
+    const number=line(button,'span','mi-user-rating-number',
+      valid?rating.toFixed(1)+'/10':'Loading…');
+    const note=line(button,'span','mi-user-rating-note',
+      data.imdbRatingIsSeries?'Series Rating · IMDb ↗':'Rate on IMDb ↗');
+    if(!valid && window.MarmaladePublicMovieInfo?.lookupImdbRating){
+      void window.MarmaladePublicMovieInfo.lookupImdbRating(data).then(found=>{
+        if(displayed!==data||!button.isConnected)return;
+        if(!found?.score){number.textContent='N/A';return;}
+        data.imdbScore=Number(found.score).toFixed(1);
+        data.imdbScoreVia=found.via||'Public IMDb Data';
+        data.imdbRatingIsSeries=!!found.isSeriesRating;
+        if(/^tt\\d{6,10}$/.test(String(found.id||''))){
+          if(data.kind==='tv'&&data.season>0&&data.episode>0&&!found.isSeriesRating)
+            data.imdbEpisodeId=found.id;
+          else data.imdbId=found.id;
+        }
+        // A fresh render displays the score in both the compact title box and
+        // Ratings & Reception, without affecting video playback or local votes.
+        render(data);
+        broadcast();
+      }).catch(()=>{if(button.isConnected)number.textContent='N/A';});
+    }else if(!valid)number.textContent='N/A';
     return button;
   }
   function openPanel(scroll = false) {
@@ -535,7 +556,12 @@
         Number(data.score).toFixed(1)+'/10'+(data.votes?' · '+Number(data.votes).toLocaleString()+' Votes':''));
       listed++;
     }
-    if(data.imdbScore){labeled(scoreGrid,'IMDb (via OMDb)',data.imdbScore+'/10');listed++;}
+    if(data.imdbScore){
+      const via=data.imdbScoreVia||'OMDb';
+      const suffix=data.imdbRatingIsSeries?' · Series':'';
+      labeled(scoreGrid,'IMDb'+suffix+' (via '+via+')',data.imdbScore+'/10');
+      listed++;
+    }
     if(data.metacritic){labeled(scoreGrid,'Metacritic (via OMDb)',data.metacritic+'/100');listed++;}
     for(const rating of data.ratings||[]){
       if(!rating?.source||!rating.value)continue;
