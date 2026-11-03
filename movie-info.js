@@ -468,21 +468,38 @@
       encodeURIComponent(data.title+(data.year?' '+data.year:'')));
     const score = section(ui.results,'Ratings & Reception');
     const scoreGrid = line(score,'div','mi-stats');
-    labeled(scoreGrid,data.source==='tvmaze'?'TVmaze Viewers':
-      data.source==='wikipedia'?'Wikipedia':'TMDB Community',
-      data.score?data.score.toFixed(1)+'/10'+(data.votes?' · '+data.votes.toLocaleString()+' Votes':''):
-      data.source==='wikipedia'?'No Ratings Available':'Not Rated');
-    if (data.imdbScore) labeled(scoreGrid,'IMDb via OMDb',data.imdbScore + '/10');
-    if (data.metacritic) labeled(scoreGrid,'Metacritic via OMDb',data.metacritic + '/100');
-    for (const rating of data.ratings || []) {
-      if (!/Internet Movie Database|Metacritic/i.test(rating.source || '')) labeled(scoreGrid,rating.source,rating.value);
+    let listed=0;
+    if(Number(data.score)>0){
+      labeled(scoreGrid,data.source==='tvmaze'?'TVmaze Viewers':'TMDB Community',
+        Number(data.score).toFixed(1)+'/10'+(data.votes?' · '+Number(data.votes).toLocaleString()+' Votes':''));
+      listed++;
+    }
+    if(data.imdbScore){labeled(scoreGrid,'IMDb (via OMDb)',data.imdbScore+'/10');listed++;}
+    if(data.metacritic){labeled(scoreGrid,'Metacritic (via OMDb)',data.metacritic+'/100');listed++;}
+    for(const rating of data.ratings||[]){
+      if(!rating?.source||!rating.value)continue;
+      if(/Internet Movie Database/i.test(rating.source)||
+          (/Metacritic/i.test(rating.source)&&data.metacritic))continue;
+      labeled(scoreGrid,rating.source+(rating.via?' (via '+rating.via+')':''),rating.value);
+      listed++;
+    }
+    if(!listed)labeled(scoreGrid,'Public Ratings','Not Available From Connected Sources');
+    if(data.receptionText){
+      const text=line(score,'p','mi-reception-text',data.receptionText);
+      text.title='Source: '+(data.wiki?.title||'Wikipedia');
+      if(data.wiki?.url)link(score,'Reception Source · Wikipedia',data.wiki.url);
     }
     const production = section(ui.results,'Production & Finances');
     const financial = line(production,'div','mi-stats');
-    labeled(financial,'Budget',data.kind === 'movie' ? plainMoney(data.budget) : 'Not Consistently Reported for TV');
-    labeled(financial,'Worldwide Revenue',data.kind === 'movie' ? plainMoney(data.revenue) : 'Not Consistently Reported for TV');
+    labeled(financial,'Budget',data.kind==='movie'
+      ?(data.budgetText||plainMoney(data.budget)):'Not Consistently Reported for TV');
+    labeled(financial,'Worldwide Revenue',data.kind==='movie'
+      ?(data.revenueText||plainMoney(data.revenue)):'Not Consistently Reported for TV');
+    if((data.budgetText||data.revenueText)&&data.wiki?.url)
+      link(production,'Financial Figures · Wikipedia',data.wiki.url);
     if (data.omdbBoxOffice) labeled(financial,'Box Office (OMDb)',data.omdbBoxOffice);
-    if (data.runtime) labeled(financial,'Runtime',String(data.runtime) + ' min');
+    if(data.runtime||data.runtimeText)
+      labeled(financial,'Runtime',data.runtimeText||String(data.runtime)+' min');
     if (data.release) labeled(financial,'Release / Premiere',data.release);
     if (data.status) labeled(financial,'Status',data.status);
     if (data.seasons !== null && data.seasons !== undefined) labeled(financial,'Seasons',data.seasons);
@@ -532,7 +549,7 @@
       })) if (value) labeled(stats,key,value);
     }
     const disclaimer = line(ui.results,'p','mi-footnote',
-      'Scores are source-specific. Budgets/revenue can be incomplete or estimated; unavailable amounts are never treated as zero. Production notes are sourced, not AI-generated.');
+      'Your personal rating is saved in this browser, not submitted to IMDb. Public scores are source-specific. Budget and box-office figures vary by source and release; missing values are never treated as zero.');
     disclaimer.setAttribute('role','note');
   }
   async function start(file) {
