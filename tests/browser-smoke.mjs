@@ -672,8 +672,12 @@ try {
     const {page,errors}=await launchRoomPage();
     await page.evaluate(()=>{
       window.Peer.prototype.connect=function(id){
-        const conn={peer:id,open:false,handlers:{},on(n,cb){this.handlers[n]=cb;},
-          send(){},close(){this.open=false;}};
+        const conn={peer:id,open:false,handlers:{},on(n,cb){
+          this.handlers[n]=cb;
+          // The host becomes reachable after the first rejected signaling offer.
+          if(n==='open' && window.__peers.length>=2)
+            setTimeout(()=>{this.open=true;cb();},0);
+        },send(){},close(){this.open=false;}};
         window.__connections.push(conn);return conn;
       };
     });
