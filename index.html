@@ -290,6 +290,7 @@ body.theater-open{overflow:hidden}
 .stage-quick-actions{display:flex;gap:5px;justify-content:flex-end;align-items:center;margin-top:3px;pointer-events:auto}
 .stage-quick-actions .theater-pill{opacity:1!important;display:inline-flex;align-items:center;justify-content:center;width:33px;height:29px;min-height:29px;padding:4px!important;color:#e9d9ce;background:#111319d9!important;border:1px solid #ffffff32!important;border-radius:7px!important;pointer-events:auto;transition:background .16s ease,border-color .16s ease}
 .stage-quick-actions svg{width:18px;height:18px;display:block}
+.stage-quick-actions .quick-share-btn{width:auto;min-width:70px;padding:4px 8px!important;gap:6px;text-transform:uppercase;font-size:9px;letter-spacing:.45px;font-weight:750}
 .stage-quick-actions .theater-pill:hover:not(:disabled),.stage-quick-actions .theater-pill:focus-visible{background:#3a2b29!important;border-color:#ffa862!important}
 .stage-quick-actions .theater-pill:disabled{opacity:.4!important;cursor:not-allowed}
 .stage-quick-actions .quick-link-btn[aria-pressed=true]{color:#ffd09a;border-color:#f5b575!important;background:#513628!important}
@@ -297,7 +298,7 @@ body.theater-open{overflow:hidden}
 .local-copy-feedback{font-size:10px;color:#e9c59e;line-height:1.4;margin:0 4px 10px;max-width:780px}
 .local-copy-feedback[hidden]{display:none!important}
 #hostVideoDiagnostic{display:none!important}
-@media(max-width:450px){.stage-quick-actions .theater-pill{width:29px;height:27px;min-height:27px}.stage-quick-actions svg{width:16px;height:16px}}
+@media(max-width:450px){.stage-quick-actions .theater-pill{width:29px;height:27px;min-height:27px}.stage-quick-actions svg{width:16px;height:16px}.stage-quick-actions .quick-share-btn{width:auto;min-width:64px;padding:4px 6px!important;gap:4px}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -335,7 +336,7 @@ body.theater-open{overflow:hidden}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 13.9a5 5 0 0 0 7.4.5l2.1-2.1a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M14.2 10.1a5 5 0 0 0-7.4-.5l-2.1 2.1a5 5 0 0 0 7.1 7.1l1.2-1.2"/></svg>
   </button>
   <button type="button" id="copyLink" class="theater-pill quick-share-btn" disabled title="Share: Copy Room Link" aria-label="Share: Copy Room Link">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5"/><path d="M5 13v5.3A2.7 2.7 0 0 0 7.7 21h8.6a2.7 2.7 0 0 0 2.7-2.7V13"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5"/><path d="M5 13v5.3A2.7 2.7 0 0 0 7.7 21h8.6a2.7 2.7 0 0 0 2.7-2.7V13"/></svg><span>Share</span>
   </button>
 </div>
             </div>
