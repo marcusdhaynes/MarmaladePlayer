@@ -468,6 +468,14 @@ background:transparent!important;z-index:22!important}
 body.floating-overlay-active .subtitle-overlay[hidden],
 body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 
+
+/* Keep connection failure and retry separate from the playback controls. */
+.stage.join-failed .theater-top,.stage.join-failed .theater-controls,.stage.join-failed .stage-overlay-play{display:none!important}
+.stage.join-failed .stage-empty{display:flex!important;flex-direction:column;align-items:center;justify-content:center;min-height:230px;padding:24px 18px;gap:10px}
+.stage.join-failed .stage-empty h1{font-size:clamp(20px,4vw,28px)!important;line-height:1.2!important;margin:0!important}
+.stage.join-failed .stage-empty p{font-size:13px!important;max-width:340px;line-height:1.5!important;margin:0!important}
+.stage-retry-join{pointer-events:auto;position:relative;z-index:5;background:#eeb07b;color:#271421;border:0;border-radius:8px;font-size:12px;font-weight:800;padding:9px 16px;margin-top:6px}
+.stage-retry-join[hidden]{display:none!important}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -503,6 +511,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             <span class="eyebrow" id="stageEyebrow">CLICK TO HOST</span>
             <h1 id="stageTitle">Choose a movie.</h1>
             <p id="stageSubtitle">Click here or drop a video file to start your room.</p>
+            <button type="button" id="stageRetryJoin" class="stage-retry-join" hidden>Retry Connection</button>
           </div>
           
           <div class="theater-top">
@@ -2917,7 +2926,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     }
   }
   const JOIN_TIMEOUT_MS = 13500;
-  const MAX_JOIN_ATTEMPTS = 3;
+  const MAX_JOIN_ATTEMPTS = 6;
   function joinFailed(message, fatal = false, expectedPeer = state.peer) {
     if (state.peer !== expectedPeer || !state.connecting) return;
     clearTimeout(state.joinTimeout);
@@ -2926,7 +2935,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       const next = state.joinAttempt + 1, code = state.code;
       connection(`Retrying connection (${next}/${MAX_JOIN_ATTEMPTS})…`);
       el.joinProgressText.textContent = `Retrying · attempt ${next}/${MAX_JOIN_ATTEMPTS}`;
-      setStage('Still finding your host…','The connection is taking longer than expected. Retrying automatically.','RECONNECTING');
+      if(!el.stage.classList.contains('has-video'))
+        setStage('Finding your host…','The host may still be opening the room. Retrying automatically.','RECONNECTING');
       const stalePeer = state.peer;
       state.peer = null;
       state.guestConn = null;
@@ -2937,11 +2947,17 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       }, Math.min(2000,600*next));
       return;
     }
+    const retryCode=state.code;
     closeConnections();
-    state.role = 'guest';
-    state.joinFailure = true;
-    connection(fatal ? 'Room unavailable' : 'Unable to connect','error');
-    setStage('Couldn’t join this room',message,'CONNECTION TROUBLE');
+    state.role='guest';
+    state.code=retryCode;el.joinInput.value=retryCode;
+    state.joinFailure=true;
+    connection(fatal?'Room unavailable':'Unable to connect','error');
+    if(!el.stage.classList.contains('has-video')){
+      setStage('Host not reachable',message,'CONNECTION TROUBLE');
+      el.stage.classList.add('join-failed');
+      document.getElementById('stageRetryJoin').hidden=false;
+    }
     updateRoomPanel();
     notify(message);
   }
@@ -2955,7 +2971,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     catch { joinFailed('Could not start the connection service. Check your internet and try again.',true); return; }
     state.peer = peer;
     state.joinTimeout = setTimeout(() => {
-      joinFailed('The host could not be reached. Ask them to check that the room is open, then retry.',false,peer);
+      joinFailed('Host room is not registered yet. Keep the host app open and retry.',false,peer);
     },JOIN_TIMEOUT_MS);
     setupGuestCallHandler(peer);
     peer.on('open', () => {
@@ -2971,8 +2987,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         clearTimeout(state.joinRetryTimer);
         state.joinTimeout = state.joinRetryTimer = null;
         state.joinAttempt = 0;
-        state.joinFailure = false;
-        state.connecting = false;
+        state.joinFailure=false;
+        state.connecting=false;
+        el.stage.classList.remove('join-failed');
+        document.getElementById('stageRetryJoin').hidden=true;
         el.joinActive.hidden = false;
         el.joinedCode.textContent = code;
         updateRoomPanel();
@@ -3037,11 +3055,17 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           el.network.textContent = `${Math.max(0, Math.round(receivedAt-data.at))} MS RTT`;
         }
       });
-      conn.on('close', () => {
-        if (state.guestConn !== conn || state.peer !== peer) return;
-        if (state.connecting) { joinFailed('The host closed the connection before joining.',false,peer); return; }
-        notify('The room has closed or connection was lost.');
-        leaveRoom();
+      conn.on('close',()=>{
+        if(state.guestConn!==conn||state.peer!==peer)return;
+        if(state.connecting){joinFailed('Host closed connection during joining. Retrying…',false,peer);return;}
+        const code=state.code;
+        notify('Connection lost. Rejoining the room…');
+        el.joinInput.value=code;
+        closeConnections();state.role='guest';
+        setTimeout(()=>{
+          if(state.role==='guest'&&!state.peer&&parseCode(el.joinInput.value)===code)
+            void joinRoom();
+        },1500);
       });
       conn.on('error', (error) => {
         if (state.guestConn !== conn || state.peer !== peer) return;
@@ -3055,8 +3079,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       console.error('Join signaling error',error);
       if (state.connecting) {
         const missing = error?.type === 'peer-unavailable';
-        joinFailed(missing ? 'Room not found. The host may have recreated it. Ask for a fresh invitation.'
-          : 'The connection service is having trouble. Trying again…',missing,peer);
+        // An immediate peer-unavailable signal means this ID is not currently
+        // registered. Retry: the host may be reconnecting or starting up.
+        joinFailed(missing ? 'Host not registered yet. Retrying the same invitation…'
+          : 'The connection service is having trouble. Trying again…',false,peer);
       } else if (error?.type === 'network' || error?.type === 'server-error') {
         connection('Signaling interrupted','error');
       }
@@ -3082,8 +3108,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     state.userChoseQuality = false;
     state.code = code;
     state.connecting = true;
-    state.joinFailure = false;
-    el.joinRoom.disabled = true;
+    state.joinFailure=false;
+    el.stage.classList.remove('join-failed');
+    document.getElementById('stageRetryJoin').hidden=true;
+    el.joinRoom.disabled=true;
     updateRoomPanel();
     connection('Connecting…');
     setStage('Finding your party…','Connecting to your host.','JOINING');
@@ -3873,6 +3901,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (event.target !== el.stage || !['Enter',' '].includes(event.key)) return;
     event.preventDefault();
     playPauseFromStage();
+  });
+  document.getElementById('stageRetryJoin').addEventListener('click',event=>{
+    event.stopPropagation();
+    el.stage.classList.remove('join-failed');
+    event.currentTarget.hidden=true;
+    void joinRoom();
   });
   el.joinInput.addEventListener('input', () => {
     clearTimeout(state.joinDebounce);
