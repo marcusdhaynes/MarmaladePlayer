@@ -39,6 +39,9 @@ const server = createServer((req,res) => {
     res.end('{"name":"Marmalade","start_url":"./"}');
   } else if (req.url?.startsWith('/favicon.svg')) {
     res.writeHead(200, {'content-type':'image/svg+xml'}); res.end('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  } else if (req.url?.startsWith('/public-movie-info.js')) {
+    res.writeHead(200, {'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../public-movie-info.js', import.meta.url), 'utf8'));
   } else if (req.url?.startsWith('/movie-info.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../movie-info.js', import.meta.url), 'utf8'));
@@ -83,8 +86,9 @@ try {
     assert.equal((await page.locator('#subtitlesBtn').textContent()).trim(),'','No CC text');
     assert.equal(await page.locator('#bufferToggle').getAttribute('aria-pressed'),'false');
     assert.equal(await page.locator('#bufferReadout').isVisible(),false,'Buffer readout is off initially');
-    assert.equal(await page.locator('#joinSection').isVisible(),true,'Join field must be visible initially');
-    assert.equal(await page.locator('.compact-cdn').isVisible(),true,'CDN option must remain');
+    assert.equal(await page.locator('#joinSection').isVisible(),false,'The obsolete room entry box is hidden');
+    assert.equal(await page.locator('.compact-cdn').isVisible(),false,'The obsolete CDN sidebar is hidden');
+    assert.equal(await page.locator('#copyLink').count(),1,'Small share icon is present');
     assert.equal(await page.locator('#hostTab').isVisible(),false,'No manual Host/Join tabs');
     assert.equal(await page.locator('#chooseFile').isVisible(),false,'File picker belongs in the video');
     assert.equal(await page.locator('.panel-intro').count(),0,'Remove decorative sidebar intro');
@@ -145,7 +149,7 @@ try {
     await page.locator('#fpsToggle').click({force:true});
     assert.equal(await page.locator('#fpsToggle').getAttribute('aria-pressed'),'true');
     await page.locator('#statusToggle').click({force:true});
-    assert.equal(await page.locator('#statusToggle').getAttribute('aria-pressed'),'false');
+    assert.equal(await page.locator('#statusToggle').getAttribute('aria-pressed'),'true');
     await page.locator('#subtitlesBtn').click({force:true});
     assert.equal(await page.locator('#subtitlePanel').isVisible(),true);
     // Personal captions are local to this browser, with all nine placements.
@@ -360,8 +364,7 @@ try {
     console.log('PASS choose-file automatically creates host room');
   }
   {
-    const {page,errors}=await launchRoomPage();
-    await page.locator('#roomInput').fill('ABCDEFGH');
+    const {page,errors}=await launchRoomPage('/?room=ABCDEFGH');
     await page.waitForTimeout(800);
     console.log('AUTOJOIN TRACE', JSON.stringify(await page.evaluate(()=>({
       role:document.querySelector('#hostTab')?.getAttribute('aria-selected'),
