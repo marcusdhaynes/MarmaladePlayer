@@ -157,7 +157,7 @@
   function plainMoney(value) {
     return Number(value) > 0 ? new Intl.NumberFormat('en-US', {
       style:'currency', currency:'USD', maximumFractionDigits:0
-    }).format(value) : 'Not reported';
+    }).format(value) : 'Not Reported';
   }
   function share(info) {
     return info ? JSON.parse(JSON.stringify(info)) : null;
@@ -374,7 +374,7 @@
   function labeled(parent, title, value) {
     const item = line(parent,'div','mi-stat');
     line(item,'small','mi-muted',title);
-    line(item,'strong','',value ?? 'Not reported');
+    line(item,'strong','',value ?? 'Not Reported');
   }
   function section(parent, heading) {
     const sec = line(parent,'section','mi-section');
@@ -418,8 +418,8 @@
     }
     const production = section(ui.results,'Production & Finances');
     const financial = line(production,'div','mi-stats');
-    labeled(financial,'Budget',data.kind === 'movie' ? plainMoney(data.budget) : 'Not consistently reported for TV');
-    labeled(financial,'Worldwide Revenue',data.kind === 'movie' ? plainMoney(data.revenue) : 'Not consistently reported for TV');
+    labeled(financial,'Budget',data.kind === 'movie' ? plainMoney(data.budget) : 'Not Consistently Reported for TV');
+    labeled(financial,'Worldwide Revenue',data.kind === 'movie' ? plainMoney(data.revenue) : 'Not Consistently Reported for TV');
     if (data.omdbBoxOffice) labeled(financial,'Box Office (OMDb)',data.omdbBoxOffice);
     if (data.runtime) labeled(financial,'Runtime',String(data.runtime) + ' min');
     if (data.release) labeled(financial,'Release / Premiere',data.release);
