@@ -363,6 +363,9 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
                         View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
                         View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
                 }
+                if(activity instanceof MainActivity)((MainActivity)activity).setVideoFullscreen(true);
+                View content=activity.findViewById(android.R.id.content);
+                if(content!=null){content.setPadding(0,0,0,0);content.requestApplyInsets();}
                 call.resolve();
             } catch (Exception error) { call.reject("Immersive fullscreen unavailable.", error); }
         });
@@ -378,6 +381,9 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
                     if (control != null)
                         control.show(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
                 } else activity.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+                if(activity instanceof MainActivity)((MainActivity)activity).setVideoFullscreen(false);
+                View content=activity.findViewById(android.R.id.content);
+                if(content!=null)content.requestApplyInsets();
                 call.resolve();
             } catch (Exception error) { call.reject("Could not restore system bars.", error); }
         });
@@ -402,6 +408,8 @@ import android.os.Looper;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private boolean videoFullscreen=false;
+    public void setVideoFullscreen(boolean value){videoFullscreen=value;}
     // Refresh WebVTT/SRT text even when Android throttles JS timers in PiP.
     private final Handler subtitleHandler=new Handler(Looper.getMainLooper());
     private final Runnable subtitleRefresh=new Runnable(){
@@ -456,7 +464,8 @@ public class MainActivity extends BridgeActivity {
                     top = insets.getSystemWindowInsetTop();
                     bottom = insets.getSystemWindowInsetBottom();
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode()) {
+                if (videoFullscreen ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode())) {
                     top = 0; bottom = 0;
                 }
                 view.setPadding(0, top, 0, bottom);

@@ -3787,6 +3787,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         return;
       }
     }
+    if(window.Capacitor?.getPlatform?.()==='android'){
+      notify('Interactive mini-player requires Display over other apps permission. Use the current Android APK.');
+      return;
+    }
     if(window.MarmaladeNativePictureInPicture?.enter){
       // Android OS PiP remains above other apps, supports pinch-resize and
       // retains the WebView subtitle overlay with its own system controls.
