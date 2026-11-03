@@ -3588,12 +3588,23 @@ body.native-pip-active .stage .subtitle-overlay{z-index:15!important}
   const miniPlay=document.getElementById('miniPlayPause');
   const miniForward=document.getElementById('miniSkipForward');
   const miniReturn=document.getElementById('miniReturn');
-  // Clone the *same* transport vectors as the main player (not approximate icons).
-  for(const [destination,original] of [[miniBack,el.back],[miniPlay,el.play],[miniForward,el.forward]]){
+  // Clone the *same* transport vectors; strip cloned IDs to preserve
+  // the identity of the main play icon. Follow live play/pause state changes.
+  const syncMiniIcon=(destination,original)=>{
     const svg=original?.querySelector('svg');
-    if(svg)destination.appendChild(svg.cloneNode(true));
+    if(!svg||!destination)return;
+    const clone=svg.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.querySelectorAll('[id]').forEach(node=>node.removeAttribute('id'));
+    destination.replaceChildren(clone);
+  };
+  for(const [destination,original] of [[miniBack,el.back],[miniPlay,el.play],[miniForward,el.forward]]){
+    syncMiniIcon(destination,original);
     destination.addEventListener('click',event=>{event.stopPropagation();original?.click();});
   }
+  if(el.playIcon && typeof MutationObserver!=='undefined')
+    new MutationObserver(()=>syncMiniIcon(miniPlay,el.play))
+      .observe(el.playIcon,{attributes:true,childList:true,subtree:true});
   const setMiniOverlay=visible=>{
     if(miniOverlay)miniOverlay.hidden=!visible;
     el.stage.classList.toggle('mini-pip-visible',visible);
