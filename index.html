@@ -400,16 +400,16 @@ body.theater-open{overflow:hidden}
           </form>
           <details class="mi-credentials" id="miSources">
             <summary>Information Sources · API Access</summary>
-            <p class="mi-settings-help">Use your own keys. They are stored in this browser, never in the repository or sent to watch-party guests. Only metadata lookups contact the services; the video file stays local.</p>
-            <div class="mi-settings-row"><label for="miTmdbToken">TMDB API Key or Read Access Token (Primary)</label><input type="password" id="miTmdbToken" autocomplete="off" spellcheck="false" placeholder="Required for full filmography"></div>
+            <p class="mi-settings-help">Movie Information Loads Automatically From Public Sources. Optional API Keys Add Richer TMDB, OMDb and OpenSubtitles Data. Keys Stay in This Browser; Video Files Stay Local.</p>
+            <div class="mi-settings-row"><label for="miTmdbToken">TMDB API Key or Read Access Token (Primary)</label><input type="password" id="miTmdbToken" autocomplete="off" spellcheck="false" placeholder="Optional · Unlock Detailed Filmography"></div>
             <div class="mi-settings-row"><label for="miOmdbKey">OMDb Key (Optional: IMDb, Rotten Tomatoes, Metacritic, Awards)</label><input type="password" id="miOmdbKey" autocomplete="off" spellcheck="false" placeholder="Optional"></div>
             <div class="mi-settings-row"><label for="miSubtitlesKey">OpenSubtitles API Key (Optional: File-Hash Identification)</label><input type="password" id="miSubtitlesKey" autocomplete="off" spellcheck="false" placeholder="Optional"></div>
             <div class="mi-settings-row"><button type="button" id="miSave">Save Sources &amp; Look Up</button><button type="button" id="miForget">Forget Keys</button></div>
-            <p class="mi-settings-help">Get credentials: <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">TMDB</a> · <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener noreferrer">OMDb</a> · <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noopener noreferrer">OpenSubtitles</a>. Some services limit free usage.</p>
+            <p class="mi-settings-help">Get Credentials: <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">TMDB</a> · <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener noreferrer">OMDb</a> · <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noopener noreferrer">OpenSubtitles</a>. Some Services Limit Free Usage.</p>
           </details>
           <div id="miMatches"></div>
           <div id="miResults"></div>
-          <p class="mi-attribution"><img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_2-d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.svg" alt="TMDB logo" width="30" height="30" loading="lazy"> Film and TV information provided by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a>, with optional data from OMDb, OpenSubtitles and Wikipedia. This product uses the TMDB API but is not endorsed or certified by TMDB. Wikipedia production extracts are licensed under CC BY-SA and linked to their source.</p>
+          <p class="mi-attribution"><img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_2-d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.svg" alt="TMDB logo" width="30" height="30" loading="lazy"> Movie and TV Information: <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a> When Configured, With Automatic Public Sources From <a href="https://www.tvmaze.com/" target="_blank" rel="noopener noreferrer">TVmaze</a> (CC BY-SA) and <a href="https://en.wikipedia.org/" target="_blank" rel="noopener noreferrer">Wikipedia</a> (CC BY-SA), Plus Optional OMDb and OpenSubtitles. This Product Uses the TMDB API When Configured but Is Not Endorsed or Certified by TMDB.</p>
         </section>
       </section>
 
@@ -3766,7 +3766,8 @@ body.theater-open{overflow:hidden}
 })();
 
 </script>
-<script src="./movie-info.js" defer></script>
+<script src="./public-movie-info.js?v=20261103-automatic-movie-info" defer></script>
+<script src="./movie-info.js?v=20261103-automatic-movie-info" defer></script>
 <script src="./watch-sync-subtitles.js?v=20261102-subtitle-grid"></script>
 <script src="./subtitle-match.js?v=20261022-multisource2"></script>
 <script src="./subtitle-search.js?v=20261102-subtitle-grid"></script>
