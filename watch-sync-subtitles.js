@@ -56,9 +56,9 @@
   syncSettings.className='host-sync-settings';
   syncSettings.id='hostSyncSettings';
   syncSettings.innerHTML=
-    '<strong>Host / guest A/V alignment</strong>'+
-    '<label for="hostSyncMode">Alignment <select id="hostSyncMode"><option value="auto">Auto (guest timing)</option><option value="manual">Manual</option><option value="off">Off</option></select></label>'+
-    '<label for="hostSyncSeconds">Manual host delay <output id="hostSyncSecondsValue">2.00s</output></label>'+
+    '<strong>Host / Guest A/V Alignment</strong>'+
+    '<label for="hostSyncMode">Alignment <select id="hostSyncMode"><option value="auto">Auto (Guest Timing)</option><option value="manual">Manual</option><option value="off">Off</option></select></label>'+
+    '<label for="hostSyncSeconds">Manual Host Delay <output id="hostSyncSecondsValue">2.00s</output></label>'+
     '<input type="range" id="hostSyncSeconds" min="0" max="8" value="2" step="0.05">'+
     '<small id="hostSyncInfo" role="status">Waiting for guest video timing. Auto mode leaves the original player unchanged until accurate timing is available.</small>';
   el.settingsPanel.insertBefore(syncSettings,el.settingsPanel.querySelector('.settings-tools'));
