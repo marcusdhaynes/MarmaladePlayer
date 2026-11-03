@@ -580,8 +580,78 @@ body.theater-open{overflow:hidden}
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
     basePaint: null, basePaintIdle: false, highGfxMode: '2d',
     hostPictureSample: null, guestDarkStreak: 0, pictureRepairAsked: false,
+    resumeChecked: false, lastProgressSaveAt: 0,
   };
 
+  // Per-browser, per-video watch progress. No video bytes or personal playback
+  // records are shared with the room; remote guests follow the host clock.
+  const WATCH_PROGRESS_KEY='marmalade:watch-progress:v1';
+  let watchProgress={};
+  try{
+    const stored=JSON.parse(localStorage.getItem(WATCH_PROGRESS_KEY)||'{}');
+    if(stored&&typeof stored==='object'&&!Array.isArray(stored))watchProgress=stored;
+  }catch{}
+  function progressKeys(){
+    if(state.role==='host'&&state.source==='file'&&state.file){
+      const file=state.file;
+      return ['file:'+file.name.toLowerCase()+'|'+file.size,
+        state.localFingerprint?'hash:'+state.localFingerprint:null].filter(Boolean);
+    }
+    if(state.role==='guest'&&state.remoteFingerprint){
+      return ['hash:'+state.remoteFingerprint];
+    }
+    if(state.role==='host'&&state.source==='hosted'&&state.hostedUrl)
+      return ['hosted:'+state.hostedUrl];
+    if(state.role==='guest'&&state.source==='hosted-guest'&&state.hostedUrl)
+      return ['hosted:'+state.hostedUrl];
+    return [];
+  }
+  function saveWatchPosition(force=false){
+    const keys=progressKeys();
+    if(!keys.length)return;
+    const now=Date.now();
+    if(!force&&now-state.lastProgressSaveAt<4000)return;
+    let position,duration;
+    if(state.role==='guest'){
+      duration=state.sharedDuration;
+      if(!(duration>0))return;
+      position=expectedHostTime();
+    }else{
+      duration=media.duration;
+      position=media.currentTime;
+    }
+    if(!Number.isFinite(duration)||!(duration>0)||!Number.isFinite(position)||position<0)return;
+    const complete=position>=Math.max(duration-30,duration*.98);
+    const record={time:Math.min(position,duration),duration,updated:now};
+    for(const key of keys){
+      if(complete)delete watchProgress[key];
+      else if(position>=2)watchProgress[key]=record;
+    }
+    const entries=Object.entries(watchProgress).filter(([,value])=>
+      value&&Number.isFinite(value.time)&&Number.isFinite(value.updated)&&value.updated>now-365*86400000)
+      .sort((a,b)=>b[1].updated-a[1].updated).slice(0,500);
+    watchProgress=Object.fromEntries(entries);
+    try{localStorage.setItem(WATCH_PROGRESS_KEY,JSON.stringify(watchProgress));}catch{}
+    state.lastProgressSaveAt=now;
+  }
+  function restoreWatchPosition(){
+    if(state.role!=='host'||!['file','hosted'].includes(state.source)||
+      state.resumeChecked||!Number.isFinite(media.duration)||media.duration<=0)return;
+    if(media.currentTime>2||!media.paused){state.resumeChecked=true;return;}
+    const record=progressKeys().map(key=>watchProgress[key])
+      .filter(value=>value&&Number.isFinite(value.time)&&Number.isFinite(value.updated))
+      .sort((a,b)=>b.updated-a.updated)[0];
+    if(!record && state.source==='file'&&!state.localFingerprint)return;
+    state.resumeChecked=true;
+    if(!record)return;
+    if(Math.abs(record.duration-media.duration)>Math.max(3,media.duration*.005))return;
+    const point=record.time;
+    if(point<5||point>=Math.max(media.duration-30,media.duration*.98))return;
+    try{
+      media.currentTime=Math.min(point,media.duration-3);
+      notify('Resumed '+el.fileName.textContent+' at '+timeString(point)+'.');
+    }catch{}
+  }
   function notify(message) {
     el.toast.textContent = message;
     el.toast.hidden = false;
@@ -1675,6 +1745,8 @@ body.theater-open{overflow:hidden}
     el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
   }
   function removeMedia() {
+    saveWatchPosition(true);
+    state.resumeChecked=false;
     window.MarmaladeHostSyncCleanup?.();
     window.dispatchEvent(new Event('marmalade:media-cleared'));
     stopBroadcast();
@@ -1783,7 +1855,13 @@ body.theater-open{overflow:hidden}
     state.source = 'file';
     state.file = file;
     state.localFingerprint = null;
-    void fileFingerprint(file).then(hash=>{if(state.file===file){state.localFingerprint=hash;syncState();}}).catch(()=>{ /* Fingerprint unavailable in insecure browser context. */ });
+    void fileFingerprint(file).then(hash=>{
+      if(state.file===file){
+        state.localFingerprint=hash;
+        restoreWatchPosition();
+        syncState();
+      }
+    }).catch(()=>{ /* Fingerprint unavailable in insecure browser context. */ });
     state.fileUrl = URL.createObjectURL(file);
     media.muted = state.soundMuted || state.volumePercent === 0;
     media.autoplay = false;
@@ -3556,6 +3634,7 @@ body.theater-open{overflow:hidden}
     if(state.role==='guest' && (state.localVerified || state.bufferedMode)){void syncSeekablePlayback(true);return;}
     if (state.role !== 'host' || !['file','hosted'].includes(state.source)) return;
     state.fileReady = true;
+    restoreWatchPosition();
     // Metadata can arrive when a browser has decoded only audio, or while
     // video decoding is stalled. Keep the informative loading stage visible
     // until loadeddata/playing confirms an actual playable frame.
@@ -3595,12 +3674,17 @@ body.theater-open{overflow:hidden}
     updateRoomPanel();
     notify('This browser cannot decode that format. Try “Share a video-player window”.');
   });
-  for (const event of ['play', 'pause', 'seeked', 'ended']) media.addEventListener(event, () => { updateTransport(); syncState(); if (event === 'play') autoStartIfPlaying(); });
+  for (const event of ['play', 'pause', 'seeked', 'ended']) media.addEventListener(event, () => {
+    if(event==='pause'||event==='seeked'||event==='ended')saveWatchPosition(true);
+    updateTransport(); syncState(); if (event === 'play') autoStartIfPlaying();
+  });
   media.addEventListener('timeupdate', () => {
+    saveWatchPosition();
     if (state.role === 'host' && ['file','hosted'].includes(state.source)) { updateTransport(); syncState(); }
   });
   window.setInterval(() => {
     if(state.role==='guest'&&state.guestConn?.open&&!state.seeking){
+      saveWatchPosition();
       updateTransport();
       if(state.localVerified){
         const pending=state.pendingTransport,now=performance.now();
@@ -3644,6 +3728,7 @@ body.theater-open{overflow:hidden}
     }
   });
   window.addEventListener('pagehide', () => {
+    saveWatchPosition(true);
     releaseWakeLock();
     retireHosted();
     try { state.peer?.destroy(); } catch { /* no-op */ }
