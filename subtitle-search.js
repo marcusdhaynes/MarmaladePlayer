@@ -78,7 +78,7 @@
   const form=document.createElement('form');
   form.className='sub-search';form.id='subSearchForm';
   form.innerHTML=
-    '<label>Movie / Series Name<input class="sub-input" type="search" id="subSearchTitle" maxlength="160" required placeholder="Auto-filled from the video" autocomplete="off"></label>'+
+    '<label>Movie / Series Name<input class="sub-input" type="search" id="subSearchTitle" maxlength="160" required placeholder="Auto-Filled From the Video" autocomplete="off"></label>'+
     '<div class="sub-pair"><label>Year<input class="sub-input" type="number" min="1890" max="2100" id="subSearchYear" placeholder="Any"></label>'+
     '<label>Language<select class="sub-input" id="subSearchLanguage">'+
     [['en','English'],['ar','Arabic'],['id','Indonesian'],['es','Spanish'],['fr','French'],['de','German'],['pt','Portuguese'],['it','Italian'],['ru','Russian'],['tr','Turkish'],['fa','Persian'],['hi','Hindi'],['ja','Japanese'],['ko','Korean'],['zh','Chinese'],['','All languages']]
@@ -86,7 +86,7 @@
     '<div class="sub-pair"><label>Quality<select class="sub-input" id="subSearchQuality">'+
     [['','Any'],['480p','480p'],['720p','720p'],['1080p','1080p'],['2160p','4K / 2160p'],['BluRay','BluRay'],['WEB','WEB / WEB-DL']]
     .map(([v,n])=>'<option value="'+v+'">'+n+'</option>').join('')+'</select></label>'+
-    '<label>Type<select class="sub-input" id="subSearchType"><option value="movie">Movie</option><option value="tv">TV series</option></select></label></div>'+
+    '<label>Type<select class="sub-input" id="subSearchType"><option value="movie">Movie</option><option value="tv">TV Series</option></select></label></div>'+
     '<details id="subSearchAdvanced"><summary>Episode Filters</summary><div class="sub-pair">'+
     '<label>Season<input class="sub-input" type="number" id="subSearchSeason" min="1" max="999" placeholder="Any"></label>'+
     '<label>Episode<input class="sub-input" type="number" id="subSearchEpisode" min="1" max="9999" placeholder="Any"></label></div></details>'+
