@@ -276,13 +276,21 @@
   function applySubtitleStyle(){
     const overlay=el.subtitleOverlay;
     overlay.style.fontFamily=prefs.font;
-    overlay.style.fontSize=prefs.textSize+'px';
+    const miniature=el.stage.classList.contains('mini-pip-visible') ||
+      document.body.classList.contains('floating-overlay-active') ||
+      document.body.classList.contains('native-pip-active');
+    const actualHeight=Math.max(100,el.stage.clientHeight||100);
+    const normalSize=clamp(Number(prefs.textSize)||24,12,40);
+    const adjustedSize=miniature?clamp(Math.min(normalSize,actualHeight*.091),9,16):
+      Math.min(normalSize,Math.max(14,actualHeight*.055));
+    overlay.style.fontSize=adjustedSize+'px';
+    overlay.style.lineHeight='1.22';
+    overlay.style.boxSizing='border-box';
     overlay.style.color=rgba(prefs.textColor,prefs.textAlpha);
-    overlay.style.webkitTextStroke=prefs.outlineSize+'px '+rgba(prefs.outlineColor,prefs.outlineAlpha);
-    overlay.style.textShadow='0 0 '+prefs.glowSize+'px '+rgba(prefs.glowColor,prefs.glowAlpha)+
-      ', 2px 3px '+prefs.shadowSize+'px '+rgba(prefs.shadowColor,prefs.shadowAlpha);
+    overlay.style.webkitTextStroke=Math.min(miniature?0.65:1.5,Number(prefs.outlineSize)||0)+'px '+rgba(prefs.outlineColor,prefs.outlineAlpha);
+    overlay.style.textShadow='0 1px 2px #000,0 2px 5px #000c';
     overlay.style.background='transparent';
-    overlay.style.padding='4px 7px';
+    overlay.style.padding=miniature?'2px 4px':'3px 6px';
     overlay.style.width='max-content';
     overlay.style.textAlign=prefs.alignment;
     const parts=prefs.position.split('-');
@@ -308,6 +316,12 @@
     overlay.style.bottom=y==='bottom'?Math.round(edgeY+padY)+'px':'auto';
     overlay.style.transform='translate('+(x==='center'?'-50%':'0')+','+
       (y==='middle'?'-50%':'0')+')';
+    if(miniature){
+      overlay.style.left='50%';overlay.style.right='auto';
+      overlay.style.top='auto';overlay.style.bottom='11%';
+      overlay.style.transform='translateX(-50%)';overlay.style.textAlign='center';
+      overlay.style.maxWidth='92%';
+    }
     subStyle.querySelectorAll('[data-sub-position]').forEach(button=>
       button.setAttribute('aria-pressed',String(button.dataset.subPosition===prefs.position)));
     for(const output of subStyle.querySelectorAll('[data-sub-value]')){

@@ -236,6 +236,24 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
         return new RemoteAction(Icon.createWithResource(activity,iconId),title,title,pending);
     }
     @PluginMethod
+    public void shareInvite(PluginCall call){
+        String link=call.getString("url","");
+        if(!link.startsWith("https://") || link.length()>2048){
+            call.reject("Invalid watch-room invitation");return;
+        }
+        Activity activity=getActivity();
+        activity.runOnUiThread(()->{
+            try{
+                Intent send=new Intent(Intent.ACTION_SEND);
+                send.setType("text/plain");
+                send.putExtra(Intent.EXTRA_TEXT,"Join my Marmalade Player watch room: "+link);
+                send.putExtra(Intent.EXTRA_SUBJECT,"Marmalade Player Invitation");
+                activity.startActivity(Intent.createChooser(send,"Share watch-room invitation"));
+                call.resolve();
+            }catch(Exception error){call.reject("Could not open Android share sheet",error);}
+        });
+    }
+    @PluginMethod
     public void returnToApp(PluginCall call) {
         Activity activity=getActivity();
         activity.runOnUiThread(()->{

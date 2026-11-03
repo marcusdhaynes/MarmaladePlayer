@@ -1,5 +1,5 @@
 /* Offline shell only. Rooms and WebRTC streaming require connectivity. */
-const CACHE = 'marmalade-shell-v22-crisp-vector-galaxy';
+const CACHE = 'marmalade-shell-v23-fullscreen-share-audio-subtitles-finance';
 const FILES = ['./', './index.html', './manifest.webmanifest', './favicon.svg', './assets/marmalade-icon.webp', './assets/cosmic-02.svg', './assets/apple-touch-icon.png', './public-movie-info.js', './public-movie-info.js?v=20261103-imdb-score-v3', './movie-info.js', './movie-info.js?v=20261103-imdb-score-v3', './movie-info.css?v=20261103-imdb-official-flow-v2', './watch-sync-subtitles.js', './watch-sync-subtitles.js?v=20261103-theater-fixes-v1', './subtitle-match.js', './subtitle-match.js?v=20261022-multisource2', './subtitle-search.js', './subtitle-search.js?v=20261103-theater-fixes-v1'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));

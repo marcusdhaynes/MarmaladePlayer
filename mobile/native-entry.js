@@ -46,6 +46,14 @@
       enter:()=>invokeNative('enterFloating'),
       returnToApp:()=>invokeNative('returnToApp')
     };
+    window.MarmaladeNativeShare={share:(url)=>{
+      const cap=window.Capacitor;
+      if(typeof cap?.Plugins?.MarmaladePictureInPicture?.shareInvite==='function')
+        return cap.Plugins.MarmaladePictureInPicture.shareInvite({url});
+      if(typeof cap?.nativePromise==='function')
+        return cap.nativePromise('MarmaladePictureInPicture','shareInvite',{url});
+      return Promise.reject(new Error('Native share sheet unavailable'));
+    }};
     window.MarmaladeNativeOrientation={set:(mode)=>{
       const cap=window.Capacitor;
       const plugin=cap?.Plugins?.MarmaladePictureInPicture;

@@ -442,6 +442,32 @@ body.floating-overlay-active .stage .subtitle-overlay{z-index:19!important}
 body.native-pip-active .stage .subtitle-overlay{display:block!important;z-index:21!important;max-width:90%;margin:auto;text-shadow:0 2px 4px #000,0 1px 8px #000!important}
 body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
 
+
+/* Truly immersive theater: remove header, document margins and Android
+   safe-area insets only while fullscreen is actively requested. */
+html:has(body.theater-open),body.theater-open{height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important}
+body.theater-open .topbar,body.theater-open .footer,
+body.theater-open .below-stage,body.theater-open .movie-info-reopen-row,
+body.theater-open .media-info{display:none!important}
+body.theater-open .app-shell,body.theater-open .workspace,body.theater-open .screen-column{
+  display:block!important;width:100%!important;max-width:none!important;
+  height:100%!important;min-height:0!important;margin:0!important;padding:0!important;
+  border:0!important;transform:none!important}
+body.theater-open .stage.fullscreen-fallback{position:fixed!important;inset:0!important;
+top:0!important;left:0!important;width:100vw!important;height:100dvh!important;
+max-height:none!important;max-width:none!important;margin:0!important;padding:0!important;
+border:0!important;border-radius:0!important;z-index:99999!important}
+body.theater-open .stage video{object-fit:contain!important}
+body.floating-overlay-active .subtitle-overlay,
+body.native-pip-active .subtitle-overlay{left:50%!important;right:auto!important;top:auto!important;
+bottom:11%!important;width:max-content!important;max-width:92%!important;
+text-align:center!important;transform:translateX(-50%)!important;
+margin:0!important;padding:2px 5px!important;line-height:1.2!important;
+white-space:pre-line!important;overflow-wrap:break-word!important;
+background:transparent!important;z-index:22!important}
+body.floating-overlay-active .subtitle-overlay[hidden],
+body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
+
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -459,7 +485,7 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
    <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 13.9a5 5 0 0 0 7.4.5l2.1-2.1a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M14.2 10.1a5 5 0 0 0-7.4-.5l-2.1 2.1a5 5 0 0 0 7.1 7.1l1.2-1.2"/></svg>
   </button>
-  <button type="button" id="copyLink" class="theater-pill quick-share-btn" disabled title="Copy Room Link" aria-label="Copy Room Link">
+  <button type="button" id="copyLink" class="theater-pill quick-share-btn" title="Share Room" aria-label="Share Room">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5"/><path d="M5 13v5.3A2.7 2.7 0 0 0 7.7 21h8.6a2.7 2.7 0 0 0 2.7-2.7V13"/></svg> 
   </button>
 </div><span class="top-slogan">A little closer, wherever you are.</span><span class="connection-pill" id="connectionPill" hidden aria-hidden="true"><span class="connection-dot"></span><span id="connectionText">Not connected</span></span></div>
@@ -2034,7 +2060,8 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
       state.localModeOff?'Local Video Off · Hold to Re-enable':
       state.localVerified?'Local Video Verified · Click to Change · Hold to Stream':
       'Choose Local Video · Hold to Turn Off';
-    el.copy.disabled=!state.code || !(state.peer?.open || state.guestConn?.open);
+    el.copy.disabled=false;
+    el.copy.title=state.code?'Share Room Invitation':'Start a Room to Share';
   }
   function localNotice(message) {
     el.localCopyStatus.textContent=message;
@@ -3202,7 +3229,8 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
     try { media.volume = state.speakerGain ? 1 : Math.min(1,level); } catch {}
     if (state.speakerGain) {
       const now = state.audioContext.currentTime;
-      state.speakerGain.gain.setTargetAtTime(level, now, 0.014);
+      state.speakerGain.gain.cancelScheduledValues(now);
+      state.speakerGain.gain.setValueAtTime(level, now);
     }
     el.volumeMark.textContent = `${state.volumePercent}%`;
     el.volume.value = String(state.volumePercent);
@@ -3413,19 +3441,31 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
     }
   }
   async function copyInvite() {
-    if(!state.code || !(state.peer?.open || state.guestConn?.open)){notify('Join or create a room before sharing.');return;}
+    if(!state.code){notify('Create or join a room to share its invitation.');return;}
     const link=inviteUrl(state.code);
-    try{await navigator.clipboard.writeText(link);notify('Room Link Copied!');}
-    catch{
-      const fallback=document.createElement('textarea');
-      fallback.value=link;fallback.readOnly=true;
-      fallback.style.cssText='position:fixed;opacity:0;left:0;top:0;pointer-events:none';
-      document.body.appendChild(fallback);
-      fallback.focus();fallback.select();
-      let copied=false;try{copied=document.execCommand('copy');}catch{}
-      fallback.remove();
-      notify(copied?'Room Link Copied!':'Clipboard access blocked. Copy the room URL from your browser.');
+    // Launch the device share sheet directly from the trusted user gesture.
+    // Guests can tap the HTTPS invitation in any browser even without the app.
+    let shareTask=null;
+    if(window.MarmaladeNativeShare?.share)
+      shareTask=window.MarmaladeNativeShare.share(link);
+    else if(typeof navigator.share==='function')
+      shareTask=navigator.share({title:'Watch together on Marmalade Player',
+        text:'Join my Marmalade Player watch room',url:link});
+    let copied=false;
+    try {await navigator.clipboard.writeText(link);copied=true;}catch {
+      const temp=document.createElement('textarea');
+      temp.value=link;temp.readOnly=true;
+      temp.style.cssText='position:fixed;opacity:0;left:0;top:0;pointer-events:none';
+      document.body.appendChild(temp);temp.focus();temp.select();
+      try{copied=document.execCommand('copy');}catch{}
+      temp.remove();
     }
+    if(shareTask){
+      try{await shareTask;}catch(error){
+        if(error?.name!=='AbortError'&&!/cancel/i.test(error?.message||''))console.debug('Device share declined',error);
+      }
+    }
+    notify(copied?'Invitation Link Copied!':'Share this room: '+link);
   }
 
   // Rotate the FULLSCREEN movie explicitly between portrait and landscape.
@@ -3457,7 +3497,10 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
     fullscreenOrientation=fullscreenOrientation==='portrait'?'landscape':'portrait';
     try{localStorage.setItem('marmalade:fullscreen-orientation',fullscreenOrientation);}catch{}
     updateRotationButton();
-    void applyOrientationPreference();
+    if(!state.theaterMode && document.fullscreenElement!==el.stage){
+      void toggleFullscreen();return;
+    }
+    void applyOrientationPreference().then(()=>window.MarmaladeSubtitleReposition?.());
   });
   updateRotationButton();
   function releaseOrientation(){
@@ -3487,37 +3530,41 @@ body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
     if(state.theaterMode||document.fullscreenElement===el.stage){
       leaveTheater();return;
     }
-    if(el.stage.classList.contains('floating-player'))
-      el.stage.classList.remove('floating-player');
-    try{
-      if(el.stage.requestFullscreen){
-        await el.stage.requestFullscreen();
-        await setNativeFullscreen(true);
-        await lockLandscape();
-        revealControls();
-        return;
-      }
-    }catch{}
-    // iPhone native movie fullscreen is preferable to a boxed stage when
-    // element fullscreen is unavailable; use CSS only if native is blocked.
-    if(media.webkitEnterFullscreen&&el.stage.classList.contains('has-video')){
-      try{media.webkitEnterFullscreen();return;}catch{}
-    }
+    if(el.stage.classList.contains('floating-player'))el.stage.classList.remove('floating-player');
+    // Mark the theater as active BEFORE native orientation changes.
     state.theaterMode=true;
     el.stage.classList.add('fullscreen-fallback');
     document.body.classList.add('theater-open');
-    await setNativeFullscreen(true);
-    await lockLandscape();
+    if(window.MarmaladeNativeFullscreen){
+      await setNativeFullscreen(true);
+      await applyOrientationPreference();
+      window.MarmaladeSubtitleReposition?.();
+      revealControls();
+      return;
+    }
+    try{
+      if(el.stage.requestFullscreen){
+        await el.stage.requestFullscreen();
+        await applyOrientationPreference();
+        revealControls();
+        return;
+      }
+    }catch(error){console.debug('Fullscreen API unavailable',error);}
+    // CSS viewport fallback keeps the app's subtitle and playback controls.
+    await applyOrientationPreference();
+    window.MarmaladeSubtitleReposition?.();
     revealControls();
   }
   document.addEventListener('fullscreenchange',()=>{
     if(document.fullscreenElement===el.stage){
+      state.theaterMode=true;
+      el.stage.classList.add('fullscreen-fallback');
+      document.body.classList.add('theater-open');
       revealControls();
-    }else{
+    }else if(!state.theaterMode){
       releaseOrientation();
       void setNativeFullscreen(false);
       el.stage.classList.remove('fullscreen-fallback');
-      state.theaterMode=false;
       document.body.classList.remove('theater-open');
     }
     window.MarmaladeSubtitleReposition?.();

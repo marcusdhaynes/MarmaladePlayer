@@ -586,16 +586,17 @@
         link(score,'Reception Source · Wikipedia',data.receptionSourceUrl||data.wiki.url);
     }
     const production = section(ui.results,'Production & Finances');
-    const financial = line(production,'div','mi-stats');
-    labeled(financial,'Budget',data.kind==='movie'
+    const financial = line(production,'div','mi-stats mi-financial-grid');
+    const financialTop=line(financial,'div','mi-financial-top');
+    labeled(financialTop,'Budget',data.kind==='movie'
       ?(data.budgetText||plainMoney(data.budget)):'Not Consistently Reported for TV');
-    labeled(financial,'Worldwide Revenue',data.kind==='movie'
-      ?(data.revenueText||plainMoney(data.revenue)):'Not Consistently Reported for TV');
+    labeled(financialTop,'Box Office',data.kind==='movie'
+      ?(data.omdbBoxOffice||data.revenueText||plainMoney(data.revenue)):'Not Consistently Reported for TV');
+    labeled(financialTop,'Runtime',(data.runtimeText||
+      (data.runtime?String(data.runtime)+' min':'Not Reported')));
     if((data.budgetText||data.revenueText)&&(data.financeSourceUrl||data.wiki?.url))
       link(production,'Financial Figures · Wikipedia',data.financeSourceUrl||data.wiki.url);
-    if (data.omdbBoxOffice) labeled(financial,'Box Office (OMDb)',data.omdbBoxOffice);
-    if(data.runtime||data.runtimeText)
-      labeled(financial,'Runtime',data.runtimeText||String(data.runtime)+' min');
+    // Budget, Box Office and Runtime are all shown in one aligned row.
     if (data.release) labeled(financial,'Release / Premiere',data.release);
     if (data.status) labeled(financial,'Status',data.status);
     if (data.seasons !== null && data.seasons !== undefined) labeled(financial,'Seasons',data.seasons);

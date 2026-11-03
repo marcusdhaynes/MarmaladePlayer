@@ -87,3 +87,19 @@
 .mi-rt-rating .mi-user-rating-stars{color:#e94a50!important;font-size:15px!important;line-height:1!important}
 .mi-rt-rating .mi-user-rating-head{color:#f7b0aa!important}
 .mi-rating-cards .mi-user-rating-note{font-size:9px!important}
+.mi-rating-cards{display:grid!important;grid-template-columns:repeat(2,minmax(0,138px));align-items:stretch!important;gap:8px!important}
+.mi-rating-cards .mi-user-rating,.mi-rating-cards .mi-rt-rating{
+box-sizing:border-box!important;display:flex!important;flex-direction:column!important;
+align-items:center!important;justify-content:center!important;gap:3px!important;
+width:100%!important;height:105px!important;min-width:0!important;max-width:none!important;
+aspect-ratio:auto!important;padding:7px 5px!important;overflow:hidden!important;text-align:center!important}
+.mi-rating-cards .mi-user-rating-head{font-size:13px!important;font-weight:850!important;line-height:1.1!important}
+.mi-rating-cards .mi-user-rating-stars{font-size:12px!important;min-height:14px!important;line-height:1!important;margin:0!important}
+.mi-rating-cards .mi-user-rating-number{font-size:15px!important;font-weight:850!important;line-height:1.1!important;margin:0!important}
+.mi-rating-cards .mi-user-rating-note{font-size:9px!important;line-height:1.15!important;margin:0!important;min-height:21px!important;display:flex!important;align-items:center!important;justify-content:center!important}
+
+.mi-financial-grid{display:block!important}
+.mi-financial-top{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.mi-financial-top .mi-stat{padding:9px 7px;border:1px solid #ffffff1d;border-radius:8px;background:#ffffff08;min-width:0}
+.mi-financial-top .mi-stat strong{font-size:11px;overflow-wrap:anywhere}
+@media(max-width:420px){.mi-financial-top{gap:4px}.mi-financial-top .mi-stat{padding:6px 4px}.mi-financial-top .mi-stat strong{font-size:10px}}
