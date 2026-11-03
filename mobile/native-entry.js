@@ -3,7 +3,10 @@
 (() => {
   'use strict';
   const native=window.Capacitor;
-  if(!native?.isNativePlatform?.())return;
+  // This script is bundled only inside native mobile builds. Some Capacitor
+  // WebViews report a transient false from isNativePlatform() during startup;
+  // the Android native bridge must still be discoverable for system PiP.
+  if(!native)return;
   const App=native.Plugins?.App;
   const getRoom=url=>{
     try{
