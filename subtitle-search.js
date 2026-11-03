@@ -15,6 +15,7 @@
   css.textContent=[
     '.subtitle-studio{position:fixed!important;z-index:1210!important;top:12px;left:12px;right:auto!important;bottom:auto!important;width:min(344px,calc(100vw - 24px))!important;max-height:calc(100dvh - 24px)!important;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 22px 56px #000b;background:#19191fee}',
     '.subtitle-studio[hidden]{display:none!important}',
+    '.subtitle-studio.subtitle-mobile-below{left:50%!important;transform:translateX(-50%)!important;top:var(--subtitle-top,12px)!important;right:auto!important;bottom:auto!important;width:min(460px,calc(100vw - 24px))!important;max-height:var(--subtitle-space,calc(100dvh - 24px))!important}',
     '.subtitle-studio .sub-tabs{display:grid;grid-template-columns:1fr 1fr;gap:5px}',
     '.subtitle-studio .sub-tabs button[aria-selected=true]{border-color:#ffad69;background:#51372c;color:#fff}',
     '.subtitle-studio .sub-view[hidden]{display:none!important}',
@@ -55,21 +56,49 @@
 
   function place(){
     if(panel.hidden)return;
-    const parent=document.fullscreenElement===el.stage?el.stage:document.body;
+    const full=document.fullscreenElement===el.stage;
+    const parent=full?el.stage:document.body;
     if(panel.parentElement!==parent)parent.append(panel);
-    const trigger=el.subtitleBtn.getBoundingClientRect(),rect=panel.getBoundingClientRect(),pad=12;
-    panel.style.left=Math.round(Math.max(pad,Math.min(innerWidth-rect.width-pad,trigger.right-rect.width)))+'px';
-    panel.style.top=Math.round(Math.max(pad,Math.min(innerHeight-rect.height-pad,trigger.top-rect.height-10)))+'px';
+    const mobile=matchMedia('(pointer:coarse)').matches||innerWidth<=650;
+    const stage=el.stage.getBoundingClientRect();
+    const viewHeight=window.visualViewport?.height||innerHeight;
+    const top=Math.max(12,Math.round(stage.bottom+8));
+    // Portrait/mobile: use the remaining viewport beneath the movie and
+    // center the editor, leaving the movie unobstructed for play/seek tests.
+    const below=mobile&&!full&&!el.stage.classList.contains('fullscreen-fallback')&&
+      top<viewHeight-120&&stage.bottom>0;
+    panel.classList.toggle('subtitle-mobile-below',below);
+    if(below){
+      panel.style.setProperty('--subtitle-top',top+'px');
+      panel.style.setProperty('--subtitle-space',Math.max(108,Math.floor(viewHeight-top-12))+'px');
+      panel.style.left='';
+      panel.style.top='';
+      panel.style.transform='';
+      return;
+    }
+    panel.style.removeProperty('--subtitle-top');
+    panel.style.removeProperty('--subtitle-space');
+    const trigger=el.subtitleBtn.getBoundingClientRect();
+    const rect=panel.getBoundingClientRect(),pad=12;
+    // Landscape/fullscreen: compact, scrollable overlay in a corner so the
+    // video remains interactable outside the editor.
+    panel.style.left=Math.round(Math.max(pad,Math.min(innerWidth-rect.width-pad,
+      mobile?innerWidth-rect.width-pad:trigger.right-rect.width)))+'px';
+    panel.style.top=Math.round(Math.max(pad,Math.min(viewHeight-rect.height-pad,
+      mobile?pad:trigger.top-rect.height-10)))+'px';
   }
   function tab(which){
     find.hidden=which!=='find';style.hidden=which!=='style';
     tabs.querySelector('#subFindTab').setAttribute('aria-selected',String(which==='find'));
     tabs.querySelector('#subStyleTab').setAttribute('aria-selected',String(which==='style'));
     place();
+    window.MarmaladeSubtitleRefresh?.();
   }
   tabs.querySelector('#subFindTab').addEventListener('click',()=>tab('find'));
   tabs.querySelector('#subStyleTab').addEventListener('click',()=>tab('style'));
   addEventListener('resize',place,{passive:true});
+  addEventListener('orientationchange',place,{passive:true});
+  window.visualViewport?.addEventListener('resize',place,{passive:true});
   addEventListener('scroll',place,{passive:true});
   document.addEventListener('fullscreenchange',place);
   el.subtitleBtn.setAttribute('aria-controls','subtitlePanel');
