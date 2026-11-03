@@ -26,13 +26,22 @@
   App?.getLaunchUrl?.().then(event=>event?.url&&route(event.url)).catch(()=>{});
   // Capacitor v8 exposes nativePromise on the injected bridge. Our native
   // Android Activity supports true OS PiP even while the media is paused.
-  if(native.getPlatform?.()==='android'&&typeof native.nativePromise==='function'){
-    window.MarmaladeNativePictureInPicture={
-      enter:()=>native.nativePromise('MarmaladePictureInPicture','enter',{})
+  if(native.getPlatform?.()==='android'){
+    // Resolve the native bridge at invocation time. Older Capacitor builds may
+    // expose Plugins instead of nativePromise; never silently fall back to
+    // an in-app mini-player when Android system PiP is available.
+    const invokeNative=(method)=>{
+      const cap=window.Capacitor;
+      const plugin=cap?.Plugins?.MarmaladePictureInPicture;
+      if(typeof plugin?.[method]==='function')return plugin[method]();
+      if(typeof cap?.nativePromise==='function')
+        return cap.nativePromise('MarmaladePictureInPicture',method,{});
+      return Promise.reject(new Error('The Android Picture-in-Picture native bridge was not registered.'));
     };
+    window.MarmaladeNativePictureInPicture={enter:()=>invokeNative('enter')};
     window.MarmaladeNativeFullscreen={
-      enter:()=>native.nativePromise('MarmaladePictureInPicture','enterFullscreen',{}),
-      exit:()=>native.nativePromise('MarmaladePictureInPicture','exitFullscreen',{})
+      enter:()=>invokeNative('enterFullscreen'),
+      exit:()=>invokeNative('exitFullscreen')
     };
     window.addEventListener('marmalade:native-pip',event=>{
       document.body.classList.toggle('native-pip-active',!!event.detail?.active);

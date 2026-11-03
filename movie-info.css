@@ -72,3 +72,11 @@
 /* Equal width/height IMDb identity block across screen sizes. */
 .mi-user-rating{width:112px;height:112px;aspect-ratio:1;max-width:44%;padding:7px!important;justify-content:center}
 @media(max-width:510px){.mi-user-rating{width:94px;height:94px;max-width:43%;padding:4px!important}.mi-user-rating-note{font-size:8px}}
+
+/* Compact, content-sized IMDb rating. No forced square or artificial whitespace. */
+.mi-user-rating{width:max-content!important;height:auto!important;min-width:0!important;max-width:min(44%,130px)!important;aspect-ratio:auto!important;padding:4px 6px!important;gap:0!important;align-self:flex-start}
+.mi-user-rating-head,.mi-user-rating-number,.mi-user-rating-note{line-height:1.05!important}
+.mi-user-rating-stars{margin-top:1px!important;line-height:1!important}
+.mi-user-rating-number{margin-top:1px!important}
+.mi-user-rating-note{margin-top:1px!important}
+@media(max-width:510px){.mi-user-rating{padding:3px 5px!important;max-width:44%!important}}

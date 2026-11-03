@@ -91,6 +91,9 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
                 PictureInPictureParams params = new PictureInPictureParams.Builder()
                     .setAspectRatio(new Rational(16, 9))
                     .setActions(Arrays.asList(playAction, returnAction)).build();
+                if (!activity.getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                    call.reject("Android reports Picture-in-Picture disabled on this device.");return;
+                }
                 if (activity.enterPictureInPictureMode(params)) call.resolve();
                 else call.reject("System Picture-in-Picture was declined.");
             } catch (Exception error) {
@@ -170,24 +173,31 @@ public class MainActivity extends BridgeActivity {
         if (Build.VERSION.SDK_INT >= 33)
             registerReceiver(pipMediaReceiver, pipFilter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(pipMediaReceiver, pipFilter);
-        // Android 15 can lay out WebViews underneath status/navigation bars.
-        // Always apply the *actual* window insets, not guessed CSS pixel offsets.
+        // Edge-to-edge Android 15 must inset the actual CONTENT ROOT, not
+        // the WebView contents. This keeps the title bar below the clock,
+        // battery and camera cutout while respecting the bottom gesture bar.
         getWindow().setStatusBarColor(Color.rgb(13,7,34));
-        if (bridge != null && bridge.getWebView() != null) {
-            View web = bridge.getWebView();
-            web.setOnApplyWindowInsetsListener((view, insets) -> {
+        View root = findViewById(android.R.id.content);
+        if (root != null) {
+            root.setBackgroundColor(Color.rgb(13,7,34));
+            root.setOnApplyWindowInsetsListener((view, insets) -> {
                 int top, bottom;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());
-                    top=bars.top;bottom=bars.bottom;
+                    int types = WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout();
+                    android.graphics.Insets bars = insets.getInsets(types);
+                    top = bars.top;
+                    bottom = bars.bottom;
                 } else {
-                    top=insets.getSystemWindowInsetTop();
-                    bottom=insets.getSystemWindowInsetBottom();
+                    top = insets.getSystemWindowInsetTop();
+                    bottom = insets.getSystemWindowInsetBottom();
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode()) {
+                    top = 0; bottom = 0;
                 }
                 view.setPadding(0, top, 0, bottom);
                 return insets;
             });
-            web.requestApplyInsets();
+            root.requestApplyInsets();
         }
     }
 
@@ -200,6 +210,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onPictureInPictureModeChanged(boolean active, Configuration config) {
         super.onPictureInPictureModeChanged(active, config);
+        View root = findViewById(android.R.id.content);
+        if (root != null) root.requestApplyInsets();
         if (bridge != null && bridge.getWebView() != null) {
             String script = "window.dispatchEvent(new CustomEvent('marmalade:native-pip',{detail:{active:"+
                 (active ? "true" : "false") + "}}));";
