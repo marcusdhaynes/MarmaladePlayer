@@ -362,14 +362,15 @@ body.native-pip-active .stage .exit-theater{display:none!important}
 @media(max-width:360px){.brand strong{font-size:14px}.identity{gap:5px}.top-actions .header-room-actions{gap:2px}.top-actions .header-room-actions .theater-pill{width:27px;min-width:27px}}
 
 /* Cosmic theme is opt-in and never interferes with player overlays. */
+body.cosmic-background .app-shell{position:relative;z-index:1}
 body.cosmic-background{background:#090719!important}
-body.cosmic-background::before{content:"";position:fixed;z-index:-1;inset:-22%;pointer-events:none;
+body.cosmic-background::before{content:"";position:fixed;z-index:0;inset:-22%;pointer-events:none;
 background:radial-gradient(ellipse 42% 32% at 28% 28%,#ba2caa99 0%,#661ca566 42%,transparent 90%),
 radial-gradient(ellipse 37% 40% at 76% 61%,#1474d6a8 0%,#392d9d88 45%,transparent 90%),
 radial-gradient(ellipse 44% 35% at 47% 78%,#e33e8d7d 0%,#30116e84 60%,transparent 95%),
 radial-gradient(ellipse 38% 30% at 81% 14%,#614def99 0%,transparent 90%),#070615;
 filter:blur(23px) saturate(1.25)}
-body.cosmic-background::after{content:"";pointer-events:none;position:fixed;inset:0;z-index:-1;opacity:.9;
+body.cosmic-background::after{content:"";pointer-events:none;position:fixed;inset:0;z-index:0;opacity:.9;
 background-image:radial-gradient(1px 1px at 8% 12%,#fff,transparent),radial-gradient(2px 2px at 24% 68%,#ffc6f9,transparent),
 radial-gradient(2px 2px at 62% 19%,#fff,transparent),radial-gradient(1px 1px at 84% 44%,#a7ddff,transparent),
 radial-gradient(2px 2px at 91% 83%,#e8b7ff,transparent),radial-gradient(1px 1px at 43% 90%,#fff,transparent),
@@ -616,12 +617,13 @@ body.document-pip .stage-poster-preview{display:none!important}
     // An Image loader rejects broken remote metadata URLs and avoids injecting CSS.
     const artwork=new Image();
     artwork.onload=()=>{
-      if(posterHasPlayed||!el.stage.classList.contains('has-video'))return;
+      if(posterHasPlayed)return;
       posterPreview.style.backgroundImage='url("'+artwork.src.replace(/"/g,'%22')+'")';
       el.stage.classList.add('poster-preview-active');
     };
     artwork.src=url;
   });
+  window.addEventListener('marmalade:pip-play-toggle',()=>el.play.click());
   media.addEventListener('play',()=>{posterHasPlayed=true;el.stage.classList.remove('poster-preview-active');});
   media.addEventListener('playing',()=>{posterHasPlayed=true;el.stage.classList.remove('poster-preview-active');});
 
