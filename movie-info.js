@@ -229,6 +229,57 @@
     line(ui.results, 'p', 'mi-empty', message);
     broadcast();
   }
+  function validOmdbMatch(result,record){
+    if(!result||result.Response!=='True')return false;
+    const sourceTitle=normalize(result.Title),wanted=normalize(record.title);
+    if(!sourceTitle||!wanted||sourceTitle!==wanted)return false;
+    const foundYear=Number(String(result.Year||'').match(/^(?:19|20)\d{2}/)?.[0]||0);
+    const wantedYear=Number(String(record.year||'').slice(0,4))||0;
+    if(wantedYear&&foundYear&&foundYear!==wantedYear)return false;
+    if(record.kind==='movie'&&result.Type&&result.Type!=='movie')return false;
+    if(record.kind==='tv'&&result.Type&&result.Type!=='series'&&result.Type!=='episode')return false;
+    return true;
+  }
+  async function enhancePublicDisplay(record,parsed,seq){
+    const publicInfo=window.MarmaladePublicMovieInfo;
+    const [wiki,omdb]=await Promise.allSettled([
+      record.source==='wikipedia'&&publicInfo?.enrichFilm?
+        publicInfo.enrichFilm(record):Promise.resolve({}),
+      credentials.omdb?fetchOmdb(null,{...parsed,title:record.title,
+        year:Number(record.year)||null}):Promise.resolve(null)
+    ]);
+    if(seq!==sequence||displayed!==record)return;
+    const details=wiki.status==='fulfilled'&&wiki.value&&typeof wiki.value==='object'?wiki.value:{};
+    const next={...record};
+    const receivedScores=Array.isArray(details.ratings)?details.ratings:[];
+    if(details.budgetText)next.budgetText=details.budgetText;
+    if(details.revenueText)next.revenueText=details.revenueText;
+    if(details.runtimeText&&!next.runtime)next.runtimeText=details.runtimeText;
+    if(details.budget>0&&!next.budget)next.budget=details.budget;
+    if(details.revenue>0&&!next.revenue)next.revenue=details.revenue;
+    if(details.receptionText)next.receptionText=details.receptionText;
+    if(details.imdbId)next.imdbId=details.imdbId;
+    const omdbData=omdb.status==='fulfilled'&&validOmdbMatch(omdb.value,next)?omdb.value:null;
+    if(omdbData){
+      if(/^tt\d{6,10}$/.test(omdbData.imdbID||''))next.imdbId=omdbData.imdbID;
+      if(omdbData.imdbRating&&omdbData.imdbRating!=='N/A')next.imdbScore=omdbData.imdbRating;
+      if(omdbData.Metascore&&omdbData.Metascore!=='N/A')next.metacritic=omdbData.Metascore;
+      if(omdbData.BoxOffice&&omdbData.BoxOffice!=='N/A')next.omdbBoxOffice=omdbData.BoxOffice;
+      if(omdbData.Awards&&omdbData.Awards!=='N/A')next.awards=omdbData.Awards;
+      next.ratings=(omdbData.Ratings||[]).map(r=>({source:r.Source,value:r.Value}));
+      for(const rating of receivedScores){
+        if(!next.ratings.some(r=>normalize(r.source)===normalize(rating.source)))
+          next.ratings.push(rating);
+      }
+    }else if(receivedScores.length)next.ratings=receivedScores;
+    const hasUpdates=!!(next.budgetText||next.revenueText||next.receptionText||next.imdbId||
+      next.ratings.length||next.omdbBoxOffice||next.awards);
+    if(!hasUpdates)return;
+    displayed=next;
+    render(next);
+    status('Ratings & Financial Details Loaded');
+    broadcast();
+  }
   async function publicLookup(parsed,seq,priorError=null){
     if(seq!==sequence)return;
     const source=window.MarmaladePublicMovieInfo;
@@ -251,6 +302,7 @@
       status('Details Loaded Automatically');
       ui.sources.open=false;
       broadcast();
+      void enhancePublicDisplay(displayed,parsed,seq);
       if(Array.isArray(alternatives)&&alternatives.length){
         ui.matches.replaceChildren();
         const wrap=line(ui.matches,'div','mi-match-row');
@@ -268,6 +320,7 @@
               render(displayed);
               status('Details Loaded Automatically');
               broadcast();
+              void enhancePublicDisplay(displayed,parsed,seq);
             }catch(error){if(seq===sequence)status('Version Unavailable');}
           });
         }
