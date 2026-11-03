@@ -110,8 +110,11 @@ try {
     assert.equal(await page.locator('#mediaInfoPanel').isVisible(),true,
       'Movie information opens by default');
     assert.equal(await page.locator('#miSources').count(),1,'API sources exist');
-    assert.equal(await page.locator('#cosmicBackgroundToggle').count(),1,
-      'Playback settings offer the cosmic nebula theme');
+    assert.equal(await page.locator('#backgroundTheme').count(),1,
+      'Playback settings offer the two cosmic backgrounds');
+    assert.deepEqual(await page.locator('#backgroundTheme option').evaluateAll(list=>list.map(x=>x.value)),['cosmic01','cosmic02','none']);
+    assert.equal(await page.locator('#rotationLockToggle').getAttribute('aria-pressed'),'true',
+      'Orientation starts locked');
     await page.locator('#miClose').click();
     assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,
       'Close button hides the drawer');
