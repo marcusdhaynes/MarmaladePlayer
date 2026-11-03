@@ -31,6 +31,8 @@ if(existsSync(manifest)){
    let flags=attributes;
    if(!flags.includes('android:supportsPictureInPicture='))flags+=' android:supportsPictureInPicture="true"';
    if(!flags.includes('android:resizeableActivity='))flags+=' android:resizeableActivity="true"';
+   // Bring the *same* active WebView back when the floating window closes.
+   if(!flags.includes('android:launchMode='))flags+=' android:launchMode="singleTask"';
    return '<activity'+flags+'>';
  });
  xml=xml.replace('android:usesCleartextTraffic="true"','android:usesCleartextTraffic="false"');
