@@ -301,6 +301,32 @@ body.theater-open{overflow:hidden}
 .local-copy-feedback[hidden]{display:none!important}
 #hostVideoDiagnostic{display:none!important}
 @media(max-width:450px){.stage-quick-actions .theater-pill{width:29px;height:27px;min-height:27px}.stage-quick-actions svg{width:16px;height:16px}.stage-quick-actions .quick-share-btn{width:29px;min-width:29px;padding:4px!important}}
+
+/* Minimal theater indicators and responsive native fullscreen */
+.connection-pill[hidden]{display:none!important}
+.theater-top{opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .24s ease,transform .24s ease}
+.stage.controls-visible .theater-top,.stage:hover .theater-top,.stage:focus-within .theater-top{opacity:1;transform:translateY(0);pointer-events:auto}
+.stage .theater-top .theater-pill{opacity:1;transition:background .16s,border-color .16s}
+.stage:not(.has-video):not(.controls-visible) .theater-top{opacity:1;pointer-events:auto}
+.stage-quick-actions .quick-broadcast-btn{width:33px;min-width:33px;padding:4px!important;color:#f67d7d!important;border-color:#ad4444b5!important;background:#27151acc!important}
+.stage-quick-actions .quick-broadcast-btn[aria-pressed=true]{color:#8ce5aa!important;border-color:#4ca875d1!important;background:#122b20db!important}
+.stage-quick-actions .quick-broadcast-btn:disabled{opacity:.65!important}
+.theater-title-info{background:transparent;border:0;color:inherit;padding:0;margin:0;min-width:0;display:flex;align-items:center;text-align:left;cursor:pointer}
+.theater-title-info strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.theater-title-info:hover strong,.theater-title-info:focus-visible strong{color:#ffd29e;text-decoration:underline}
+.theater-controls #volume{width:102px;min-width:72px}
+@media(max-width:800px){.theater-controls #volume{width:81px;min-width:59px}}
+@media(max-width:450px){.theater-controls #volume{width:63px;min-width:47px}.stage-quick-actions .quick-broadcast-btn{width:29px;min-width:29px;padding:4px!important}}
+@media(pointer:coarse){.stage:not(.controls-visible):hover .theater-top{opacity:0;pointer-events:none}.stage:not(.controls-visible):hover .theater-controls{opacity:0;pointer-events:none}.stage.controls-visible .theater-top{opacity:1;pointer-events:auto}.stage.controls-visible .theater-controls{opacity:1;pointer-events:auto}}
+.stage:fullscreen,.stage:-webkit-full-screen,.stage.fullscreen-fallback{inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;max-width:none!important;max-height:none!important;aspect-ratio:auto!important;border:0!important;border-radius:0!important;background:#000!important}
+.stage:fullscreen video,.stage:-webkit-full-screen video,.stage.fullscreen-fallback video{width:100%!important;height:100%!important;object-fit:contain}
+@media (orientation:landscape) and (pointer:coarse){.stage:fullscreen,.stage:-webkit-full-screen,.stage.fullscreen-fallback{width:100dvw!important;height:100dvh!important}.theater-controls{padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}}
+body.theater-open{overflow:hidden;overscroll-behavior:none}
+.stage.floating-player{position:fixed!important;top:auto!important;left:auto!important;right:12px!important;bottom:max(12px,env(safe-area-inset-bottom,0px))!important;width:min(340px,65vw)!important;height:auto!important;aspect-ratio:16/9!important;z-index:1150!important;border:1px solid #8c6a55!important;border-radius:11px!important;box-shadow:0 14px 55px #000c!important;background:#000!important}
+.stage.floating-player .theater-top,.stage.floating-player .theater-controls{display:none!important}
+.stage.floating-player video{width:100%;height:100%}
+.stage.floating-player:after{content:"Pop-Out · Tap to Return";position:absolute;right:7px;bottom:6px;background:#111a;color:#ffe3bd;border:1px solid #ffffff44;border-radius:5px;font-size:10px;line-height:1.2;padding:6px 8px;pointer-events:none}
+@media(max-width:600px){.stage.floating-player{width:min(250px,68vw)!important}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -313,7 +339,7 @@ body.theater-open{overflow:hidden}
         <span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="21" fill="#ffad45"/><circle cx="24" cy="24" r="16" stroke="#2d1c16" stroke-opacity=".5" stroke-width="1.6"/><path d="M24 8v32M8 24h32M12.6 12.6l22.8 22.8m0-22.8L12.6 35.4" stroke="#fff0d6" stroke-width="2.2"/><circle cx="24" cy="24" r="3.4" fill="#2d1c16"/></svg></span>
         <span class="brand"><strong>Marmalade</strong><span>PLAYER</span></span>
       </a>
-      <div class="top-actions"><span class="top-slogan">A little closer, wherever you are.</span><span class="connection-pill" id="connectionPill"><span class="connection-dot"></span><span id="connectionText">Not connected</span></span></div>
+      <div class="top-actions"><span class="top-slogan">A little closer, wherever you are.</span><span class="connection-pill" id="connectionPill" hidden aria-hidden="true"><span class="connection-dot"></span><span id="connectionText">Not connected</span></span></div>
     </header>
 
     <main class="workspace">
@@ -334,7 +360,8 @@ body.theater-open{overflow:hidden}
               <div class="stage-fps"><span class="fps-overlay" id="fpsOverlay" hidden aria-live="off">— FPS</span><button type="button" class="theater-pill fps-toggle" id="fpsToggle" aria-pressed="false" title="Toggle my displayed FPS">FPS</button></div>
               <div class="stage-buffer"><output id="bufferReadout" class="buffer-readout" hidden aria-live="off" title="Forward buffered video seconds">—s</output><button type="button" class="theater-pill buffer-toggle" id="bufferToggle" aria-pressed="false" title="Show buffered seconds ahead">BUFFER</button></div>
               <div class="stage-quick-actions" aria-label="Room Actions">
-  <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
+  <button type="button" id="broadcastToggle" class="theater-pill quick-broadcast-btn" aria-pressed="false" title="Not Broadcasting" aria-label="Not Broadcasting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9m9-9a6.4 6.4 0 0 1 0 9M4.3 4.3a11 11 0 0 0 0 15.4m15.4-15.4a11 11 0 0 1 0 15.4"/></svg></button>
+   <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 13.9a5 5 0 0 0 7.4.5l2.1-2.1a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M14.2 10.1a5 5 0 0 0-7.4-.5l-2.1 2.1a5 5 0 0 0 7.1 7.1l1.2-1.2"/></svg>
   </button>
   <button type="button" id="copyLink" class="theater-pill quick-share-btn" disabled title="Copy Room Link" aria-label="Copy Room Link">
@@ -346,7 +373,7 @@ body.theater-open{overflow:hidden}
           <div class="subtitle-overlay" id="subtitleOverlay" hidden></div>
           <button class="exit-theater" id="exitTheater" type="button" aria-label="Exit theater mode" title="Exit theater mode">✕</button>
           <div class="theater-controls" id="theaterControls" aria-label="Video controls">
-            <div class="theater-title"><strong id="fileName">Nothing Selected</strong><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 Watching</span></span></div>
+            <div class="theater-title"><button type="button" id="mediaInfoToggle" class="theater-title-info" title="Movie &amp; Series Information" aria-label="Movie &amp; Series Information" aria-expanded="false" aria-controls="mediaInfoPanel"><strong id="fileName">Nothing Selected</strong></button><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 Watching</span></span></div>
             <div class="theater-seek" id="seekArea">
               <span class="timecode" id="currentTime">00:00</span>
               <div class="seek-stack"><div id="bufferedFill" class="buffered-fill" aria-hidden="true"></div><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled></div>
@@ -363,7 +390,7 @@ body.theater-open{overflow:hidden}
                 <input type="range" id="volume" value="100" min="0" max="200" step="1" aria-label="My volume from 0 to 200 percent">
                 <span class="vol-mark" id="volumeMark">100%</span>
                 <button type="button" class="icon-btn" id="subtitlesBtn" title="Subtitles · Find and customize" aria-label="Subtitles: find and customize" aria-expanded="false"><svg class="glass-icon captions-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.3" y="5.3" width="17.4" height="13.4" rx="2.4"/><path d="M6.8 11.7h3.5m-3.5 3h3.5m3.3-3h3.5m-3.5 3h3.5"/></svg></button>
-                <button type="button" class="icon-btn" id="mediaInfoToggle" title="Movie and series information" aria-label="Movie and series information" aria-expanded="false" aria-controls="mediaInfoPanel"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8v.1"/></svg></button>
+                
                  <button type="button" class="icon-btn" id="popoutBtn" title="Picture in Picture" aria-label="Pop out video"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><rect x="11.8" y="11.2" width="7" height="5.8" rx=".9"/></svg></button>
                 <button class="icon-btn" id="fullscreenBtn" title="Fullscreen" aria-label="Fullscreen"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H4.5v4m11-4h4v4m-15 7v4h4m11-4v4h-4"/></svg></button>
                 <button type="button" class="icon-btn" id="settingsBtn" title="Settings" aria-label="Video settings" aria-expanded="false"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.7 7.5h6.2m5.6 0h4.8M3.7 16.5h4.8m5.5 0h6.3"/><circle cx="12.7" cy="7.5" r="2.6"/><circle cx="11.2" cy="16.5" r="2.6"/></svg></button>
@@ -386,7 +413,7 @@ body.theater-open{overflow:hidden}
             </div>
           </div>
         </div>
-        <div class="below-stage"><span><span class="small-shield">✳</span> Video streams peer-to-peer. No video file upload.</span><span id="mediaHint">Optimized for low latency, not zero latency.</span></div>
+        <div id="mediaHint" hidden aria-hidden="true"></div>
         <div class="local-copy-feedback" id="localCopyPanel" hidden role="status" aria-live="polite"><small id="localCopyStatus">Waiting for Host Video…</small></div>
         <input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg" hidden>
  
@@ -452,7 +479,7 @@ body.theater-open{overflow:hidden}
         </div>
         <div id="joinPanel"><button id="joinRoom" type="button">Join</button></div>
       </div>   </main>
-    <footer class="footer"><span>© Marmalade Player</span><span>Local playback · WebRTC streaming · Invite-only rooms</span></footer>
+    <footer class="footer"><span>© Marmalade Player</span></footer>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script>
@@ -473,7 +500,7 @@ body.theater-open{overflow:hidden}
     hostTab: $('hostTab'), joinTab: $('joinTab'), hostPanel: $('hostPanel'), joinPanel: $('joinPanel'),
     chooseFile: $('chooseFile'), fileInput: $('fileInput'), fileInfo: $('fileInfo'),
     screenShare: $('screenShareBtn'), createRoom: $('createRoom'), hostActive: $('hostActive'),
-    inviteLink: $('inviteLink'), copy: $('copyLink'), startBroadcast: $('startBroadcast'),
+    inviteLink: $('inviteLink'), copy: $('copyLink'), startBroadcast: $('startBroadcast'), broadcastToggle: $('broadcastToggle'),
     endRoom: $('endRoom'), joinInput: $('roomInput'), joinRoom: $('joinRoom'), joinActive: $('joinActive'),
     joinProgress: $('joinProgress'), joinProgressText: $('joinProgressText'),
     retryJoin: $('retryJoin'), cancelJoin: $('cancelJoin'),
