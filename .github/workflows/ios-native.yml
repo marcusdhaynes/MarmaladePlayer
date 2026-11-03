@@ -1,0 +1,61 @@
+name: MarmaladePlayer iOS Native Simulator
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'index.html'
+      - 'movie-info.js'
+      - 'movie-info.css'
+      - 'public-movie-info.js'
+      - 'watch-sync-subtitles.js'
+      - 'subtitle-match.js'
+      - 'subtitle-search.js'
+      - 'manifest.webmanifest'
+      - '.github/workflows/ios-native.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Dependencies and Prepare Web App
+        working-directory: mobile
+        run: |
+          npm install --no-audit --no-fund
+          npm run verify
+          npm run prepare:web
+          npx cap add ios
+          node scripts/patch-native.mjs
+          npx cap sync ios
+      - name: Generate iOS Launcher Icon
+        run: |
+          python -m pip install --quiet pillow
+          python mobile/scripts/generate_icons.py
+      - name: Compile Unsigned iOS Simulator App
+        working-directory: mobile
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios-build CODE_SIGNING_ALLOWED=NO build
+      - name: Verify iOS app exists
+        working-directory: mobile
+        run: |
+          test -d ios-build/Build/Products/Debug-iphonesimulator/App.app
+          ditto -c -k --sequesterRsrc --keepParent ios-build/Build/Products/Debug-iphonesimulator/App.app MarmaladePlayer-iOS-Simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MarmaladePlayer-iOS-Simulator
+          path: mobile/MarmaladePlayer-iOS-Simulator.zip
+          if-no-files-found: error
+          retention-days: 30
