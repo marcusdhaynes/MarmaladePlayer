@@ -989,7 +989,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
     if(!state.subtitlesEnabled){
       // Before a subtitle file is chosen, show a sample only while the
       // Appearance editor is open. Off explicitly hides loaded captions.
-      const preview=editing&&state.subtitles.length===0&&
+      const preview=editing&&!state.subtitlePreviewSuppressed&&state.subtitles.length===0&&
         !document.getElementById('subStyleView')?.hidden;
       el.subtitleOverlay.hidden=!preview;
       if(preview)el.subtitleOverlay.textContent='Subtitle Preview';
@@ -3404,7 +3404,11 @@ body.native-pip-active .stage .exit-theater{display:none!important}
     // Keep the subtitle editor open so transport, seeking, and video taps can
     // preview subtitle changes without reopening the panel.
   });
-  el.subtitleBtn.addEventListener('click',()=>togglePopover(el.subtitlePanel,el.subtitleBtn));
+  el.subtitleBtn.addEventListener('click',()=>{
+    if(el.subtitlePanel.hidden)state.subtitlePreviewSuppressed=false;
+    togglePopover(el.subtitlePanel,el.subtitleBtn);
+    updateSubtitles();
+  });
   el.statusToggle.addEventListener('click',()=>{
     state.showStatus=!state.showStatus;
     el.statusToggle.setAttribute('aria-pressed',String(state.showStatus));
@@ -3412,7 +3416,9 @@ body.native-pip-active .stage .exit-theater{display:none!important}
   });
   el.loadSubtitle.addEventListener('click',()=>el.subtitleFile.click());
   el.hideSubtitle.addEventListener('click',()=>{
-    state.subtitlesEnabled=false;updateSubtitles();el.subtitleName.textContent='Off';
+    state.subtitlesEnabled=false;
+    state.subtitlePreviewSuppressed=true;
+    updateSubtitles();el.subtitleName.textContent='Off';
   });
   el.subtitleFile.addEventListener('change', async ()=>{
     const file=el.subtitleFile.files?.[0]; if(!file)return;
@@ -3420,7 +3426,7 @@ body.native-pip-active .stage .exit-theater{display:none!important}
     try{
       const cues=parseSubtitles(await file.text());
       if(!cues.length)throw Error('No readable subtitle cues');
-      state.subtitles=cues;state.subtitlesEnabled=true;
+      state.subtitles=cues;state.subtitlesEnabled=true;state.subtitlePreviewSuppressed=false;
       el.subtitleName.textContent=file.name+' · '+cues.length+' cues';
       updateSubtitles();
       revealControls();
