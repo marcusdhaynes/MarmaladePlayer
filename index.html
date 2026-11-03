@@ -927,6 +927,9 @@ body.theater-open{overflow:hidden}
         entry.localSyncPlaying!==playing||entry.localSyncAckId!==ackId||entry.localSyncAckPeer!==ackPeer;
       const full=mediaChanged||now-(entry.localSyncFullAt||0)>15000;
       if(!urgent&&now-(entry.localSyncAt||0)<(playing?1500:3000))continue;
+      // Avoid queueing obsolete clock snapshots if the connection is severely
+      // congested. The next accepted packet has its own absolute timestamp.
+      if(!urgent && (entry.conn.dataChannel?.bufferedAmount||0)>2048)continue;
       const snapshot=full?hostStatus():{
         type:'local-clock',time:media.currentTime,duration:media.duration,
         playing,revision,sentAt:performance.now(),seq:++state.localSnapshotSequence,
@@ -3601,9 +3604,14 @@ body.theater-open{overflow:hidden}
       if(state.localVerified){
         const pending=state.pendingTransport,now=performance.now();
         if(pending && now>=pending.retryAt && now<pending.expires && pending.attempts<3){
-          send(state.guestConn,{type:'transport',action:pending.action,value:pending.value,id:pending.id});
-          pending.attempts++;
-          pending.retryAt=now+pending.retryDelay*Math.pow(1.6,pending.attempts);
+          if((state.guestConn.dataChannel?.bufferedAmount||0)>2048){
+            // Retry after backpressure clears instead of stacking duplicates.
+            pending.retryAt=now+1000;
+          }else{
+            send(state.guestConn,{type:'transport',action:pending.action,value:pending.value,id:pending.id});
+            pending.attempts++;
+            pending.retryAt=now+pending.retryDelay*Math.pow(1.6,pending.attempts);
+          }
         }
         if(media.readyState>=HTMLMediaElement.HAVE_METADATA)void syncSeekablePlayback();
       }
