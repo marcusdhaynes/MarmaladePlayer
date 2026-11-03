@@ -13,12 +13,8 @@
   };
   if (!ui.panel || !ui.toggle) return;
   const STORE = 'marmalade:media-info-keys:v1';
-  const MY_RATINGS_STORE='marmalade:personal-movie-ratings:v1';
-  let myRatings={};
-  try{
-    const stored=JSON.parse(localStorage.getItem(MY_RATINGS_STORE)||'{}');
-    if(stored&&typeof stored==='object'&&!Array.isArray(stored))myRatings=stored;
-  }catch{}
+  // Retire the former browser-only rating store; it is not an IMDb vote.
+  try{localStorage.removeItem('marmalade:personal-movie-ratings:v1');}catch{}
   let activeFile = null;
   let detected = null;
   let displayed = null;
@@ -44,56 +40,34 @@
     parent.append(a);
   }
   function status(value) { ui.status.textContent = value; }
-  // All personal ratings are saved to this browser only. Do not include them
-  // in shared room payloads or imply that these are votes on IMDb.
-  function personalRatingKey(data){
-    const type=data.kind==='tv'?'tv':'movie';
-    const year=String(data.year||'').slice(0,4);
-    const episode=type==='tv'&&data.season>0&&data.episode>0
-      ?':s'+data.season+'e'+data.episode:'';
-    return type+':'+normalize(data.title||'')+':'+year+episode;
-  }
-  function savePersonalRating(key,value){
-    if(!key)return;
-    if(Number.isInteger(value)&&value>=1&&value<=10)
-      myRatings[key]={value,updated:Date.now()};
-    else delete myRatings[key];
-    myRatings=Object.fromEntries(Object.entries(myRatings).filter(([,record])=>
-      record&&Number.isInteger(record.value)&&record.value>=1&&record.value<=10)
-      .sort((a,b)=>(b[1].updated||0)-(a[1].updated||0)).slice(0,1000));
-    try{localStorage.setItem(MY_RATINGS_STORE,JSON.stringify(myRatings));}catch{}
+  // IMDb supplies no supported third-party personal-rating write API.
+  // All rating changes happen on IMDb, using the person's IMDb session.
+  function imdbRatingUrl(data){
+    const episode=data.kind==='tv'&&Number(data.season)>0&&Number(data.episode)>0;
+    const exactId=episode?data.imdbEpisodeId:data.imdbId;
+    if(/^tt\d{6,10}$/.test(String(exactId||'')))
+      return 'https://www.imdb.com/title/'+exactId+'/';
+    const parts=[data.title||'',data.year||''];
+    if(episode){
+      parts.push('S'+String(data.season).padStart(2,'0')+'E'+String(data.episode).padStart(2,'0'));
+      if(data.episodeTitle)parts.push(data.episodeTitle);
+    }
+    return 'https://www.imdb.com/find/?q='+encodeURIComponent(parts.filter(Boolean).join(' '))+'&s=tt';
   }
   function personalRatingCard(parent,data){
-    const key=personalRatingKey(data);
-    const card=line(parent,'div','mi-user-rating');
-    card.setAttribute('role','group');
-    card.setAttribute('aria-label','Your Personal Rating');
-    line(card,'span','mi-user-rating-head','Your Rating');
-    const stars=line(card,'div','mi-user-rating-stars');
-    const number=line(card,'output','mi-user-rating-number');
-    const buttons=[];
-    let current=Number(myRatings[key]?.value)||0;
-    const update=()=>{
-      number.textContent=current?current+'/10':'— /10';
-      for(const [i,button] of buttons.entries()){
-        button.setAttribute('aria-pressed',String(i+1<=current));
-        button.title='Rate '+(i+1)+' Out of 10';
-      }
-    };
-    for(let value=1;value<=10;value++){
-      const button=line(stars,'button','mi-user-rating-star','★');
-      button.type='button';
-      button.setAttribute('aria-label','Rate '+value+' Out of 10');
-      button.addEventListener('click',()=>{
-        current=current===value?0:value;
-        savePersonalRating(key,current);
-        update();
-      });
-      buttons.push(button);
-    }
-    update();
-    line(card,'small','mi-user-rating-note','Saved on This Device');
-    return card;
+    const button=line(parent,'a','mi-user-rating');
+    button.href=imdbRatingUrl(data);
+    button.target='_blank';
+    button.rel='noopener noreferrer';
+    button.title='Open IMDb to rate this title using your IMDb account';
+    button.setAttribute('aria-label','Rate '+data.title+' on IMDb');
+    line(button,'span','mi-user-rating-head','IMDb');
+    line(button,'span','mi-user-rating-stars','★★★★★').setAttribute('aria-hidden','true');
+    const rating=Number(data.imdbScore);
+    line(button,'span','mi-user-rating-number',
+      Number.isFinite(rating)&&rating>0&&rating<=10?rating.toFixed(1)+'/10':'— /10');
+    line(button,'span','mi-user-rating-note','Rate on IMDb ↗');
+    return button;
   }
   function openPanel(scroll = false) {
     ui.panel.hidden = false;
@@ -479,7 +453,9 @@
       const primaryCrew = crew.filter(x => ['Director','Writer','Screenplay','Creator'].includes(x.job) ||
         ['Directing','Writing'].includes(x.department)).slice(0,12);
       displayed = {
-        source:'tmdb',kind, id, imdbId, title:record.title || record.name,
+        source:'tmdb',kind,id,imdbId,
+        imdbEpisodeId:episode?.external_ids?.imdb_id||null,
+        title:record.title || record.name,
         year, tagline:record.tagline || '', overview:record.overview || '',
         poster:record.poster_path ? 'https://image.tmdb.org/t/p/w342' + record.poster_path : '',
         backdrop:record.backdrop_path ? 'https://image.tmdb.org/t/p/w780' + record.backdrop_path : '',
@@ -550,10 +526,7 @@
       link(refs,'Wikipedia',data.sourceUrl);
     else if(!data.source||data.source==='tmdb')
       link(refs,'TMDB', 'https://www.themoviedb.org/' + data.kind + '/' + data.id);
-    if (data.imdbId && /^tt\d+$/.test(data.imdbId))
-      link(refs,'Rate on IMDb','https://www.imdb.com/title/' + data.imdbId + '/');
-    else link(refs,'Find on IMDb','https://www.imdb.com/find/?q='+
-      encodeURIComponent(data.title+(data.year?' '+data.year:'')));
+    // The compact IMDb card beside the title opens its official rating flow.
     const score = section(ui.results,'Ratings & Reception');
     const scoreGrid = line(score,'div','mi-stats');
     let listed=0;
@@ -638,7 +611,7 @@
       })) if (value) labeled(stats,key,value);
     }
     const disclaimer = line(ui.results,'p','mi-footnote',
-      'Your personal rating is saved in this browser, not submitted to IMDb. Public scores are source-specific. Budget and box-office figures vary by source and release; missing values are never treated as zero.');
+      'Rate on IMDb opens IMDb itself, where your vote is saved to your IMDb account. MarmaladePlayer does not read or store personal IMDb ratings. Public scores and financial figures depend on available sourced data.');
     disclaimer.setAttribute('role','note');
   }
   async function start(file) {
