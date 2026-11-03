@@ -307,7 +307,7 @@ body.theater-open{overflow:hidden}
           </div>
           
           <div class="theater-top">
-            <div class="stage-state"><button type="button" id="statusToggle" class="theater-pill" aria-pressed="true" title="Toggle playback status">STATUS</button><span class="stage-badge" id="stageBadge" hidden><span class="live-dot"></span><span id="stageBadgeText">Live</span></span></div>
+            <div class="stage-state"><button type="button" id="statusToggle" class="theater-pill" aria-pressed="false" title="Toggle playback status">STATUS</button><span class="stage-badge" id="stageBadge" hidden><span class="live-dot"></span><span id="stageBadgeText">Live</span></span></div>
             <div class="stage-indicators">
               <div class="stage-fps"><span class="fps-overlay" id="fpsOverlay" hidden aria-live="off">— FPS</span><button type="button" class="theater-pill fps-toggle" id="fpsToggle" aria-pressed="false" title="Toggle my displayed FPS">FPS</button></div>
               <div class="stage-buffer"><output id="bufferReadout" class="buffer-readout" hidden aria-live="off" title="Forward buffered video seconds">—s</output><button type="button" class="theater-pill buffer-toggle" id="bufferToggle" aria-pressed="false" title="Show buffered seconds ahead">BUFFER</button></div>
@@ -544,7 +544,7 @@ body.theater-open{overflow:hidden}
     peerAssistance: true, heldForBuffer:false, joinDebounce: null,
     joinTimeout: null, joinRetryTimer: null, joinAttempt: 0, joinFailure: false,
     hostStreamLive: false, mediaRequestAt: 0, mediaAwaitingAt: 0,
-    showStatus: true, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
+    showStatus: false, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
     basePaint: null, basePaintIdle: false, highGfxMode: '2d',
@@ -694,12 +694,14 @@ body.theater-open{overflow:hidden}
   function updateTransport() {
     const duration = media.duration;
     const isFile = ['file','hosted'].includes(state.source) && state.fileReady && state.role === 'host';
-    const canControl = isFile ||
-      (state.role === 'guest' && state.guestConn?.open && state.sharedDuration > 0);
-    el.play.disabled = !canControl;
-    el.back.disabled = !canControl;
-    el.forward.disabled = !canControl;
-    el.seek.disabled = !canControl || !(state.role === 'guest' ? state.sharedDuration > 0 : Number.isFinite(duration) && duration > 0);
+    const guestConnected = state.role === 'guest' && Boolean(state.guestConn?.open);
+    const guestHasTimeline = guestConnected && state.sharedDuration > 0;
+    // Live screen shares have no seekable timeline, but a guest may pause/resume their own view.
+    el.play.disabled = !(isFile || guestHasTimeline || (guestConnected && state.source === 'remote'));
+    el.back.disabled = !(isFile || guestHasTimeline);
+    el.forward.disabled = !(isFile || guestHasTimeline);
+    el.seek.disabled = !(isFile || guestHasTimeline) ||
+      !(state.role === 'guest' ? guestHasTimeline : Number.isFinite(duration) && duration > 0);
     if (isFile && Number.isFinite(duration) && duration > 0) {
       el.seek.value = String(Math.round(media.currentTime / duration * 1000));
       el.current.textContent = timeString(media.currentTime);
@@ -715,7 +717,9 @@ body.theater-open{overflow:hidden}
       el.duration.textContent = '00:00';
       el.seek.value = '0';
     }
-    el.playIcon.innerHTML = (state.role === 'guest' ? !state.hostPlaying : media.paused) ? PLAY_PATH : PAUSE_PATH;
+    const localLivePause = state.role === 'guest' && state.source === 'remote' && !state.sharedDuration;
+    el.playIcon.innerHTML = (state.role === 'guest' ?
+      (localLivePause ? media.paused : !state.hostPlaying) : media.paused) ? PLAY_PATH : PAUSE_PATH;
     updateStatusDisplay();
     updateBufferDisplay();
   }
@@ -860,8 +864,8 @@ body.theater-open{overflow:hidden}
   };
   function hostStatus() {
     return { type: 'state', name: state.file ? state.file.name : state.source === 'screen' ? 'Shared player window' : 'Waiting for video',
-      playing: !media.paused, time: state.source === 'file' ? media.currentTime : 0,
-      duration: state.source === 'file' && Number.isFinite(media.duration) ? media.duration : 0,
+      playing: !media.paused, time: ['file','hosted'].includes(state.source) ? media.currentTime : 0,
+      duration: ['file','hosted'].includes(state.source) && Number.isFinite(media.duration) ? media.duration : 0,
       live: state.broadcasting || state.source === 'hosted', sourceHeight: sourceHeight(), sourceWidth: media.videoWidth || 0,
       revision: state.transportRevision, fingerprint: state.localFingerprint,
       mediaKind: state.source === 'hosted' ? 'hosted' : state.source,
@@ -902,7 +906,19 @@ body.theater-open{overflow:hidden}
     syncState();
   }
   function guestCommand(action, value) {
-    if (!state.guestConn?.open || !state.sharedDuration) return;
+    if (!state.guestConn?.open) return;
+    // A screen-share WebRTC stream cannot be rewound. Its play button instead
+    // controls only this guest's view until a shared movie timeline is available.
+    if (!(state.sharedDuration > 0)) {
+      if (state.source !== 'remote') return;
+      if (action === 'toggle') {
+        if (media.paused) void enableRemotePlayback();
+        else media.pause();
+      } else if (action === 'pause') media.pause();
+      else if (action === 'play') void enableRemotePlayback();
+      updateTransport();
+      return;
+    }
     const now = performance.now();
     const current = Math.min(state.sharedDuration, state.sharedTime + (state.hostPlaying ? (now - state.sharedAt) / 1000 : 0));
     if (action === 'toggle') state.hostPlaying = !state.hostPlaying;
@@ -2171,8 +2187,10 @@ body.theater-open{overflow:hidden}
         media.srcObject = stream;
         media.autoplay = true;
         media.playsInline = true;
-        media.muted = state.soundMuted || state.volumePercent === 0;
         state.source = 'remote';
+        // Reapply native listening volume on each incoming stream. Do not
+        // leave an earlier autoplay-fallback mute latched onto a new stream.
+        applyVolume();
         state.fileReady = false;
         showStage(true);
         badge('LIVE WITH HOST');
@@ -3064,7 +3082,12 @@ body.theater-open{overflow:hidden}
     else applyTransport('seek', time);
   });
   el.seek.addEventListener('blur', () => { state.seeking = false; });
-  el.volume.addEventListener('input', () => setVolume(el.volume.value));
+  el.volume.addEventListener('input', () => {
+    setVolume(el.volume.value);
+    // Any explicit volume gesture can also unlock browser-blocked guest audio.
+    if (state.role === 'guest' && el.stage.classList.contains('needs-gesture'))
+      void enableRemotePlayback();
+  });
   el.mute.addEventListener('click', () => {
     state.soundMuted = !state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = 100;
@@ -3072,6 +3095,9 @@ body.theater-open{overflow:hidden}
     // Native media element mute/unmute is sufficient for guest listening.
     if (state.role === 'host' || state.audioContext)
       void ensureAudioPlayback().catch(()=>{});
+    if (state.role === 'guest' && !state.soundMuted &&
+        el.stage.classList.contains('needs-gesture'))
+      void enableRemotePlayback();
   });
   el.qualitySelect.addEventListener('change', () => {
     if (state.role !== 'guest') return;
