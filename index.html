@@ -3994,7 +3994,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     primeGuestAudioFromGesture();
     // A generic control tap MUST NOT turn video playback on. Audio may
     // be unlocked only from the video surface or explicit Play/Sound control.
-    if(!isVideoControlTarget(event.target) &&
+    if(el.stage.contains(event.target) && !isVideoControlTarget(event.target) &&
        state.role==='guest' && state.source==='remote' &&
        state.audioUnlockRequired && media.muted && !state.soundMuted)
       void enableRemotePlayback();
