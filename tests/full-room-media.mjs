@@ -10,11 +10,17 @@ import {PeerServer} from 'peer';
 const WEB_PORT=38843,PEER_PORT=38844;
 const dir=mkdtempSync(join(tmpdir(),'marmalade-e2e-'));
 const video=join(dir,'full-stream.webm');
+// A real moving picture is critical: a static red slide can pass a
+// resolution check while the live stream is barely moving at 0-2 FPS.
+// An animated overlay preserves the center red-pixel assertions.
 execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi',
   '-i','color=c=red:s=1920x1080:r=24','-f','lavfi',
-  '-i','sine=frequency=440:sample_rate=48000','-t','26',
+  '-i','sine=frequency=440:sample_rate=48000','-f','lavfi',
+  '-i','testsrc2=size=320x180:rate=24',
+  '-filter_complex','[0:v][2:v]overlay=24:24:shortest=1[v]',
+  '-map','[v]','-map','1:a','-t','70',
   '-c:v','libvpx','-deadline','realtime','-cpu-used','5','-crf','24','-b:v','0','-c:a','libopus',
-  '-b:a','64k','-shortest','-y',video],{timeout:60000});
+  '-b:a','64k','-shortest','-y',video],{timeout:150000});
 const bytes=readFileSync(video);
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const peerLib=readFileSync(new URL('../node_modules/peerjs/dist/peerjs.min.js',import.meta.url),'utf8');
@@ -329,6 +335,83 @@ try {
   assert(report.audioTracks.some(t=>t.state==='live'),'Guest audio track must be live');
   assert(report.audioRms>0.002,'Decoded guest audio must contain an audible sine-wave signal, not silence');
 
+  // Sustained frame-rate regression for every selectable receiver resolution.
+  // Measure RTP encoded and decoded frames over multi-second windows, not
+  // only frame metadata, dimensions, or a single 1080p screenshot.
+  const rtpSample=async(page,direction)=>{
+    return page.evaluate(async direction=>{
+      const state=window.MarmaladeAddonBridge.state;
+      const pc=direction==='host'
+        ?[...state.connections.values()][0]?.call?.peerConnection
+        :state.guestCall?.peerConnection;
+      if(!pc)throw Error('Missing PeerConnection for sustained FPS');
+      const stats=await pc.getStats();
+      const packet=[...stats.values()].find(x=>x.type===
+        (direction==='host'?'outbound-rtp':'inbound-rtp') &&
+        (x.kind==='video'||x.mediaType==='video')&&!x.isRemote);
+      if(!packet)throw Error('Missing video RTP counters for sustained FPS');
+      return {
+        time:performance.now(),frames:direction==='host'?
+          packet.framesEncoded:packet.framesDecoded,
+        width:packet.frameWidth||0,height:packet.frameHeight||0,
+        limitation:packet.qualityLimitationReason||'unknown',
+        dropped:packet.framesDropped||0,
+        rendered:state.remoteVideoFrameCount||0,
+        muted:document.querySelector('#player').muted,
+        paused:document.querySelector('#player').paused
+      };
+    },direction);
+  };
+  for(const tier of ['144','240','360','480','540','720','1080']){
+    await guest.locator('#qualitySelect').selectOption(tier);
+    await guest.waitForTimeout(900); // Allow replaceTrack/encoder to settle.
+    const [hostA,guestA]=await Promise.all([
+      rtpSample(host,'host'),rtpSample(guest,'guest')]);
+    await guest.waitForTimeout(2600);
+    const [hostB,guestB]=await Promise.all([
+      rtpSample(host,'host'),rtpSample(guest,'guest')]);
+    const encodedFps=(hostB.frames-hostA.frames)*1000/(hostB.time-hostA.time);
+    const decodedFps=(guestB.frames-guestA.frames)*1000/(guestB.time-guestA.time);
+    const renderedFps=(guestB.rendered-guestA.rendered)*1000/(guestB.time-guestA.time);
+    const metrics={tier,encodedFps,decodedFps,renderedFps,
+      actualHeight:guestB.height,limited:hostB.limitation,
+      videoPaused:guestB.paused,guestMuted:guestB.muted};
+    console.log('SUSTAINED FRAME RATE',JSON.stringify(metrics));
+    assert(!guestB.paused,'Guest video must keep playing at '+tier+'p');
+    assert(!guestB.muted,'Guest audio must remain unlocked at '+tier+'p');
+    assert(encodedFps>=20,'Host must encode sustained motion, not 0-2fps, at '+tier+'p: '+JSON.stringify(metrics));
+    assert(decodedFps>=20,'Guest must decode sustained motion at '+tier+'p: '+JSON.stringify(metrics));
+    assert(renderedFps>=18,'Guest must render continuous motion at '+tier+'p: '+JSON.stringify(metrics));
+  }
+  console.log('PASS sustained host-to-guest moving video at every selectable tier');
+  // Explicitly preserve the separate local-file path and its host clock.
+  await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.remoteFingerprint,
+    null,{timeout:10000});
+  await guest.locator('#localCopyInput').setInputFiles({
+    name:'full-stream.webm',mimeType:'video/webm',buffer:bytes
+  });
+  await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.localVerified &&
+    window.MarmaladeAddonBridge.state.source==='local-guest',
+    null,{timeout:20000});
+  await host.locator('#skipBack').click({force:true});
+  await guest.waitForTimeout(1800);
+  const [hostTime,guestTime]=await Promise.all([
+    host.evaluate(()=>document.querySelector('#player').currentTime),
+    guest.evaluate(()=>document.querySelector('#player').currentTime)
+  ]);
+  assert(Math.abs(hostTime-guestTime)<2,
+    'Locally verified guest must follow host seek: '+hostTime+' vs '+guestTime);
+  console.log('PASS matching-file local sync follows host seek');
+  await guest.locator('#localCopyButton').dispatchEvent('pointerdown',{
+    button:0,bubbles:true
+  });
+  await guest.waitForTimeout(540);
+  await guest.locator('#localCopyButton').dispatchEvent('pointerup',{button:0,bubbles:true});
+  await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.source==='remote' &&
+    !window.MarmaladeAddonBridge.state.localVerified &&
+    document.querySelector('#player').srcObject?.getVideoTracks().some(t=>t.readyState==='live'),
+    null,{timeout:20000});
+  console.log('PASS local-sync-to-stream transition returns host video and audio');
   // A broken outbound media call must recover inside the SAME room without
   // requiring a guest refresh or changing the invitation.
   const originalCallId=await host.evaluate(()=>{
