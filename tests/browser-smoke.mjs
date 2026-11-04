@@ -490,8 +490,10 @@ try {
     });
     assert(proof.rgb[0]>130 && proof.rgb[0]>proof.rgb[1]*2,
       'Guest picture must play while Web Audio would remain suspended');
-    assert.equal(proof.contextsCreated,0,
-      'Joining and receiving a movie must not create a suspended AudioContext');
+    // A no-gesture deep link may start one speculative audio-only context;
+    // a browser that hangs resume() must never block displaying video.
+    assert(proof.contextsCreated<=1,
+      'Autojoin must not create multiple suspended AudioContexts');
     await page.evaluate(()=>clearInterval(window.__videoFrames));
     assert.deepEqual(errors,[]);
     await page.close();
@@ -584,6 +586,59 @@ try {
     });
     await page.close();
     console.log('PASS one-click join auto-sound without secondary sound button, 1080p default',rms);
+  }
+  // The real room-code UI auto-joins after a debounce. A context activated
+  // during the ORIGINAL typing gesture must survive the join's media reset.
+  {
+    const {page,errors}=await launchRoomPage();
+    // Test a visible room-code field forwarding user typing into the
+    // internal room input, which is hidden in the minimalist app layout.
+    await page.evaluate(()=>{
+      const visible=document.createElement('input');
+      visible.id='visibleCodeForTest';
+      visible.addEventListener('input',()=>{
+        const room=document.querySelector('#roomInput');
+        room.value=visible.value;
+        room.dispatchEvent(new Event('input',{bubbles:true}));
+      });
+      document.body.append(visible);
+    });
+    await page.locator('#visibleCodeForTest').click();
+    await page.keyboard.type('ABCDEFGH',{delay:15});
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,
+      null,{timeout:9000});
+    const proof=await page.evaluate(()=>{
+      const st=window.MarmaladeAddonBridge.state;
+      return {quality:st.requestedQuality,
+        selected:document.querySelector('#qualitySelect').value,
+        audioState:st.guestAudioContext?.state||'missing',
+        contextRetained:!!st.guestAudioContext};
+    });
+    assert(proof.contextRetained && proof.audioState==='running',
+      'Code-entry audio activation must survive the delayed Join reset: '+JSON.stringify(proof));
+    assert.equal(proof.quality,'1080','Explicit code entry should default to 1080p');
+    await page.evaluate(()=>{
+      const conn=window.__connections[0];
+      conn.callbacks.data({type:'state',playing:true,live:true,time:0,duration:20,
+        revision:1,mediaKind:'file',name:'test.webm',sourceWidth:1280,
+        sourceHeight:720,fingerprint:''});
+    });
+    await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.requestedQuality==='720');
+    await page.evaluate(()=>{
+      const st=window.MarmaladeAddonBridge.state;
+      st.recommendation='240'; // A network hint must not overwrite user default.
+      window.__connections[0].callbacks.data({type:'state',playing:true,live:true,
+        time:2,duration:20,revision:2,mediaKind:'file',name:'test.webm',
+        sourceWidth:1920,sourceHeight:1080,fingerprint:''});
+    });
+    await page.waitForFunction(()=>{
+      const st=window.MarmaladeAddonBridge.state;
+      return st.requestedQuality==='1080' &&
+        document.querySelector('#qualitySelect').value==='1080';
+    });
+    assert.deepEqual(errors,[],'Autojoin with primed audio must not throw');
+    await page.close();
+    console.log('PASS typed-code audio persists through debounced join; 1080p default survives host updates');
   }
   // Autoplay restrictions must never leave a joined guest with only a black
   // player because the old center play control no longer exists.

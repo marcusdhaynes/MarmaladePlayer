@@ -440,6 +440,10 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(MarmaladePictureInPicturePlugin.class);
         super.onCreate(savedInstanceState);
+        // Dedicated movie-player WebView: native host permission permits
+        // audible autoplay without another in-video gesture on Android.
+        if (getBridge() != null && getBridge().getWebView() != null)
+            getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
         IntentFilter pipFilter = new IntentFilter("app.marmaladeplayer.PIP_PLAY_TOGGLE");
         pipFilter.addAction("app.marmaladeplayer.PIP_REWIND");
         pipFilter.addAction("app.marmaladeplayer.PIP_FORWARD");

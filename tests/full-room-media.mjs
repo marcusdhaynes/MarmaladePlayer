@@ -132,17 +132,26 @@ try {
     null,{timeout:22000});
   console.log('E2E guest received media tracks');
   await guest.waitForFunction(()=>{
+    const st=window.MarmaladeAddonBridge.state;
     const unlock=document.querySelector('#guestAudioUnlock');
-    return unlock&&!unlock.hidden&&document.querySelector('#player').muted;
+    return st.guestAudioFallback || (unlock&&!unlock.hidden);
   },null,{timeout:12000});
-  await guest.locator('#guestAudioUnlock').click({force:true});
+  const startedWithSound=await guest.evaluate(()=>{
+    const st=window.MarmaladeAddonBridge.state;
+    return st.guestAudioFallback && st.guestAudioContext?.state==='running';
+  });
+  if(!startedWithSound)await guest.locator('#guestAudioUnlock').click({force:true});
   await guest.waitForFunction(()=>{
     const player=document.querySelector('#player');
+    const st=window.MarmaladeAddonBridge.state;
     const unlock=document.querySelector('#guestAudioUnlock');
-    return !player.muted&&!player.paused&&unlock.hidden &&
+    return !player.paused&&unlock.hidden &&
+      (!player.muted||(st.guestAudioFallback&&st.guestAudioContext?.state==='running')) &&
       !document.querySelector('#dropZone').classList.contains('needs-gesture');
   },null,{timeout:12000});
-  console.log('PASS guest autoplay mute fallback unlocked with user tap');
+  console.log(startedWithSound?
+    'PASS guest starts with audio relay and no unlock prompt':
+    'PASS browser-blocked guest sound can be enabled with a gesture');
   // Direct taps on the guest movie surface must control the authoritative
   // host movie, not merely the guest's own local MediaStream element.
   const guestVideo=guest.locator('#player');
@@ -435,6 +444,8 @@ try {
         compatibilityCanvas:direction==='host'
           ?!![...state.connections.values()][0]?.compatCanvas:false,
         muted:document.querySelector('#player').muted,
+        audioRelayed:!!state.guestAudioFallback &&
+          state.guestAudioContext?.state==='running',
         paused:document.querySelector('#player').paused
       };
     },direction);
@@ -463,7 +474,8 @@ try {
       guestMuted:guestB.muted,hostTime:hostB.sourceTime};
     console.log('SUSTAINED FRAME RATE',JSON.stringify(metrics));
     assert(!guestB.paused,'Guest video must keep playing at '+tier+'p');
-    assert(!guestB.muted,'Guest audio must remain unlocked at '+tier+'p');
+    assert(!guestB.muted||guestB.audioRelayed,
+      'Guest audio must remain audible at '+tier+'p');
     // CI runs on CPU-only virtual machines. The software canvas repair path
     // for an intentionally simulated black video can sustain 18-20 FPS
     // despite a healthy native 24 FPS stream. Keep a separate regression
