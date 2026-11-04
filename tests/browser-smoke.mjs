@@ -738,28 +738,37 @@ try {
         sourceHeight:64,live:true});
     },sampledFingerprint(fixture));
     await page.waitForFunction(()=>!document.querySelector('#localCopyButton').disabled);
+    // Exact byte-for-byte fingerprint wins over filename changes; a verified
+    // local copy must stay synchronized even when someone renamed the file.
     await page.locator('#localCopyInput').setInputFiles({name:'wrong-name.webm',
       mimeType:'video/webm',buffer:fixture});
-    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('Filename differs'));
-    assert.equal(await page.locator('#player').getAttribute('src'),null,
-      'Wrong filename must not replace a guest media stream');
+    await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.localVerified &&
+      document.querySelector('#localCopyStatus').textContent.includes('Exact file fingerprint'),
+      null,{timeout:8000});
+    const verifiedUrl=await page.locator('#player').getAttribute('src');
+    assert(verifiedUrl?.startsWith('blob:'),
+      'Same-content local movie is allowed even if renamed');
     await page.locator('#localCopyInput').setInputFiles({name:'movie.webm',
       mimeType:'video/webm',buffer:Buffer.from('definitely not the same movie')});
-    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('content or file size differs'));
-    assert.equal(await page.locator('#player').getAttribute('src'),null,
-      'Wrong content must keep streaming as fallback');
+    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('Local Video Rejected'),
+      null,{timeout:8000});
+    assert.equal(await page.locator('#player').getAttribute('src'),verifiedUrl,
+      'Invalid content must never replace verified local playback');
     await page.locator('#localCopyInput').setInputFiles({name:'movie.webm',
       mimeType:'video/webm',buffer:fixture});
-    await page.waitForTimeout(1400);
+    await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.localVerified &&
+      document.querySelector('#localCopyStatus').textContent.includes('Exact file fingerprint') &&
+      document.querySelector('#player').getAttribute('src')!==null,
+      null,{timeout:8000});
     console.log('LOCAL SYNC TRACE',await page.locator('#localCopyStatus').textContent(),
       'video src:',await page.locator('#player').getAttribute('src'),'browserErrors:',errors);
-    await page.waitForFunction(()=>document.querySelector('#localCopyStatus').textContent.includes('Verified ✓'),null,{timeout:6000});
     assert((await page.locator('#player').getAttribute('src')).startsWith('blob:'),
-      'Matching playable local file must replace the incoming stream');
-    assert.equal(await page.locator('#localCopyButton').isDisabled(),true);
+      'Matching playable local file must remain active');
+    assert.equal(await page.locator('#localCopyButton').isDisabled(),false,
+      'Local mode button remains enabled so user can change file or hold to disable');
     const confirmations=await page.evaluate(()=>window.__connections[0].sent.filter(
       x=>x.type==='local-verified'&&x.verified===true));
-    assert.equal(confirmations.length,1,'Host must be told to stop this guest media stream');
+    assert(confirmations.length>=2,'Host must learn that verified local playback is active');
     assert.deepEqual(errors,[],'Local-copy verification must not throw browser errors');
     await page.close();
     console.log('PASS guest same-name/size/fingerprint/decoding checks and streaming fallback');
