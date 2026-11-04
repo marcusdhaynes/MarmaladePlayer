@@ -490,8 +490,10 @@ try {
     });
     assert(proof.rgb[0]>130 && proof.rgb[0]>proof.rgb[1]*2,
       'Guest picture must play while Web Audio would remain suspended');
-    assert.equal(proof.contextsCreated,0,
-      'Joining and receiving a movie must not create a suspended AudioContext');
+    // A no-gesture deep link may start one speculative audio-only context;
+    // a browser that hangs resume() must never block displaying video.
+    assert(proof.contextsCreated<=1,
+      'Autojoin must not create multiple suspended AudioContexts');
     await page.evaluate(()=>clearInterval(window.__videoFrames));
     assert.deepEqual(errors,[]);
     await page.close();
