@@ -497,6 +497,94 @@ try {
     await page.close();
     console.log('PASS Android suspended AudioContext does not block receiving video frames',JSON.stringify(proof));
   }
+  // A user who joins through an explicit gesture must never need a SECOND
+  // audio tap: reuse the gesture's unlocked AudioContext if later native
+  // unmuted MediaStream autoplay gets rejected by the mobile browser.
+  {
+    const {page,errors}=await launchRoomPage();
+    await page.evaluate(()=>{
+      document.querySelector('#roomInput').value='ABCDEFGH';
+      const joinGesture=document.createElement('button');
+      joinGesture.id='joinGestureTest';
+      joinGesture.addEventListener('click',()=>document.querySelector('#joinRoom').click());
+      document.body.appendChild(joinGesture);
+    });
+    await page.locator('#joinGestureTest').click();
+    await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,
+      null,{timeout:8000});
+    await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.guestAudioContext?.state==='running',
+      null,{timeout:8000});
+    assert.equal(await page.locator('#qualitySelect').inputValue(),'1080',
+      'Guest must select 1080p by default');
+    await page.evaluate(async()=>{
+      window.__connections[0].callbacks.data({
+        type:'state',playing:true,live:true,time:0,duration:30,revision:1,
+        mediaKind:'file',name:'movie.webm',sourceWidth:1920,sourceHeight:1080,
+        fingerprint:''
+      });
+      const canvas=document.createElement('canvas');
+      canvas.width=320;canvas.height=180;
+      const paint=canvas.getContext('2d');
+      paint.fillStyle='red';paint.fillRect(0,0,320,180);
+      window.__joinFrames=setInterval(()=>paint.fillRect(0,0,320,180),42);
+      const video=canvas.captureStream(24);
+      const audio=new AudioContext();
+      const oscillator=audio.createOscillator();
+      const volume=audio.createGain();volume.gain.value=.15;
+      const output=audio.createMediaStreamDestination();
+      oscillator.frequency.value=440;
+      oscillator.connect(volume);volume.connect(output);
+      oscillator.start();
+      window.__joinAudio={audio,oscillator};
+      const stream=new MediaStream([...video.getTracks(),...output.stream.getTracks()]);
+      const player=document.querySelector('#player');
+      const nativePlay=player.play.bind(player);
+      player.play=function(){
+        if(this.srcObject&&!this.muted)
+          return Promise.reject(new DOMException('Audible autoplay blocked','NotAllowedError'));
+        return nativePlay();
+      };
+      const handlers={};
+      const call={
+        peer:'marmalade-ABCDEFGH',metadata:{mediaId:12},
+        on(name,callback){handlers[name]=callback;},
+        answer(){setTimeout(()=>handlers.stream(stream),50);},
+        close(){handlers.close?.();}
+      };
+      window.__peers[0].handlers.call(call);
+    });
+    await page.waitForFunction(()=>{
+      const st=window.MarmaladeAddonBridge.state;
+      const video=document.querySelector('#player');
+      return st.guestAudioFallback && st.guestAudioGain &&
+        !video.paused && video.muted &&
+        document.querySelector('#guestAudioUnlock').hidden;
+    },null,{timeout:10000});
+    const rms=await page.evaluate(async()=>{
+      const gain=window.MarmaladeAddonBridge.state.guestAudioGain;
+      const ctx=window.MarmaladeAddonBridge.state.guestAudioContext;
+      const analyzer=ctx.createAnalyser();analyzer.fftSize=1024;
+      gain.connect(analyzer);
+      const samples=new Float32Array(analyzer.fftSize);
+      let peak=0;
+      for(let i=0;i<18;i++){
+        await new Promise(resolve=>setTimeout(resolve,55));
+        analyzer.getFloatTimeDomainData(samples);
+        const rms=Math.sqrt(samples.reduce((sum,v)=>sum+v*v,0)/samples.length);
+        peak=Math.max(peak,rms);
+      }
+      gain.disconnect(analyzer);return peak;
+    });
+    assert(rms>0.005,'Pre-unlocked audio relay must output non-silent movie audio');
+    assert.deepEqual(errors,[],'Join audio relay must not throw');
+    await page.evaluate(async()=>{
+      clearInterval(window.__joinFrames);
+      window.__joinAudio.oscillator.stop();
+      await window.__joinAudio.audio.close();
+    });
+    await page.close();
+    console.log('PASS one-click join auto-sound without secondary sound button, 1080p default',rms);
+  }
   // Autoplay restrictions must never leave a joined guest with only a black
   // player because the old center play control no longer exists.
   {
