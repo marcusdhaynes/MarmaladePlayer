@@ -164,6 +164,11 @@ try {
   await host.locator('#hostMatchTiming').evaluate(node=>node.click());
   await host.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostMonitorActive,
     null,{timeout:12000});
+  await guest.evaluate(()=>window.MarmaladeAddonBridge.state.guestConn.send({
+    type:'presentation-delay',ms:1200
+  }));
+  await host.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostMonitorDelayMs>500,
+    null,{timeout:8000});
   const hostMirror=await host.evaluate(()=>{
     const state=window.MarmaladeAddonBridge.state;
     const track=[...state.connections.values()][0]?.call?.peerConnection
@@ -176,6 +181,27 @@ try {
   });
   assert(hostMirror.active && hostMirror.monitorPlaying && hostMirror.originalPlaying,
     'Host mirror must play while the original still broadcasts');
+  assert(hostMirror.delay>500,'Host monitor must respond to the guest presentation delay');
+  const mirrorAudio=await guest.evaluate(async()=>{
+    const track=document.querySelector('#player').srcObject?.getAudioTracks()[0];
+    if(!track)return 0;
+    const audio=new AudioContext();
+    const source=audio.createMediaStreamSource(new MediaStream([track]));
+    const analyzer=audio.createAnalyser();analyzer.fftSize=1024;
+    const gain=audio.createGain();gain.gain.value=0;
+    source.connect(analyzer);analyzer.connect(gain);gain.connect(audio.destination);
+    await audio.resume();
+    const data=new Float32Array(analyzer.fftSize);let loudest=0;
+    for(let i=0;i<24;i++){
+      await new Promise(resolve=>setTimeout(resolve,60));
+      analyzer.getFloatTimeDomainData(data);
+      loudest=Math.max(loudest,Math.sqrt(data.reduce((a,x)=>a+x*x,0)/data.length));
+    }
+    await audio.close();return loudest;
+  });
+  assert(mirrorAudio>0.002,
+    'Guest audio must stay audible while host locally monitors with delay');
+  console.log('PASS guest hears audio with independently delayed host view',mirrorAudio);
   const duringMirrorTrack=await host.evaluate(()=>[...window.MarmaladeAddonBridge.state.connections.values()][0]?.call
     ?.peerConnection?.getSenders?.().find(sender=>sender.track?.kind==='video')?.track?.id);
   assert.equal(duringMirrorTrack,initialTrack,'Host mirror must not replace outgoing video');
