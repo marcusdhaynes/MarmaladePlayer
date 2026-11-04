@@ -2828,7 +2828,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         el.inviteLink.value='';
         updateRoomActions();
         notify('Room ID changed during recovery. Guests need a NEW invitation link.');
-      }else recoverHost(peer,code);
+      }else if(['network','server-error','socket-error','socket-closed'].includes(error?.type)){
+        recoverHost(peer,code);
+      }else{
+        // A single guest media error is not a host registration outage.
+        console.debug('Peer error did not invalidate the room',error?.type);
+      }
     });
   }
   async function createRoom(){
@@ -2850,8 +2855,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           (state.localVerified && !state.localReturnPending) ||
           (state.bufferedMode && !state.localVerified) ||
           call.peer !== PEER_PREFIX + state.code) { call.close(); return; }
-      try { state.guestCall?.close(); } catch { /* no-op */ }
-      state.guestCall = call;
+      const previousCall=state.guestCall;
+      state.guestCall=call; // Ignore the old call's close callback during replacement.
+      try { previousCall?.close(); } catch { /* no-op */ }
       call.on('stream', async (stream) => {
         if (state.guestCall !== call || (state.localVerified && !state.localReturnPending)) return;
         const hadLocal=state.localVerified && state.localReturnPending;
@@ -2923,9 +2929,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           }
         }
       });
-      call.on('error', (error) => {
-        console.error('Guest media call error', error);
-        notify('Stream failed to connect. The network may require a TURN relay.');
+      call.on('error',error=>{
+        if(state.guestCall!==call)return;
+        console.error('Guest media receive error',error);
+        connection('Reconnecting video…','error');
+        setTimeout(()=>requestMissingMedia('guest-call-error'),600);
       });
       call.on('close', () => {
         if (state.guestCall !== call) return;
@@ -2944,6 +2952,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         setStage('Waiting for the host…', 'The stream ended. The host can start it again.', 'ROOM CONNECTED');
         badge('');
         el.network.textContent = 'P2P READY';
+        connection('Reconnecting video…','error');
+        setTimeout(()=>requestMissingMedia('guest-call-closed'),400);
       });
       call.answer(); // Receive-only call: guest never sends camera or microphone.
     });
@@ -2952,7 +2962,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (state.role !== 'guest' || state.localVerified || state.bufferedMode ||
         state.source === 'remote' || !state.guestConn?.open) return;
     const now=performance.now();
-    if (now - state.mediaRequestAt < 6000) return;
+    if (now - state.mediaRequestAt < 3000) return;
     state.mediaRequestAt = now;
     send(state.guestConn,{type:'requestmedia',reason});
   }
@@ -3137,6 +3147,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           setStage('Video and sound not connected',
             typeof data.message === 'string' ? data.message :
               'The movie stream could not cross the network. Please retry.', 'STREAM TROUBLE');
+        }
+        if(data.type==='media-retrying' && state.source!=='remote' &&
+           !state.localVerified && !state.bufferedMode){
+          connection('Connecting video…');
+          if(!el.stage.classList.contains('has-video'))
+            setStage('Reconnecting your video…',
+              'The room is connected. Recovering the video stream.','RECONNECTING');
         }
         if (data.type === 'movie-info') window.MarmaladeInfoReceive?.(data.payload);
         if(data.type==='segment-part' && typeof data.id==='string')receiveRescueChunk(data);
