@@ -3480,6 +3480,175 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (!track && !audioTracks.length) throw new Error('No capturable audio or video tracks.');
     return new MediaStream([track, ...audioTracks].filter(Boolean));
   }
+  // Guest-to-host stream has its own media call; it never replaces room signaling.
+  function stopGuestBroadcast(notifyHost=true) {
+    const call=state.guestBroadcastCall;
+    state.guestBroadcastCall=null;
+    state.guestBroadcasting=false;state.guestBroadcastConfirmed=false;
+    try{call?.close();}catch{}
+    if(notifyHost && state.guestConn?.open)
+      send(state.guestConn,{type:'guest-broadcast-ended'});
+    if(state.role!=='guest')return;
+    clearInterval(state.interval);state.interval=null;
+    for(const track of state.canvasStream?.getTracks()||[])try{track.stop();}catch{}
+    for(const track of state.nativeCapture?.getTracks()||[])try{track.stop();}catch{}
+    for(const track of state.outgoing?.getTracks()||[]){
+      if(state.audioDestination?.stream?.getTracks().includes(track))continue;
+      try{track.stop();}catch{}
+    }
+    state.outgoing=state.canvasStream=state.nativeCapture=null;
+    if(state.guestBroadcastUrl){
+      media.pause();media.removeAttribute('src');media.srcObject=null;media.load();
+      URL.revokeObjectURL(state.guestBroadcastUrl);state.guestBroadcastUrl=null;
+    }else if(state.source==='guest-screen'){
+      for(const track of state.screenStream?.getTracks()||[])try{track.stop();}catch{}
+      state.screenStream=null;media.pause();media.srcObject=null;
+    }
+    if(state.source==='guest-file'||state.source==='guest-screen'){
+      state.source=null;state.file=null;state.fileReady=false;
+      setStage('Waiting for the host…','Your broadcast has ended.','ROOM CONNECTED');
+      badge('');updateTransport();
+    }
+    updateRoomActions();
+  }
+  function offerGuestMedia(stream,name){
+    if(!state.guestConn?.open||!state.peer?.open)
+      throw Error('Join an active room before broadcasting.');
+    state.outgoing=stream;state.guestBroadcastConfirmed=false;
+    send(state.guestConn,{type:'guest-broadcast-starting',name});
+    const call=state.peer.call(PEER_PREFIX+state.code,stream,
+      {metadata:{kind:'guest-broadcast',name:name.slice(0,200)}});
+    if(!call)throw Error('Unable to create the media connection.');
+    state.guestBroadcastCall=call;state.guestBroadcasting=true;
+    call.on('error',error=>{
+      if(state.guestBroadcastCall!==call)return;
+      console.warn('Guest publishing failed',error);
+      connection('Guest media connection failed','error');
+      notify('The guest stream could not cross this network. A TURN relay may be required.');
+      stopGuestBroadcast();
+    });
+    call.on('close',()=>{
+      if(state.guestBroadcastCall!==call)return;
+      stopGuestBroadcast(false);notify('Guest broadcast ended.');
+    });
+    setTimeout(()=>{
+      if(state.guestBroadcastCall!==call||state.guestBroadcastConfirmed)return;
+      connection('Guest stream could not reach host','error');
+      notify('Host did not receive the media stream. A TURN relay may be needed on this network.');
+      stopGuestBroadcast();
+    },16000);
+    updateRoomActions();connection('Connecting guest video…');
+  }
+  async function startGuestFileBroadcast(file){
+    if(state.role!=='guest'||!state.guestConn?.open){
+      notify('Join the host room before broadcasting.');return;
+    }
+    if(!isVideoFile(file)){notify('Choose a supported video or audio file.');return;}
+    stopGuestBroadcast(false);
+    try{state.guestCall?.close();}catch{}
+    state.guestCall=null;state.localVerified=false;state.bufferedMode=false;
+    const url=URL.createObjectURL(file);
+    state.guestBroadcastUrl=url;
+    state.source='guest-file';state.file=file;state.fileReady=false;
+    state.sharedDuration=0;state.hostPlaying=false;
+    media.pause();media.srcObject=null;media.removeAttribute('src');
+    media.src=url;media.preload='auto';media.load();
+    el.fileName.textContent=file.name;
+    setStage('Preparing guest stream…','Decoding the video before sending it to the host.','GUEST BROADCAST');
+    try{
+      await new Promise((resolve,reject)=>{
+        if(media.readyState>=2){resolve();return;}
+        const finish=error=>{
+          clearTimeout(timer);
+          media.removeEventListener('loadeddata',ready);
+          media.removeEventListener('error',failed);
+          error?reject(error):resolve();
+        };
+        const ready=()=>finish();
+        const failed=()=>finish(Error('The browser cannot decode this file.'));
+        const timer=setTimeout(()=>finish(Error('Video decoding timed out.')),15000);
+        media.addEventListener('loadeddata',ready,{once:true});
+        media.addEventListener('error',failed,{once:true});
+      });
+      try{await media.play();}
+      catch{
+        media.muted=true;
+        await media.play();
+        needsTapToPlay(true);
+      }
+      if(state.source!=='guest-file'||!state.guestConn?.open)
+        throw Error('The room disconnected before streaming started.');
+      state.fileReady=true;
+      const stream=await captureLocalMedia();
+      if(!stream.getTracks().length)throw Error('No media tracks could be captured.');
+      offerGuestMedia(stream,file.name);
+      showStage(true);badge('LIVE');updateTransport();
+    }catch(error){
+      console.warn('Guest broadcast startup failed',error);
+      stopGuestBroadcast();
+      notify('Guest broadcast could not start: '+(error?.message||'unknown error'));
+      connection('Guest broadcast unavailable','error');
+    }
+  }
+  function setupHostGuestCalls(peer){
+    peer.on('call',call=>{
+      const entry=state.connections.get(call.peer);
+      if(state.peer!==peer||state.role!=='host'||!entry?.conn?.open||
+         call.metadata?.kind!=='guest-broadcast'){
+        try{call.close();}catch{}return;
+      }
+      // Only a peer currently joined to this room can publish a source.
+      if(state.incomingGuestCall&&state.incomingGuestCall!==call)
+        try{state.incomingGuestCall.close();}catch{}
+      state.incomingGuestCall=call;entry.localMirror=true;
+      try{entry.call?.close();}catch{}entry.call=null;
+      const name=typeof call.metadata?.name==='string'?
+        call.metadata.name.slice(0,200):'Guest video';
+      call.on('stream',stream=>{
+        if(state.peer!==peer||state.incomingGuestCall!==call)return;
+        if(!stream.getTracks().length){call.close();return;}
+        removeMedia();
+        state.guestPublisherPeerId=call.peer;
+        state.guestBroadcastName=name;
+        state.source='guest-remote';state.outgoing=stream;
+        state.fileReady=true;state.broadcasting=true;
+        media.srcObject=stream;media.autoplay=true;media.playsInline=true;
+        applyVolume();
+        el.fileName.textContent=name;
+        showStage(true);badge('LIVE');
+        connection('Receiving guest broadcast','online');
+        updateTransport();updateRoomActions();
+        void media.play().then(()=>needsTapToPlay(false)).catch(async()=>{
+          media.muted=true;
+          try{await media.play();}catch{}
+          needsTapToPlay(true);
+          notify('Guest video received. Tap Play to enable sound.');
+        });
+        send(entry.conn,{type:'guest-broadcast-accepted',name,
+          hasAudio:stream.getAudioTracks().length>0});
+        for(const id of state.connections.keys())if(id!==call.peer)callGuest(id);
+        syncState();
+      });
+      call.on('close',()=>{
+        if(state.incomingGuestCall!==call)return;
+        state.incomingGuestCall=null;
+        state.guestPublisherPeerId='';state.guestBroadcastName='';
+        entry.localMirror=false;
+        if(state.source==='guest-remote'){
+          removeMedia();
+          setStage('Guest stream ended','Waiting for another video.','ROOM CONNECTED');
+          connection('Room is ready','online');syncState();
+        }
+      });
+      call.on('error',error=>{
+        console.warn('Incoming guest stream failed',error);
+        if(state.incomingGuestCall===call)try{call.close();}catch{}
+      });
+      try{call.answer();}catch(error){
+        console.warn('Unable to answer guest stream',error);call.close();
+      }
+    });
+  }
   function autoStartIfPlaying() {
     if (state.role === 'host' && state.peer?.open && state.source === 'file' && state.fileReady &&
         !media.paused && !state.broadcasting && !state.broadcastStarting) {
@@ -3531,6 +3700,28 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     }
   }
   async function shareScreen() {
+    if(state.role==='guest'){
+      if(!state.guestConn?.open){notify('Join a room before sharing a window.');return;}
+      if(!navigator.mediaDevices?.getDisplayMedia){
+        notify('Window capture is unavailable on this browser.');return;
+      }
+      let stream;
+      try{stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:24},audio:true});}
+      catch(error){if(error.name!=='NotAllowedError')notify('Unable to capture the selected window.');return;}
+      stopGuestBroadcast(false);
+      try{state.guestCall?.close();}catch{}state.guestCall=null;
+      state.localVerified=false;state.bufferedMode=false;
+      state.screenStream=stream;state.source='guest-screen';state.fileReady=true;
+      media.pause();media.removeAttribute('src');media.srcObject=stream;media.muted=true;
+      void media.play().catch(()=>{});
+      el.fileName.textContent='Guest shared window';
+      try{offerGuestMedia(stream,'Guest shared window');showStage(true);updateTransport();}
+      catch(error){stopGuestBroadcast();notify(error.message||'Cannot broadcast window');}
+      stream.getVideoTracks()[0]?.addEventListener('ended',()=>{
+        if(state.screenStream===stream)stopGuestBroadcast();
+      },{once:true});
+      return;
+    }
     if (state.role !== 'host') return;
     if (!navigator.mediaDevices?.getDisplayMedia) { notify('Window sharing is not supported in this browser.'); return; }
     let stream;
