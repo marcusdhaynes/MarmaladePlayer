@@ -363,7 +363,10 @@ try {
     },direction);
   };
   for(const tier of ['144','240','360','480','540','720','1080']){
-    await guest.locator('#qualitySelect').selectOption(tier);
+    await guest.locator('#qualitySelect').evaluate((el,value)=>{
+      el.value=value;
+      el.dispatchEvent(new Event('change',{bubbles:true}));
+    },tier);
     await guest.waitForTimeout(900); // Allow replaceTrack/encoder to settle.
     const [hostA,guestA]=await Promise.all([
       rtpSample(host,'host'),rtpSample(guest,'guest')]);
