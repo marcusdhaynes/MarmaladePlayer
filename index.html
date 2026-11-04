@@ -2443,28 +2443,44 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         try {media.cancelVideoFrameCallback?.(state.highFrameHandle);} catch {}
         state.highFrameHandle=null;
       }
+      // captureStream(24) applies a separate internal sampling cadence on
+      // top of requestVideoFrameCallback. Those two clocks drift on real
+      // browsers, silently dropping 7+ of 24 source frames at 720p.
+      // Manual capture emits exactly one frame AFTER each decoded paint.
+      // Keep the old paced path only when requestFrame is unavailable.
+      let highStream=canvas.captureStream(0);
+      let capturedTrack=highStream.getVideoTracks()[0]||null;
+      const manualCapture=typeof capturedTrack?.requestFrame==='function';
+      if(!manualCapture){
+        capturedTrack?.stop();
+        highStream=canvas.captureStream(STREAM_FPS);
+        capturedTrack=highStream.getVideoTracks()[0]||null;
+      }
       let lastPaint=0;
       const paint=now=>{
-        if (media.readyState<2 || now-lastPaint < 1000/30-4) return;
+        if(media.readyState<2 || now-lastPaint<1000/30-4)return;
         lastPaint=now;
-        try { ctx.drawImage(media,0,0,canvas.width,canvas.height); } catch {}
+        try{
+          ctx.drawImage(media,0,0,canvas.width,canvas.height);
+          if(manualCapture)capturedTrack.requestFrame();
+        }catch(error){console.debug('High-res capture paint skipped',error);}
       };
-      // Drive expensive redraws from decoded frames rather than wasteful timers.
+      // No redundant timer when decoded video-frame callbacks exist.
+      state.highCanvas=canvas;
+      state.highStream=highStream;
+      state.highTrack=capturedTrack;
       paint(performance.now());
-      if (typeof media.requestVideoFrameCallback === 'function') {
+      if(typeof media.requestVideoFrameCallback==='function'){
         const onFrame=now=>{
-          if(state.highCanvas !== canvas)return;
+          if(state.highCanvas!==canvas)return;
           paint(now);
           state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
         };
-        state.highCanvas=canvas;
         state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
-      } else {
-        state.highCanvas=canvas;
-        state.highTimer=setInterval(()=>paint(performance.now()),Math.round(1000/24));
+      }else{
+        state.highTimer=setInterval(()=>paint(performance.now()),
+          Math.round(1000/STREAM_FPS));
       }
-      state.highStream=canvas.captureStream(24);
-      state.highTrack=state.highStream.getVideoTracks()[0]||null;
       state.highTierHeight=height;
       if(state.highTrack && 'contentHint' in state.highTrack)
         try{state.highTrack.contentHint='motion';}catch{}
