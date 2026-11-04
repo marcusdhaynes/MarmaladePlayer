@@ -303,6 +303,44 @@ try {
   assert(report.audioRms>0.002,'Decoded guest audio must contain an audible sine-wave signal, not silence');
   assert.deepEqual(errors,[],'Browser runtime errors');
   console.log('PASS actual two-browser Marmalade PeerJS movie + sound');
+  // A joined guest can publish video AND audio to the existing host.
+  const initialHostPeer=await host.evaluate(()=>window.MarmaladeAddonBridge.state.peer.id);
+  await guest.locator('#guestBroadcastInput').setInputFiles({
+    name:'guest-to-host.webm',mimeType:'video/webm',buffer:bytes
+  });
+  await host.waitForFunction(()=>{
+    const s=window.MarmaladeAddonBridge.state;
+    return s.source==='guest-remote' && s.incomingGuestCall &&
+      document.querySelector('#player').srcObject?.getVideoTracks().length>0;
+  },null,{timeout:25000});
+  await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.guestBroadcastConfirmed,
+    null,{timeout:12000});
+  const reverse=await host.evaluate(async()=>{
+    const video=document.querySelector('#player');
+    await video.play();
+    await new Promise(resolve=>setTimeout(resolve,900));
+    const canvas=document.createElement('canvas');canvas.width=24;canvas.height=16;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(video,0,0,24,16);
+    return {
+      pixel:Array.from(ctx.getImageData(12,8,1,1).data),
+      tracks:video.srcObject.getTracks().map(t=>({kind:t.kind,state:t.readyState})),
+      width:video.videoWidth,height:video.videoHeight
+    };
+  });
+  assert(reverse.tracks.some(t=>t.kind==='video'&&t.state==='live'),
+    'Host receives a live video track from guest');
+  assert(reverse.tracks.some(t=>t.kind==='audio'&&t.state==='live'),
+    'Host receives a live audio track from guest');
+  assert(reverse.pixel[0]>125&&reverse.pixel[0]>reverse.pixel[1]*2,
+    'Host decodes actual non-black guest movie pixels');
+  assert.equal(await host.evaluate(()=>window.MarmaladeAddonBridge.state.peer.id),
+    initialHostPeer,'Guest publishing must not recreate host room');
+  await guest.locator('#broadcastToggle').click();
+  await host.waitForFunction(()=>window.MarmaladeAddonBridge.state.source!=='guest-remote',
+    null,{timeout:12000});
+  console.log('PASS real guest-to-host WebRTC video/audio and clean stop',JSON.stringify(reverse));
+  assert.deepEqual(errors,[],'Browser runtime errors after reverse broadcast');
   await guest.close();await host.close();
 } catch(error) {
   console.error('MARMALADE FULL PEERJS TEST FAILED',error);
