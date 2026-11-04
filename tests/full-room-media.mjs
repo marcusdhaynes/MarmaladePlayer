@@ -367,10 +367,10 @@ try {
       el.value=value;
       el.dispatchEvent(new Event('change',{bubbles:true}));
     },tier);
-    await guest.waitForTimeout(900); // Allow replaceTrack/encoder to settle.
+    await guest.waitForTimeout(1400); // Allow replaceTrack/encoder to settle.
     const [hostA,guestA]=await Promise.all([
       rtpSample(host,'host'),rtpSample(guest,'guest')]);
-    await guest.waitForTimeout(2600);
+    await guest.waitForTimeout(3400);
     const [hostB,guestB]=await Promise.all([
       rtpSample(host,'host'),rtpSample(guest,'guest')]);
     const encodedFps=(hostB.frames-hostA.frames)*1000/(hostB.time-hostA.time);
