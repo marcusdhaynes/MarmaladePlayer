@@ -2281,8 +2281,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           entry.call = null;entry.applied = '';
           notify('Guest is preparing a video broadcast…');
         }
-        if(data.type === 'guest-broadcast-ended' && state.guestPublisherPeerId === conn.peer)
-          try { state.incomingGuestCall?.close(); } catch {}
+        if(data.type === 'guest-broadcast-ended') {
+          entry.localMirror=false;
+          if(state.guestPublisherPeerId === conn.peer)
+            try { state.incomingGuestCall?.close(); } catch {}
+          else if(state.outgoing && !entry.call && state.source!=='hosted')callGuest(conn.peer);
+        }
         if (data.type === 'local-verified' && typeof data.verified === 'boolean') {
           entry.localMirror=data.verified;
           if(data.verified){
@@ -3137,7 +3141,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         if (data.type === 'guest-broadcast-accepted' && state.guestBroadcasting) {
           state.guestBroadcastConfirmed=true;
           connection('Broadcasting to host','online');
-          updateRoomActions();notify('Host is receiving your video and audio.');
+          updateRoomActions();
+          notify(data.hasAudio?'Host is receiving your video and audio.':
+            'Host is receiving your video. No audio track was captured.');
         }
         if (data.type === 'movie-info') window.MarmaladeInfoReceive?.(data.payload);
         if(data.type==='segment-part' && typeof data.id==='string')receiveRescueChunk(data);
@@ -4647,7 +4653,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (state.role === 'host' && ['file','hosted'].includes(state.source)) { updateTransport(); syncState(); }
   });
   window.setInterval(() => {
-    if(state.role==='guest'&&state.guestConn?.open&&!state.seeking&&state.source!=='guest-file'){
+    if(state.role==='guest'&&state.guestConn?.open&&!state.seeking&&state.source!=='guest-file'&&state.source!=='guest-screen'){
       saveWatchPosition();
       updateTransport();
       if(state.localVerified){
