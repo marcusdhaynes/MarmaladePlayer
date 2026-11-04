@@ -3526,7 +3526,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     const monitor=$('hostMonitor');
     if(monitor){
       monitor.muted=hardMute;
-      try{monitor.volume=Math.min(1,level);}catch{}
+      try{monitor.volume=state.hostMonitorActive && hostMonitorAudioGain?
+        1:Math.min(1,level);}catch{}
+      if(state.hostMonitorActive)updateHostMonitorGain();
     }
     el.volumeMark.textContent = `${state.volumePercent}%`;
     el.volume.value = String(state.volumePercent);
@@ -3851,11 +3853,43 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       's to match guests · guests remain live':
       'Ready · waiting for a guest delay measurement.';
   }
+  let hostMonitorAudioContext=null,hostMonitorAudioGain=null;
+  function updateHostMonitorGain(){
+    if(!state.hostMonitorActive)return;
+    if((state.volumePercent>100 || hostMonitorAudioGain) && !hostMonitorAudioContext){
+      const Context=window.AudioContext||window.webkitAudioContext;
+      if(Context){
+        try{
+          hostMonitorAudioContext=new Context({latencyHint:'interactive'});
+          const source=hostMonitorAudioContext.createMediaElementSource(hostMonitor);
+          hostMonitorAudioGain=hostMonitorAudioContext.createGain();
+          source.connect(hostMonitorAudioGain);
+          hostMonitorAudioGain.connect(hostMonitorAudioContext.destination);
+        }catch(error){console.debug('Host delayed monitor audio boost unavailable',error);}
+      }
+    }
+    if(hostMonitorAudioGain){
+      const ctx=hostMonitorAudioContext;
+      const now=ctx.currentTime;
+      hostMonitorAudioGain.gain.setTargetAtTime(
+        state.soundMuted?0:state.volumePercent/100,now,.012);
+      if(ctx.state==='suspended')void ctx.resume().catch(()=>{});
+    }
+  }
   hostMatchToggle.addEventListener('change',()=>{
     state.hostMonitorRequested=hostMatchToggle.checked;
     if(!state.hostMonitorRequested)stopHostMonitor();
     else void enableHostMonitor();
   });
+  // Any ordinary interaction with an active guest movie may authorize its
+  // audible playback. Never require a separate "Enable Sound" click when the
+  // browser already permits unmuted playback; locked-down browsers still
+  // receive a clear one-tap fallback rather than silent video.
+  document.addEventListener('pointerdown',()=>{
+    if(state.role==='guest' && state.source==='remote' &&
+       state.audioUnlockRequired && media.muted && !state.soundMuted)
+      void enableRemotePlayback();
+  },{capture:true,passive:true});
   // Host monitoring never sends commands to a guest or seeks the source.
   setInterval(()=>{
     if(state.hostMonitorRequested && state.role==='host')updateHostMonitor();
