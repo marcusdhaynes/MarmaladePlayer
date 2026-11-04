@@ -214,8 +214,14 @@ try {
   await guest.locator('#qualitySelect').evaluate(el=>{
     el.value='1080';el.dispatchEvent(new Event('change',{bubbles:true}));
   });
-  await guest.waitForFunction(()=>/Receiving 1080p/.test(
-    document.querySelector('#qualityHint')?.textContent||''),null,{timeout:15000});
+  // 1080p is selected before receiving the movie. Re-selecting the same
+  // quality need not trigger a second encoder hint; decoded dimensions
+  // checked below are the authoritative resolution regression.
+  await guest.waitForFunction(()=>{
+    const st=window.MarmaladeAddonBridge.state;
+    return st.requestedQuality==='1080' &&
+      document.querySelector('#qualitySelect').value==='1080';
+  },null,{timeout:15000});
   await guest.waitForTimeout(8200);
   const encoder1080=await host.evaluate(async()=>{
     const pc=window.__debugPeerConnections.at(-1);
