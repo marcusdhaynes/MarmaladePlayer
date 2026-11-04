@@ -869,9 +869,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // Prime an AUDIO-ONLY output during the guest's existing Join click.
   // This is independent of the movie element so a blocked audible autoplay
   // cannot strand the guest with muted video. No audio data is sent upstream.
-  function primeGuestAudioFromGesture() {
-    if (state.role !== 'guest') return;
-    if(navigator.userActivation && !navigator.userActivation.isActive)return;
+  function primeGuestAudioFromGesture(tryWithoutGesture=false) {
+    // Manual room-code entry is a real gesture, but the app debounces
+    // joining. Prime audio while input/paste is still trusted instead of
+    // waiting until the timer has already lost user activation.
+    if(state.role!=='guest' && !parseCode(el.joinInput?.value))return;
+    if(!tryWithoutGesture && navigator.userActivation &&
+       !navigator.userActivation.isActive)return;
     if(state.guestAudioContext && state.guestAudioContext.state==='running'){
       state.guestAudioPrimed=true;return;
     }
@@ -3044,6 +3048,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         // running video element active when possible: pausing it discards the
         // autoplay permission gained from a prior guest interaction.
         stopGuestAudioRelay(false);
+        // A receiver with an autoplay-granted Web Audio context can play
+        // sound without a second media-element gesture.
+        if(!state.guestAudioContext && stream.getAudioTracks().length)
+          primeGuestAudioFromGesture(true);
         if(!state.guestAudioPrimed)media.pause();
         media.removeAttribute('src');
         media.srcObject = stream;
@@ -3188,7 +3196,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         (state.sourceHeight !== data.sourceHeight || state.sourceWidth !== data.sourceWidth)) {
       state.sourceHeight = data.sourceHeight;
       state.sourceWidth = data.sourceWidth;
-      if (!state.userChoseQuality) state.requestedQuality = recommendedLevel(state.recommendation);
+      if (!state.userChoseQuality) state.requestedQuality = recommendedLevel(DEFAULT_LEVEL);
       buildQualitySelect();
       sendQualityPreference();
     }
@@ -3409,12 +3417,14 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     closeConnections();
     removeMedia();
     state.role = 'guest';
-    // Join is a trusted click or Enter press when the guest enters a code.
-    // Reserve audible output NOW; the remote stream arrives asynchronously.
-    primeGuestAudioFromGesture();
+    // A deep link joins without a trusted in-page gesture; still attempt
+    // autoplay where the browser permits it. Manual input/Join already
+    // primes audio at the original trusted interaction.
+    primeGuestAudioFromGesture(true);
+    state.recommendation=DEFAULT_LEVEL;
+    state.requestedQuality=recommendedLevel(DEFAULT_LEVEL);
+    state.userChoseQuality=false;
     buildQualitySelect();
-    state.requestedQuality = recommendedLevel(state.recommendation);
-    state.userChoseQuality = false;
     state.code = code;
     state.connecting = true;
     state.joinFailure=false;
@@ -3960,11 +3970,19 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // audible playback. Never require a separate "Enable Sound" click when the
   // browser already permits unmuted playback; locked-down browsers still
   // receive a clear one-tap fallback rather than silent video.
-  document.addEventListener('pointerdown',()=>{
+  function onGuestGesture(){
+    if(state.role!=='guest' && !parseCode(el.joinInput?.value))return;
+    primeGuestAudioFromGesture();
     if(state.role==='guest' && state.source==='remote' &&
        state.audioUnlockRequired && media.muted && !state.soundMuted)
       void enableRemotePlayback();
-  },{capture:true,passive:true});
+  }
+  // An early touch/keyboard gesture during room connection should already
+  // authorize audio when the media stream arrives moments later.
+  document.addEventListener('pointerdown',onGuestGesture,{capture:true,passive:true});
+  document.addEventListener('keydown',event=>{
+    if(!event.repeat)onGuestGesture();
+  },{capture:true});
   // Host monitoring never sends commands to a guest or seeks the source.
   setInterval(()=>{
     if(state.hostMonitorRequested && state.role==='host')updateHostMonitor();
@@ -4572,7 +4590,16 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     updateRoomPanel();
   });
   el.joinRoom.addEventListener('click', joinRoom);
-  el.joinInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') joinRoom(); });
+  el.joinInput.addEventListener('keydown', event=>{
+    if(event.key==='Enter'){
+      primeGuestAudioFromGesture();
+      joinRoom();
+    }
+  });
+  // Critical: user activation from typing/pasting a room code expires
+  // during the app's debounce; capture it before autoJoinCode runs.
+  el.joinInput.addEventListener('input',()=>primeGuestAudioFromGesture());
+  el.joinInput.addEventListener('paste',()=>queueMicrotask(()=>primeGuestAudioFromGesture()));
   el.leave.addEventListener('click', leaveRoom);
   el.play.addEventListener('click',()=>void togglePlay('button'));
   $('guestAudioUnlock').addEventListener('click',event=>{
