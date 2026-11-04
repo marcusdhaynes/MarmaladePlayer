@@ -301,6 +301,23 @@ try {
   assert(report.videoTracks.some(t=>t.state==='live'),'Guest video track must be live');
   assert(report.audioTracks.some(t=>t.state==='live'),'Guest audio track must be live');
   assert(report.audioRms>0.002,'Decoded guest audio must contain an audible sine-wave signal, not silence');
+
+  // A broken outbound media call must recover inside the SAME room without
+  // requiring a guest refresh or changing the invitation.
+  const originalCallId=await host.evaluate(()=>{
+    const e=[...window.MarmaladeAddonBridge.state.connections.values()][0];
+    const id=e.mediaAttempt;
+    e.call.close();
+    return id;
+  });
+  await host.waitForFunction(id=>{
+    const e=[...window.MarmaladeAddonBridge.state.connections.values()][0];
+    return e && e.mediaAttempt>id && e.call && e.mediaConfirmed;
+  },originalCallId,{timeout:18000});
+  await guest.waitForFunction(()=>document.querySelector('#player').srcObject?.getVideoTracks()
+    .some(t=>t.readyState==='live')&&
+    window.MarmaladeAddonBridge.state.source==='remote',null,{timeout:18000});
+  console.log('PASS same-room media recovery after forced host call close');
   assert.deepEqual(errors,[],'Browser runtime errors');
   console.log('PASS actual two-browser Marmalade PeerJS movie + sound');
   await guest.close();await host.close();
