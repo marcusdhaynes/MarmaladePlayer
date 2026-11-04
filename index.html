@@ -3972,10 +3972,44 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // audible playback. Never require a separate "Enable Sound" click when the
   // browser already permits unmuted playback; locked-down browsers still
   // receive a clear one-tap fallback rather than silent video.
-  function onGuestGesture(){
+  // All controls and their non-interactive children (icons, labels, seek
+  // bar spacing, status text, etc.) are excluded from the video's toggle
+  // surface. Using the whole container is essential: filtering only
+  // <button> and <input> made mute/volume/seek taps bubble into play/pause.
+  const VIDEO_CONTROL_SELECTOR = [
+    'button','input','select','label','textarea','a',
+    '[role="button"]','[role="slider"]','[role="switch"]',
+    '[role="menuitem"]','[role="dialog"]','[contenteditable="true"]',
+    '.theater-controls','.theater-top','.theater-popover',
+    '.mini-player-overlay','.stage-quick-actions',
+    '.exit-theater','#guestAudioUnlock','#hostVideoDiagnostic',
+    '[data-no-video-toggle]'
+  ].join(',');
+  function isVideoControlTarget(target){
+    const node=target instanceof Element?target:target?.parentElement;
+    return !!node?.closest(VIDEO_CONTROL_SELECTOR);
+  }
+  function isVideoControlEvent(event){
+    // Mute redraws its SVG via innerHTML DURING click bubbling. That
+    // detaches the original event.target, making target.closest(...) fail
+    // even though the click started inside a control. composedPath() retains
+    // the ORIGINAL hit-test ancestry and works for nested SVG paths too.
+    if(typeof event.composedPath==='function'){
+      for(const node of event.composedPath()){
+        if(node instanceof Element && node.matches(VIDEO_CONTROL_SELECTOR))
+          return true;
+      }
+    }
+    return isVideoControlTarget(event.target);
+  }
+  function onGuestGesture(event){
     if(state.role!=='guest' && !parseCode(el.joinInput?.value))return;
     primeGuestAudioFromGesture();
-    if(state.role==='guest' && state.source==='remote' &&
+    // A generic control tap MUST NOT turn video playback on. Audio may
+    // be unlocked only from the video surface or explicit Play/Sound control.
+    if(event?.type==='pointerdown' && el.stage.contains(event.target) &&
+       !isVideoControlEvent(event) &&
+       state.role==='guest' && state.source==='remote' &&
        state.audioUnlockRequired && media.muted && !state.soundMuted)
       void enableRemotePlayback();
   }
@@ -3983,7 +4017,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // authorize audio when the media stream arrives moments later.
   document.addEventListener('pointerdown',onGuestGesture,{capture:true,passive:true});
   document.addEventListener('keydown',event=>{
-    if(!event.repeat)onGuestGesture();
+    if(!event.repeat)onGuestGesture(event);
   },{capture:true});
   // Host monitoring never sends commands to a guest or seeks the source.
   setInterval(()=>{
@@ -4458,7 +4492,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       void togglePlay('stage');
   }
   el.stage.addEventListener('click', event => {
-    if (event.target.closest('button,input,select,label,textarea,a,[role="button"],.theater-popover,[contenteditable="true"]')) return;
+    if(isVideoControlEvent(event))return;
     if(el.stage.classList.contains('mini-pip-visible')){showMiniControls();return;}
     if(el.stage.classList.contains('floating-player')){
       el.stage.classList.remove('floating-player');revealControls();return;
@@ -4642,21 +4676,19 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   });
   el.seek.addEventListener('blur', () => { state.seeking = false; });
   el.volume.addEventListener('input', () => {
+    // Volume is personal audio output ONLY. It must not start, pause or
+    // resume either the guest's video or the host's shared movie.
     setVolume(el.volume.value);
-    // Any explicit volume gesture can also unlock browser-blocked guest audio.
-    if (state.role === 'guest' && el.stage.classList.contains('needs-gesture'))
-      void enableRemotePlayback();
   });
   el.mute.addEventListener('click', () => {
     state.soundMuted = !state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = 100;
     applyVolume();
-    // Native media element mute/unmute is sufficient for guest listening.
-    if (state.role === 'host' || state.audioContext)
+    // Unmuting cannot be treated as Play: keep the current transport
+    // state untouched even when the browser still needs an audio gesture.
+    // Host audio processing may need to resume for boosted local volume.
+    if (state.role === 'host')
       void ensureAudioPlayback().catch(()=>{});
-    if (state.role === 'guest' && !state.soundMuted &&
-        el.stage.classList.contains('needs-gesture'))
-      void enableRemotePlayback();
   });
   el.qualitySelect.addEventListener('change', () => {
     if (state.role !== 'guest') return;

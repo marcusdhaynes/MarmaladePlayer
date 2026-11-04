@@ -164,6 +164,34 @@ try {
   await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostPlaying,
     null,{timeout:8000});
   console.log('PASS guest video-area click pauses and resumes the host movie');
+  // Mute, volume, status and the surrounding controls are NOT video taps.
+  // Keep the host running and the guest connected during those actions.
+  const hostPlayingBefore=await host.evaluate(()=>!document.querySelector('#player').paused);
+  assert(hostPlayingBefore,'Host must be playing before testing guest controls');
+  // A real user first reveals the floating controls; never force a click
+  // through pointer-events:none elements onto the underlying movie.
+  await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
+  await guest.locator('#muteBtn').click();
+  const guestControls=[
+    '#volumeMark','#currentTime','#seekArea','.theater-controls',
+    '.theater-top','#statusToggle','#settingsBtn','#subtitlesBtn'
+  ];
+  for(const selector of guestControls){
+    await guest.evaluate(selector=>{
+      const el=document.querySelector(selector);
+      if(!el)throw Error('Missing guest control '+selector);
+      el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    },selector);
+    assert(await host.evaluate(()=>!document.querySelector('#player').paused),
+      'Guest clicking '+selector+' must not pause the host movie');
+  }
+  await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
+  await guest.locator('#muteBtn').click(); // Restore audible guest output.
+  assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.soundMuted),
+    false,'Guest mute toggles without affecting shared play state');
+  assert(await host.evaluate(()=>!document.querySelector('#player').paused),
+    'Guest mute/unmute must never pause the host');
+  console.log('PASS guest mute and all non-play controls preserve host playback');
   // The host can choose to monitor a separately decoded file delayed to
   // guest presentation time without changing the transmitted video source.
   const initialTrack=await host.evaluate(()=>{
@@ -306,6 +334,15 @@ try {
   assert(aligned.sourceTrackHeight>=720,
     'Host monitor must not downscale or replace the working high-resolution WebRTC sender');
   console.log('PASS host-only delayed A/V monitor without changing outgoing video',JSON.stringify(aligned));
+  // Return to default streaming before codec, audio and sustained FPS checks.
+  // A second full-HD preview imposes unrelated local CPU/audio-graph load.
+  await host.locator('#hostSyncMode').evaluate(select=>{
+    select.value='off';
+    select.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+  await host.waitForFunction(()=>!window.MarmaladeAddonBridge.state.hostSyncActive,
+    null,{timeout:8000});
+  console.log('PASS optional host monitor releases resources after sync validation');
 
   // Switch 1080p -> 720p -> 540p, checking each retains actual WebRTC media.
   await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="720"]'),null,{timeout:8000});

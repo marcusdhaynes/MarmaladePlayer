@@ -155,8 +155,11 @@ try {
     assert.equal(await page.locator('#volumeMark').textContent(),'100%','Soft 100% volume detent');
     await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='200';el.dispatchEvent(new Event('input',{bubbles:true}));});
     assert.equal(await page.locator('#volumeMark').textContent(),'200%','Moving away from the detent reaches 200%');
+    // Visible controls must be exposed before a physical click. A forced
+    // click through a faded, pointer-events:none overlay hits the movie!
+    await page.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
     const previousBufferState=await page.locator('#bufferToggle').getAttribute('aria-pressed');
-    await page.locator('#bufferToggle').click({force:true});
+    await page.locator('#bufferToggle').click();
     const newBufferState=await page.locator('#bufferToggle').getAttribute('aria-pressed');
     assert.notEqual(newBufferState,previousBufferState,'Buffer control toggles its state');
     assert.equal(await page.locator('#bufferReadout').isVisible(),newBufferState==='true');
@@ -320,7 +323,7 @@ try {
     try {
       const filename=join(directory,'visible.webm');
       execFileSync('ffmpeg',['-hide_banner','-loglevel','error',
-        '-f','lavfi','-i','color=c=red:s=160x90:r=15','-t','3',
+        '-f','lavfi','-i','color=c=red:s=160x90:r=15','-t','8',
         '-an','-c:v','libvpx','-pix_fmt','yuv420p',
         '-deadline','realtime','-cpu-used','5','-crf','26','-b:v','0','-y',filename],
         {timeout:20000});
@@ -358,6 +361,38 @@ try {
     await page.waitForFunction(()=>!document.querySelector('#player').paused,null,{timeout:5000});
     await page.locator('#playPause').click({force:true});
     await page.waitForFunction(()=>document.querySelector('#player').paused,null,{timeout:5000});
+
+    // All UI controls, their labels/icons, and empty container padding must
+    // NEVER bubble into the stage play/pause handler. Test both paused and
+    // playing states so an accidental toggle in either direction is caught.
+    const nonPlaybackTargets=[
+      '#muteBtn','#muteBtn svg path','#volume','#volumeMark',
+      '#currentTime','#duration','#seekArea','.watchers',
+      '.theater-title','.theater-actions.theater-right',
+      '#theaterControls','.theater-top','.stage-indicators',
+      '#statusToggle','#settingsBtn','#subtitlesBtn'
+    ];
+    for(const paused of [true,false]){
+      if(!paused){
+        await page.locator('#playPause').click({force:true});
+        await page.waitForFunction(()=>!document.querySelector('#player').paused,
+          null,{timeout:5000});
+      }
+      for(const selector of nonPlaybackTargets){
+        const unchanged=await page.evaluate(selector=>{
+          const control=document.querySelector(selector);
+          if(!control)throw Error('Missing control '+selector);
+          control.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+          return document.querySelector('#player').paused;
+        },selector);
+        assert.equal(unchanged,paused,
+          'Click on '+selector+' must not initiate video play/pause');
+      }
+    }
+    await page.locator('#playPause').click({force:true});
+    await page.waitForFunction(()=>document.querySelector('#player').paused,
+      null,{timeout:5000});
+    console.log('PASS clicking mute, volume, seek, overlays and control padding never toggles video');
     assert.deepEqual(errors,[], 'Playable video and stage clicks must not throw runtime errors');
     await page.close();
     console.log('PASS real visible frame + click video play/pause + control buttons');
