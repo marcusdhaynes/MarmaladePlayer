@@ -3724,16 +3724,22 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     else notify('Player window captured. Create a room and start watching.');
     syncState();
   }
-  async function togglePlay() {
+  async function togglePlay(origin='button') {
     if(state.role==='host'&&state.source==='file' &&
        (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio output pending',error));
     if (state.role === 'guest') {
-      // An autoplay-unlock prompt must not swallow the shared movie's
-      // play/pause tap. The visible sound button is an independent control.
+      // The dedicated Play button also acts as the audio-unlock fallback;
+      // a tap on the PICTURE always toggles the authoritative host.
+      if(origin==='button' && el.stage.classList.contains('needs-gesture')){
+        await enableRemotePlayback();
+        return;
+      }
+      if(origin==='stage' && el.stage.classList.contains('needs-gesture') && media.muted)
+        void enableRemotePlayback(); // The same gesture may unlock sound.
       if (state.source === 'remote' && media.paused && state.hostPlaying) {
         await enableRemotePlayback();
-        return; // Unblock local playback without pausing the host.
+        return; // Resume locally without erroneously pausing the host.
       }
       guestCommand('toggle');
       return;
@@ -4295,7 +4301,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     // is a real shared transport gesture, regardless of active overlays.
     if (state.role==='guest' && state.guestConn?.open &&
         (state.source==='remote'||state.localVerified||state.bufferedMode)) {
-      void togglePlay();return;
+      void togglePlay('stage');return;
     }
     if (el.stage.classList.contains('is-pickable')) { openMoviePicker(); return; }
     // Some mobile browsers provide metadata but defer the first frame until
@@ -4308,10 +4314,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (state.role === 'guest' &&
         (state.localVerified || state.bufferedMode || state.guestConn?.open ||
          el.stage.classList.contains('needs-gesture'))) {
-      void togglePlay(); return;
+      void togglePlay('stage'); return;
     }
     if (state.role === 'host' && ['file','hosted'].includes(state.source) && state.fileReady)
-      void togglePlay();
+      void togglePlay('stage');
   }
   el.stage.addEventListener('click', event => {
     if (event.target.closest('button,input,select,label,textarea,a,[role="button"],.theater-popover,[contenteditable="true"]')) return;
@@ -4450,7 +4456,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   el.joinRoom.addEventListener('click', joinRoom);
   el.joinInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') joinRoom(); });
   el.leave.addEventListener('click', leaveRoom);
-  el.play.addEventListener('click', togglePlay);
+  el.play.addEventListener('click',()=>void togglePlay('button'));
   $('guestAudioUnlock').addEventListener('click',event=>{
     event.stopPropagation();
     void enableRemotePlayback();
