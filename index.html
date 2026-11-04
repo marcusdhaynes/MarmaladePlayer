@@ -2226,6 +2226,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     updateRoomPanel();
   }
   function setupHostConnections(peer) {
+    setupHostGuestCalls(peer);
     peer.on('connection', (conn) => {
       if (state.peer !== peer) { conn.close(); return; }
       const prior = state.connections.get(conn.peer);
@@ -2274,6 +2275,14 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           }
         }
         if (data.type === 'hello' || data.type === 'requeststate') send(conn, hostStatus());
+        if(data.type === 'guest-broadcast-starting' && typeof data.name === 'string') {
+          entry.localMirror = true;
+          try { entry.call?.close(); } catch {}
+          entry.call = null;entry.applied = '';
+          notify('Guest is preparing a video broadcast…');
+        }
+        if(data.type === 'guest-broadcast-ended' && state.guestPublisherPeerId === conn.peer)
+          try { state.incomingGuestCall?.close(); } catch {}
         if (data.type === 'local-verified' && typeof data.verified === 'boolean') {
           entry.localMirror=data.verified;
           if(data.verified){
@@ -2377,6 +2386,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         if (current?.conn === conn) {
           try { current.call?.close(); } catch { /* no-op */ }
           state.connections.delete(conn.peer);
+          if (state.guestPublisherPeerId === conn.peer)
+            try { state.incomingGuestCall?.close(); } catch {}
           renderCount();
           void tuneAllGuests();
         }
@@ -2828,6 +2839,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   function setupGuestCallHandler(peer) {
     peer.on('call', (call) => {
       if (state.peer !== peer || state.role !== 'guest' ||
+          state.guestBroadcasting || state.source === 'guest-file' || state.source === 'guest-screen' ||
           (state.localVerified && !state.localReturnPending) ||
           (state.bufferedMode && !state.localVerified) ||
           call.peer !== PEER_PREFIX + state.code) { call.close(); return; }
@@ -2938,6 +2950,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     send(state.guestConn,{type:'requestmedia',reason});
   }
   function receiveState(data) {
+    // The publishing guest is the source, not a remote watcher.
+    if(state.guestBroadcasting || state.source === 'guest-file' || state.source === 'guest-screen') return;
+    if(data.mediaKind === 'guest-remote') state.sharedDuration = 0;
     const receivedAt=performance.now();
     if(state.localVerified&&Number.isSafeInteger(data.seq)){
       if(data.seq<=state.lastLocalSnapshotSeq)return;
@@ -3118,6 +3133,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           setStage('Video and sound not connected',
             typeof data.message === 'string' ? data.message :
               'The movie stream could not cross the network. Please retry.', 'STREAM TROUBLE');
+        }
+        if (data.type === 'guest-broadcast-accepted' && state.guestBroadcasting) {
+          state.guestBroadcastConfirmed=true;
+          connection('Broadcasting to host','online');
+          updateRoomActions();notify('Host is receiving your video and audio.');
         }
         if (data.type === 'movie-info') window.MarmaladeInfoReceive?.(data.payload);
         if(data.type==='segment-part' && typeof data.id==='string')receiveRescueChunk(data);
@@ -3544,6 +3564,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     syncState();
   }
   async function togglePlay() {
+    if (state.role === 'host' && state.source === 'guest-remote') {
+      if(media.paused) await enableRemotePlayback();
+      else media.pause();
+      updateTransport();return;
+    }
     if (state.role === 'guest') {
       if (el.stage.classList.contains('needs-gesture')) { await enableRemotePlayback(); return; }
       guestCommand('toggle'); return;
@@ -4110,8 +4135,22 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   el.createRoom.addEventListener('click', createRoom);
   el.copy.addEventListener('click', copyInvite);
   el.startBroadcast.addEventListener('click', startBroadcast);
+  el.guestBroadcastInput.addEventListener('change',event=>{
+    const file=event.target.files?.[0];
+    if(file)void startGuestFileBroadcast(file);
+    event.target.value='';
+  });
   el.broadcastToggle.addEventListener('click',()=>{
-    if(state.role!=='host'||state.broadcastStarting)return;
+    if(state.broadcastStarting)return;
+    if(state.role==='guest'){
+      if(state.guestBroadcasting)stopGuestBroadcast();
+      else if(state.guestConn?.open)el.guestBroadcastInput.click();
+      return;
+    }
+    if(state.incomingGuestCall){
+      try{state.incomingGuestCall.close();}catch{}
+      return;
+    }
     if(state.broadcasting){
       stopBroadcast(state.source==='screen');
       connection('Not Broadcasting');
@@ -4417,7 +4456,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (state.role === 'host' && ['file','hosted'].includes(state.source)) { updateTransport(); syncState(); }
   });
   window.setInterval(() => {
-    if(state.role==='guest'&&state.guestConn?.open&&!state.seeking){
+    if(state.role==='guest'&&state.guestConn?.open&&!state.seeking&&state.source!=='guest-file'){
       saveWatchPosition();
       updateTransport();
       if(state.localVerified){
@@ -4438,6 +4477,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   },250);
   window.setInterval(() => {
     if (state.role === 'guest' && state.guestConn?.open) {
+      if (state.guestBroadcasting) return;
       if (state.hostStreamLive && state.source !== 'remote' &&
           !state.localVerified && !state.bufferedMode &&
           state.mediaAwaitingAt && performance.now() - state.mediaAwaitingAt > 6500)
@@ -4450,7 +4490,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   }, 5000);
   window.setInterval(()=>{
     if(state.role==='host'&&state.peer?.open && state.source && state.fileReady)syncState();
-    if(state.role==='guest'&&state.guestConn?.open){
+    if(state.role==='guest'&&state.guestConn?.open&&state.source!=='guest-file'&&state.source!=='guest-screen'){
       recoveryCheck();
       if(state.bufferedMode || state.localVerified)void syncSeekablePlayback();
     }
