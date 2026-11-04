@@ -503,7 +503,7 @@ try {
   {
     const {page,errors}=await launchRoomPage();
     await page.evaluate(()=>{
-      document.querySelector('#joinInput').value='ABCDEFGH';
+      document.querySelector('#roomInput').value='ABCDEFGH';
       const joinGesture=document.createElement('button');
       joinGesture.id='joinGestureTest';
       joinGesture.addEventListener('click',()=>document.querySelector('#joinRoom').click());
