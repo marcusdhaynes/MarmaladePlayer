@@ -22,7 +22,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare verified icon transparency
+      - name: Generate approved full-bleed web icons
         run: |
           python -m pip install --quiet pillow
           python scripts/build_icon_assets.py
@@ -32,6 +32,9 @@ jobs:
           test -s manifest.webmanifest
           test -s sw.js
           test -s favicon.svg
+          test -s favicon.ico
+          test -s favicon-32.png
+          test -s assets/approved-fullbleed-icon.webp
           test -s assets/marmalade-icon.webp
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -1,4 +1,4 @@
-"""Create native launchers from the approved transparent MarmaladePlayer artwork."""
+"""Create native launchers from the approved opaque, full-bleed artwork."""
 from pathlib import Path
 from PIL import Image
 ROOT=Path(__file__).resolve().parents[2]
@@ -8,8 +8,8 @@ if not MASTER.exists():
     run_path(str(ROOT/"scripts/build_icon_assets.py"))
 canvas=Image.open(MASTER).convert("RGBA").resize((1024,1024),Image.Resampling.LANCZOS)
 for point in ((0,0),(1023,0),(0,1023),(1023,1023)):
-    if canvas.getpixel(point)[3]>8:
-        raise RuntimeError("Launcher PNG must have transparent outer corners.")
+    if canvas.getpixel(point)[3]!=255:
+        raise RuntimeError("Launcher PNG needs opaque full-bleed corners.")
 PURPLE=(62,24,127,255)
 ANDROID=ROOT/"mobile/android/app/src/main/res"
 IOS=ROOT/"mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset"
@@ -31,7 +31,7 @@ if ANDROID.exists():
     bg.write_text('<?xml version="1.0" encoding="utf-8"?>\n'
                   '<resources><color name="ic_launcher_background">#3E187F</color></resources>\n',
                   encoding="utf-8")
-    print("Android alpha launcher + cosmic-purple adaptive background generated.")
+    print("Android full-bleed launcher + adaptive icon generated.")
 if IOS.exists():
     ios=Image.new("RGBA",(1024,1024),PURPLE)
     ios.alpha_composite(canvas)
@@ -41,4 +41,4 @@ if IOS.exists():
             with Image.open(path) as previous:size=previous.width
         except Exception:size=1024
         save(path,size,opaque)
-    print("iOS opaque purple launcher generated without black corners.")
+    print("iOS full-bleed launcher generated without black corners.")

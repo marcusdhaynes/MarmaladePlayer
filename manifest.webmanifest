@@ -9,13 +9,13 @@
   "theme_color": "#3E187F",
   "icons": [
     {
-      "src": "assets/marmalade-transparent.png",
+      "src": "assets/marmalade-transparent.png?v=20261104-fullbleed-v1",
       "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "assets/marmalade-maskable.png",
+      "src": "assets/marmalade-maskable.png?v=20261104-fullbleed-v1",
       "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "maskable"
