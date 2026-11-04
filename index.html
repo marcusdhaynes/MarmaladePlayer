@@ -4662,21 +4662,19 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   });
   el.seek.addEventListener('blur', () => { state.seeking = false; });
   el.volume.addEventListener('input', () => {
+    // Volume is personal audio output ONLY. It must not start, pause or
+    // resume either the guest's video or the host's shared movie.
     setVolume(el.volume.value);
-    // Any explicit volume gesture can also unlock browser-blocked guest audio.
-    if (state.role === 'guest' && el.stage.classList.contains('needs-gesture'))
-      void enableRemotePlayback();
   });
   el.mute.addEventListener('click', () => {
     state.soundMuted = !state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = 100;
     applyVolume();
-    // Native media element mute/unmute is sufficient for guest listening.
-    if (state.role === 'host' || state.audioContext)
+    // Unmuting cannot be treated as Play: keep the current transport
+    // state untouched even when the browser still needs an audio gesture.
+    // Host audio processing may need to resume for boosted local volume.
+    if (state.role === 'host')
       void ensureAudioPlayback().catch(()=>{});
-    if (state.role === 'guest' && !state.soundMuted &&
-        el.stage.classList.contains('needs-gesture'))
-      void enableRemotePlayback();
   });
   el.qualitySelect.addEventListener('change', () => {
     if (state.role !== 'guest') return;
