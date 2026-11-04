@@ -143,6 +143,45 @@ try {
       !document.querySelector('#dropZone').classList.contains('needs-gesture');
   },null,{timeout:12000});
   console.log('PASS guest autoplay mute fallback unlocked with user tap');
+  // Direct taps on the guest movie surface must control the authoritative
+  // host movie, not merely the guest's own local MediaStream element.
+  const guestVideo=guest.locator('#player');
+  await guestVideo.click({force:true});
+  await host.waitForFunction(()=>document.querySelector('#player').paused,null,{timeout:8000});
+  await guest.waitForFunction(()=>!window.MarmaladeAddonBridge.state.hostPlaying,
+    null,{timeout:8000});
+  await guestVideo.click({force:true});
+  await host.waitForFunction(()=>!document.querySelector('#player').paused,null,{timeout:8000});
+  await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostPlaying,
+    null,{timeout:8000});
+  console.log('PASS guest video-area click pauses and resumes the host movie');
+  // The host can choose to monitor a separately decoded file delayed to
+  // guest presentation time without changing the transmitted video source.
+  const initialTrack=await host.evaluate(()=>{
+    return [...window.MarmaladeAddonBridge.state.connections.values()][0]?.call
+      ?.peerConnection?.getSenders?.().find(sender=>sender.track?.kind==='video')?.track?.id;
+  });
+  await host.locator('#hostMatchTiming').evaluate(node=>node.click());
+  await host.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostMonitorActive,
+    null,{timeout:12000});
+  const hostMirror=await host.evaluate(()=>{
+    const state=window.MarmaladeAddonBridge.state;
+    const track=[...state.connections.values()][0]?.call?.peerConnection
+      ?.getSenders?.().find(sender=>sender.track?.kind==='video')?.track?.id;
+    return {active:state.hostMonitorActive,requested:state.hostMonitorRequested,
+      delay:state.hostMonitorDelayMs,
+      monitorPlaying:!document.querySelector('#hostMonitor').paused,
+      originalPlaying:!document.querySelector('#player').paused,
+      sourceTrackUnchanged:!!track};
+  });
+  assert(hostMirror.active && hostMirror.monitorPlaying && hostMirror.originalPlaying,
+    'Host mirror must play while the original still broadcasts');
+  const duringMirrorTrack=await host.evaluate(()=>[...window.MarmaladeAddonBridge.state.connections.values()][0]?.call
+    ?.peerConnection?.getSenders?.().find(sender=>sender.track?.kind==='video')?.track?.id);
+  assert.equal(duringMirrorTrack,initialTrack,'Host mirror must not replace outgoing video');
+  await host.locator('#hostMatchTiming').evaluate(node=>node.click());
+  await host.waitForFunction(()=>!window.MarmaladeAddonBridge.state.hostMonitorActive,null,{timeout:6000});
+  console.log('PASS independent host-only video/audio mirror preserves P2P source');
   // 1080p must negotiate a real picture before testing 720p fallback.
   await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="1080"]'),
     null,{timeout:8000});
