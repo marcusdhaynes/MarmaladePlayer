@@ -499,6 +499,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
    <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 13.9a5 5 0 0 0 7.4.5l2.1-2.1a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M14.2 10.1a5 5 0 0 0-7.4-.5l-2.1 2.1a5 5 0 0 0 7.1 7.1l1.2-1.2"/></svg>
   </button>
+  <input id="guestBroadcastInput" type="file" hidden accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg">
   <button type="button" id="copyLink" class="theater-pill quick-share-btn" title="Share Room" aria-label="Share Room">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5"/><path d="M5 13v5.3A2.7 2.7 0 0 0 7.7 21h8.6a2.7 2.7 0 0 0 2.7-2.7V13"/></svg> 
   </button>
@@ -670,6 +671,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     bufferToggle: $('bufferToggle'), bufferReadout: $('bufferReadout'),
     stabilityMode: $('stabilityMode'), strictSync: $('strictSync'), diagnosticsToggle: $('diagnosticsToggle'),
     peerAssist: $('peerAssist'), stabilityInfo: $('stabilityInfo'), localCopyPanel: $('localCopyPanel'), localCopyButton: $('localCopyButton'),
+    guestBroadcastInput: $('guestBroadcastInput'),
     localCopyInput: $('localCopyInput'), localCopyStatus: $('localCopyStatus'),
     hostedUrl: $('hostedUrl'), fallbackUrl: $('fallbackUrl'), hostedStart: $('hostedStart'),
     controls: $('theaterControls'), settingsBtn: $('settingsBtn'), settingsPanel: $('settingsPanel'),
@@ -824,6 +826,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
     basePaint: null, basePaintIdle: false, highGfxMode: '2d',
     hostPictureSample: null, guestDarkStreak: 0, pictureRepairAsked: false,
+    guestBroadcastCall: null, guestBroadcasting: false, guestBroadcastConfirmed: false,
+    guestBroadcastUrl: null, incomingGuestCall: null, guestPublisherPeerId: '',
+    guestBroadcastName: '',
     resumeChecked: false, lastProgressSaveAt: 0,
   };
 
@@ -1045,20 +1050,23 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       else scheduleControlsFade();
     }
     const duration = media.duration;
-    const isFile = ['file','hosted'].includes(state.source) && state.fileReady && state.role === 'host';
+    const isFile = ((['file','hosted'].includes(state.source) && state.role === 'host') ||
+      (state.source === 'guest-file' && state.role === 'guest')) && state.fileReady;
+    const remoteHost = state.role === 'host' && state.source === 'guest-remote';
     const guestConnected = state.role === 'guest' && Boolean(state.guestConn?.open);
     const guestHasTimeline = guestConnected && state.sharedDuration > 0;
     // Live screen shares have no seekable timeline, but a guest may pause/resume their own view.
-    el.play.disabled = !(isFile || guestHasTimeline || (guestConnected && state.source === 'remote'));
+    el.play.disabled = !(isFile || remoteHost || guestHasTimeline || (guestConnected && state.source === 'remote'));
     el.back.disabled = !(isFile || guestHasTimeline);
     el.forward.disabled = !(isFile || guestHasTimeline);
     el.seek.disabled = !(isFile || guestHasTimeline) ||
-      !(state.role === 'guest' ? guestHasTimeline : Number.isFinite(duration) && duration > 0);
+      !(state.source === 'guest-file' || state.role !== 'guest' ?
+        Number.isFinite(duration) && duration > 0 : guestHasTimeline);
     if (isFile && Number.isFinite(duration) && duration > 0) {
       el.seek.value = String(Math.round(media.currentTime / duration * 1000));
       el.current.textContent = timeString(media.currentTime);
       el.duration.textContent = timeString(duration);
-    } else if (state.role === 'guest' && state.sharedDuration > 0) {
+    } else if (state.role === 'guest' && state.source !== 'guest-file' && state.sharedDuration > 0) {
       const elapsed = state.hostPlaying ? Math.max(0, (performance.now() - state.sharedAt) / 1000) : 0;
       const time = Math.min(state.sharedDuration, state.sharedTime + elapsed);
       if (!state.seeking) el.seek.value = String(Math.round(time / state.sharedDuration * 1000));
@@ -1070,7 +1078,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       el.seek.value = '0';
     }
     const localLivePause = state.role === 'guest' && state.source === 'remote' && !state.sharedDuration;
-    el.playIcon.innerHTML = (state.role === 'guest' ?
+    el.playIcon.innerHTML = (state.role === 'guest' && state.source !== 'guest-file' ?
       (localLivePause ? media.paused : !state.hostPlaying) : media.paused) ? PLAY_PATH : PAUSE_PATH;
     updateStatusDisplay();
     updateBufferDisplay();
@@ -1080,7 +1088,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     const guest = state.role === 'guest';
     const broken = Boolean(media.error || (guest && state.source === 'remote' &&
       state.hostPlaying && state.mediaStallAt && performance.now() - state.mediaStallAt > 4000));
-    const paused = guest ? !state.hostPlaying : media.paused;
+    const paused = guest && state.source !== 'guest-file' ? !state.hostPlaying : media.paused;
     const label = broken ? 'Broken' : paused ? 'Paused' : 'Live';
     el.badgeText.textContent = label;
     el.badge.hidden = !state.showStatus || !(state.fileReady || state.source === 'remote' ||
@@ -1089,7 +1097,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     el.badge.classList.toggle('is-paused', !broken && paused);
   }
   function isPlaybackPausedForControls(){
-    if(state.role==='guest'&&state.sharedDuration>0)return !state.hostPlaying;
+    if(state.role==='guest'&&state.source!=='guest-file'&&state.sharedDuration>0)return !state.hostPlaying;
     return media.paused;
   }
   function canHideControls(){
@@ -1243,7 +1251,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (state.role === 'host') broadcast({ type: 'movie-info', payload });
   };
   function hostStatus() {
-    return { type: 'state', name: state.file ? state.file.name : state.source === 'screen' ? 'Shared player window' : 'Waiting for video',
+    return { type: 'state', name: state.guestBroadcastName || (state.file ? state.file.name : state.source === 'screen' ? 'Shared player window' : 'Waiting for video'),
       playing: !media.paused, time: ['file','hosted'].includes(state.source) ? media.currentTime : 0,
       duration: ['file','hosted'].includes(state.source) && Number.isFinite(media.duration) ? media.duration : 0,
       live: state.broadcasting || state.source === 'hosted', sourceHeight: sourceHeight(), sourceWidth: media.videoWidth || 0,
@@ -1325,6 +1333,17 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   }
   function guestCommand(action, value) {
     if (!state.guestConn?.open) return;
+    if (state.source === 'guest-file') {
+      if (action === 'toggle') action = media.paused ? 'play' : 'pause';
+      if (action === 'play') void media.play().catch(() => needsTapToPlay(true));
+      if (action === 'pause') media.pause();
+      if (action === 'seek' && Number.isFinite(Number(value)))
+        media.currentTime = Math.max(0, Math.min(media.duration || 0, Number(value)));
+      if (action === 'skip' && Number.isFinite(Number(value)))
+        media.currentTime = Math.max(0, Math.min(media.duration || 0, media.currentTime + Number(value)));
+      updateTransport();
+      return;
+    }
     // A screen-share WebRTC stream cannot be rewound. Its play button instead
     // controls only this guest's view until a shared movie timeline is available.
     if (!(state.sharedDuration > 0)) {
@@ -1951,6 +1970,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     send(state.guestConn,{type:'buffer-status',ready});
   }
   function closeConnections() {
+    if (state.guestBroadcastCall || state.guestBroadcasting) stopGuestBroadcast(false);
+    if (state.incomingGuestCall) {
+      const active = state.incomingGuestCall; state.incomingGuestCall = null;
+      try { active.close(); } catch {}
+    }
     window.MarmaladeHostSyncCleanup?.();
     clearTimeout(state.joinTimeout);
     clearTimeout(state.joinRetryTimer);
@@ -2064,21 +2088,26 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     const hosted=state.role==='host'&&state.source==='hosted'&&
       state.peer?.open&&state.fileReady;
     const live=state.role==='host'?(!!state.broadcasting||!!hosted):
-      state.role==='guest'&&!!state.guestConn?.open&&!!state.hostStreamLive;
-    const available=state.role==='host'&&!!state.peer?.open&&
-      (state.fileReady||state.source==='screen');
-    el.broadcastToggle.disabled=state.role!=='host'||state.broadcastStarting||
-      (!available&&!state.broadcasting);
+      !!state.guestBroadcastConfirmed;
+    const available=state.role==='host'?
+      (!!state.peer?.open && (state.fileReady||state.source==='screen')):
+      (!!state.peer?.open && !!state.guestConn?.open);
+    el.broadcastToggle.disabled=state.broadcastStarting||
+      (!available&&!state.broadcasting&&!state.guestBroadcasting);
     el.broadcastToggle.setAttribute('aria-pressed',String(!!live));
-    el.broadcastToggle.setAttribute('aria-label',live?'Broadcasting':'Not Broadcasting');
+    el.broadcastToggle.setAttribute('aria-label',state.role==='guest'?
+      (state.guestBroadcasting?'Stop Guest Broadcast':'Broadcast Video To Host'):
+      (live?'Broadcasting':'Not Broadcasting'));
     el.broadcastToggle.title=state.role==='guest'?
-      (live?'Host Is Broadcasting':'Host Is Not Broadcasting'):
+      (state.guestBroadcasting?
+        (state.guestBroadcastConfirmed?'Broadcasting To Host · Click To Stop':'Connecting Guest Video · Click To Cancel'):
+        'Click To Choose A Video And Broadcast It To The Host'):
       live?'Broadcasting · Click to Stop':'Not Broadcasting · Click to Broadcast';
   }
   function updateRoomActions() {
     updateBroadcastIndicator();
     const connected=state.role==='guest' && !!state.guestConn?.open;
-    el.localCopyButton.disabled=!connected;
+    el.localCopyButton.disabled=!connected || state.guestBroadcasting;
     el.localCopyButton.classList.toggle('local-suspended',!!state.localModeOff);
     el.localCopyButton.setAttribute('aria-pressed',String(!!state.localVerified && !state.localModeOff));
     el.localCopyButton.setAttribute('aria-label',state.localModeOff?'Local Video Off. Hold to Re-enable':'Select Local Video. Hold to Disable');
