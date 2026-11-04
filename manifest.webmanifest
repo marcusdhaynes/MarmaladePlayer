@@ -5,19 +5,19 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#101014",
-  "theme_color": "#101014",
+  "background_color": "#3E187F",
+  "theme_color": "#3E187F",
   "icons": [
     {
-      "src": "assets/marmalade-icon.webp",
+      "src": "assets/marmalade-transparent.png",
       "sizes": "1024x1024",
-      "type": "image/webp",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "assets/marmalade-icon.webp",
+      "src": "assets/marmalade-maskable.png",
       "sizes": "1024x1024",
-      "type": "image/webp",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ]

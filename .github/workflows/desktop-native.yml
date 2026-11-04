@@ -12,6 +12,8 @@ on:
       - 'subtitle-match.js'
       - 'subtitle-search.js'
       - 'manifest.webmanifest'
+      - 'assets/**'
+      - 'scripts/build_icon_assets.py'
       - 'favicon.svg'
       - '.github/workflows/desktop-native.yml'
   workflow_dispatch:
@@ -37,6 +39,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Normalize shared app icons before packaging
+        run: |
+          python -m pip install --quiet pillow
+          python scripts/build_icon_assets.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
