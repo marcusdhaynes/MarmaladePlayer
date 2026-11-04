@@ -800,11 +800,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     { id: '240', height: 240, bitrate: 300000, fps: 24 },
     { id: '360', height: 360, bitrate: 520000, fps: 24 },
     { id: '480', height: 480, bitrate: 760000, fps: 24 },
-    { id: '540', height: 540, bitrate: 1000000, fps: 24 },
-    { id: '720', height: 720, bitrate: 1350000, fps: 24 },
-    { id: '1080', height: 1080, bitrate: 2450000, fps: 24 },
+    { id: '540', height: 540, bitrate: 1200000, fps: 24 },
+    { id: '720', height: 720, bitrate: 2400000, fps: 24 },
+    { id: '1080', height: 1080, bitrate: 4200000, fps: 24 },
   ];
-  const MAX_TOTAL_VIDEO_BPS = isMobile ? 2500000 : 7200000;
+  // Allow a single 1080p movie to retain motion detail without starving the
+  // encoder. This is a ceiling; WebRTC still honors actual congestion.
+  const MAX_TOTAL_VIDEO_BPS = isMobile ? 5500000 : 12000000;
   const DEFAULT_LEVEL = isMobile ? '360' : '480';
   const PLAY_PATH = '<path d="m8.5 5.5 10.5 6.5-10.5 6.5V5.5Z"/>';
   const PAUSE_PATH = '<path d="M8.7 5.8v12.4M15.3 5.8v12.4"/>';
@@ -2608,16 +2610,18 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       params.encodings[0].maxBitrate = bitrate;
       params.encodings[0].maxFramerate = 24;
       params.encodings[0].scaleResolutionDownBy = scale;
-      // Preserve the manually selected high resolution AND 24fps as encoder
-      // targets. Reduce encoded picture detail if necessary, not the size.
-      params.degradationPreference = wantsHigh
-        ? 'maintain-framerate-and-resolution' : 'maintain-framerate';
+      // Never trade away 24fps to preserve a selected resolution. In
+      // particular, maintain-resolution allows 0-2fps slideshows when the
+      // device or connection is constrained. Prefer continuous motion, then
+      // the best decodable picture detail the link can sustain.
+      params.degradationPreference = 'maintain-framerate';
       let scalingSupported=true,applied=false;
       try {
         await sender.setParameters(params);applied=true;
       } catch (error) {
-        // Some browsers reject the newer degradation preference. Retry
-        // their proven policy with the same encoder scaling first.
+        // Some browsers reject degradationPreference or sender scaling.
+        // A compatibility retry may omit unsupported hints, but must never
+        // explicitly prioritize resolution over motion.
         if (wantsHigh) {
           try {
             const compatible=sender.getParameters();
@@ -2625,14 +2629,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             compatible.encodings[0].maxBitrate=bitrate;
             compatible.encodings[0].maxFramerate=24;
             compatible.encodings[0].scaleResolutionDownBy=scale;
-            // Older engines may not support maintaining both properties.
-            // On 720p/1080p prefer real pixels over the silent 270p
-            // downgrade caused by the legacy maintain-framerate policy.
-            // WebRTC still caps sender FPS at 24 and controls congestion.
-            compatible.degradationPreference='maintain-resolution';
+            delete compatible.degradationPreference;
             await sender.setParameters(compatible);
             applied=true;
-          } catch { /* Existing fallback below. */ }
+          } catch { /* Existing capture-size fallback below. */ }
         }
         if (!applied) {
           // If scaling itself is unsupported, use a correctly sized high
@@ -3528,13 +3528,23 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     }
     // Send a PRE-volume audio track: personal gain (including 200%) cannot
     // change the audio guests receive. Web Audio processing is local only.
-    let audioTracks = nativeAudioTracks;
-    try {
-      await ensureAudioCapture();
-      if (state.audioDestination?.stream.getAudioTracks().length &&
-          (state.audioContext?.state === 'running' || !nativeAudioTracks.length))
-        audioTracks = state.audioDestination.stream.getAudioTracks();
-    } catch (error) { console.debug('Using native media audio capture', error); }
+    // Native media audio is already decoded by the video element. Re-routing
+    // every movie through a second Web Audio graph needlessly consumes CPU
+    // during 720p/1080p encoding and can starve video frame delivery.
+    // Use Web Audio only for browsers without a usable native audio track,
+    // or if a speaker-gain graph was explicitly created (e.g. 200% volume).
+    let audioTracks = nativeAudioTracks.filter(t => t.readyState === 'live' && t.enabled);
+    if (!audioTracks.length || state.audioSourceNode) {
+      try {
+        await ensureAudioCapture();
+        const processed = state.audioDestination?.stream.getAudioTracks()
+          .filter(t => t.readyState === 'live') || [];
+        if (processed.length && state.audioContext?.state === 'running')
+          audioTracks = processed;
+        else if(!audioTracks.length && processed.length)
+          audioTracks = processed; // Will become audible on a host gesture.
+      } catch (error) { console.debug('Native audio capture fallback', error); }
+    }
     if (!track && !audioTracks.length) throw new Error('No capturable audio or video tracks.');
     return new MediaStream([track, ...audioTracks].filter(Boolean));
   }
@@ -3545,7 +3555,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     }
   }
   async function startBroadcast() {
-    if(state.role==='host' && state.source==='file')
+    // Only construct Web Audio for hosts lacking native capture or already
+    // using a custom speaker-gain graph. Normal movie sound stays native.
+    if(state.role==='host' && state.source==='file' &&
+       (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio unlock pending',error));
     if(state.role==='host' && state.source==='hosted') {
       try {await media.play();state.broadcasting=false;syncState();}
@@ -3624,7 +3637,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     syncState();
   }
   async function togglePlay() {
-    if(state.role==='host'&&state.source==='file')
+    if(state.role==='host'&&state.source==='file' &&
+       (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio output pending',error));
     if (state.role === 'guest') {
       if (el.stage.classList.contains('needs-gesture')) { await enableRemotePlayback(); return; }
