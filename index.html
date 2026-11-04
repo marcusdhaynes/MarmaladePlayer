@@ -2267,6 +2267,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             entry.highBitrateFactor = 1;
             entry.highStableSamples = 0;
             entry.highHeadroomFactor = 1;
+            entry.motionRescue = false;
+            entry.lowFpsWindows = entry.goodFpsWindows = 0;
+            entry.previousEncoderStats = null;
             entry.applied = '';
             void tuneAllGuests();
           }
@@ -2482,7 +2485,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     const pc=entry.call?.peerConnection;
     if(!pc?.getStats||!entry.conn?.open)return;
     const now=performance.now();
-    if(now-entry.lastEncoderMeasureAt<2400)return;
+    if(now-entry.lastEncoderMeasureAt<1900)return;
     entry.lastEncoderMeasureAt=now;
     try{
       const stats=await pc.getStats();
@@ -2508,6 +2511,38 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           outgoingCapacity=Math.max(outgoingCapacity,x.availableOutgoingBitrate);
       });
       const height=levelForGuest(entry).height;
+      // First preserve 720p/1080p and their true frame size. If the
+      // encoder actually falls to slideshow FPS for two consecutive windows,
+      // change only THIS guest's sender to a framerate-first rescue policy.
+      // Other guests, audio, and verified local playback stay untouched.
+      if(height>STREAM_HEIGHT && state.source==='file' && state.broadcasting &&
+         !media.paused && previous && secs>=1.4) {
+        if(fps<18){
+          entry.goodFpsWindows=0;
+          entry.lowFpsWindows=(entry.lowFpsWindows||0)+1;
+          if(entry.lowFpsWindows>=2 && !entry.motionRescue){
+            entry.motionRescue=true;
+            entry.motionRescueSince=now;
+            entry.applied='';
+            void tuneGuest(entry);
+            send(entry.conn,{type:'quality-health',
+              message:'Motion recovery active: the browser may lower resolution to restore smooth video.'});
+          }
+        }else if(fps>=22){
+          entry.lowFpsWindows=0;
+          entry.goodFpsWindows=(entry.goodFpsWindows||0)+1;
+          if(entry.motionRescue && entry.goodFpsWindows>=8 &&
+             now-(entry.motionRescueSince||0)>=30000 &&
+             outgoingCapacity>levelForGuest(entry).bitrate*1.35){
+            entry.motionRescue=false;
+            entry.goodFpsWindows=0;
+            entry.applied='';
+            void tuneGuest(entry);
+          }
+        }else{
+          entry.goodFpsWindows=0;
+        }
+      }
       if(height>STREAM_HEIGHT){
         const healthy=(entry.lastHealth?.loss||0)<.006 &&
           !(entry.lastHealth?.freezes||0) && !(entry.lastHealth?.stalls||0);
@@ -2539,7 +2574,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         encodeMs:frameDelta>0?Math.max(0,1000*delta/frameDelta):0,
         encoder:String(outbound.encoderImplementation||'unknown').slice(0,72),
         headroomFactor:entry.highHeadroomFactor||1,
-        outgoingCapacity
+        outgoingCapacity,
+        motionRescue:!!entry.motionRescue
       };
       send(entry.conn,report);
     }catch(error){console.debug('Encoder diagnostics unavailable',error);}
@@ -2590,7 +2626,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     const naturalWidth = newTrack.getSettings?.().width || (wantsHigh ? media.videoWidth : STREAM_WIDTH);
     const scale = Math.max(1, naturalHeight / Math.max(1, current.height),
       naturalWidth / Math.max(1, Math.round(current.height * naturalWidth / Math.max(1, naturalHeight))));
-    const signature = `${newTrack.id}/${bitrate}/${scale.toFixed(2)}/${current.fps}`;
+    const signature = `${newTrack.id}/${bitrate}/${scale.toFixed(2)}/${current.fps}/${entry.motionRescue?'rescue':'detail'}`;
     if (signature === entry.applied) return;
     entry.tuning = true;
     try {
@@ -2610,11 +2646,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       params.encodings[0].maxBitrate = bitrate;
       params.encodings[0].maxFramerate = 24;
       params.encodings[0].scaleResolutionDownBy = scale;
-      // Never trade away 24fps to preserve a selected resolution. In
-      // particular, maintain-resolution allows 0-2fps slideshows when the
-      // device or connection is constrained. Prefer continuous motion, then
-      // the best decodable picture detail the link can sustain.
-      params.degradationPreference = 'maintain-framerate';
+      // Prefer genuine 720p/1080p at 24fps on a capable device/link.
+      // Unlike the old fallback to maintain-resolution (which is allowed to
+      // drop to 0-2fps), an actual sustained encoding stall activates
+      // per-guest motion rescue and degrades resolution first.
+      params.degradationPreference = wantsHigh && !entry.motionRescue
+        ? 'maintain-framerate-and-resolution' : 'maintain-framerate';
       let scalingSupported=true,applied=false;
       try {
         await sender.setParameters(params);applied=true;
@@ -2629,7 +2666,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             compatible.encodings[0].maxBitrate=bitrate;
             compatible.encodings[0].maxFramerate=24;
             compatible.encodings[0].scaleResolutionDownBy=scale;
-            delete compatible.degradationPreference;
+            compatible.degradationPreference='maintain-framerate';
             await sender.setParameters(compatible);
             applied=true;
           } catch { /* Existing capture-size fallback below. */ }
@@ -2657,7 +2694,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           width: Math.round(naturalWidth / (scalingSupported ? scale : 1)),
           height: Math.round(naturalHeight / (scalingSupported ? scale : 1)),
           bitrate, limited: bitrate < current.bitrate,
-          message: scalingSupported ? '' : 'Resolution scaling unsupported by this browser; selected quality is a target' });
+          message: entry.motionRescue
+            ? 'Frame-rate recovery active; the browser may temporarily reduce resolution'
+            : scalingSupported ? '' : 'Resolution scaling unsupported by this browser; selected quality is a target' });
       }
     } catch (error) {
       console.debug('Browser cannot apply requested quality; keeping stream alive', error);
@@ -3204,9 +3243,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         }
         if(data.type==='picture-repair' && typeof data.message==='string')
           notify(data.message);
+        if (data.type === 'quality-health' && typeof data.message==='string'){
+          updateQualityHint(data.message);
+        }
         if (data.type === 'quality-applied') {
           state.appliedQuality = data.level;
-          updateQualityHint(data.limited ? 'Host bandwidth safety limit' : data.message || `Receiving ${data.height || '?'}p`);
+          updateQualityHint(data.message ||
+            (data.limited ? 'Host bandwidth safety limit' : `Receiving ${data.height || '?'}p`));
         }
         if (data.type === 'pong' && typeof data.at === 'number') {
           const receivedAt=performance.now();
@@ -3588,7 +3631,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       el.network.textContent = ''; // Historical label remains hidden; the player chrome stays minimal.
       for (const peerId of state.connections.keys()) callGuest(peerId);
       if (state.qualityTimer) clearInterval(state.qualityTimer);
-      state.qualityTimer = setInterval(() => { void tuneAllGuests(); }, 4000);
+      state.qualityTimer = setInterval(() => { void tuneAllGuests(); }, 2500);
       void tuneAllGuests();
       syncState();
       connection('Broadcasting live', 'online');
