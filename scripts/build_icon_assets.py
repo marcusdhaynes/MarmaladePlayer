@@ -1,54 +1,55 @@
-"""Normalize MarmaladePlayer launcher assets without changing approved artwork.
+"""Build all MarmaladePlayer icons from the approved full-bleed artwork.
 
-The master WebP already carries alpha. The problem is that some launchers
-were composing it against nearly-black (#0D0722) backgrounds.
-Produce a purple-matched, safe-zone maskable icon and iOS touch icon.
+Do not round, erase or make outer corners transparent. Browsers and operating
+systems apply their own mask shapes; artwork must extend beneath the cutout.
 """
+from base64 import b64encode
+from hashlib import sha256
 from pathlib import Path
 from PIL import Image
-from PIL import ImageDraw
-ROOT=Path(__file__).resolve().parents[1]
-ASSETS=ROOT/"assets"
-MASTER=ASSETS/"marmalade-icon.webp"
-PURPLE=(62,24,127,255)
-image=Image.open(MASTER).convert("RGBA")
-if image.size!=(1024,1024):
-    image=image.resize((1024,1024),Image.Resampling.LANCZOS)
-# Keep every original pixel of the approved logo; only guarantee corners have
-# no black opaque fill if an uploaded version accidentally lost its alpha.
-corners=[image.getpixel(p) for p in [(0,0),(1023,0),(0,1023),(1023,1023)]]
-if any(p[3]>8 for p in corners):
-    # A rounded-square alpha mask only removes the OUTSIDE corner fill.
-    from PIL import ImageChops, ImageFilter
-    mask=Image.new("L",(1024,1024),0)
-    ImageDraw.Draw(mask).rounded_rectangle((14,14,1009,1009),radius=240,fill=255)
-    mask=mask.filter(ImageFilter.GaussianBlur(1.2))
-    original_alpha=image.getchannel("A")
-    image.putalpha(ImageChops.darker(original_alpha,mask))
-    image.save(MASTER,"WEBP",lossless=True,method=6)
-    print("Removed opaque corner fill from master icon")
-else:
-    print("Master icon corners already transparent; keeping artwork pixel-perfect")
 
-def assert_transparency(picture):
-    pts=[(0,0),(1023,0),(0,1023),(1023,1023)]
-    if any(picture.getpixel(point)[3]>8 for point in pts):
-        raise SystemExit("ERROR: an outer icon corner is not transparent")
-assert_transparency(image)
+ROOT = Path(__file__).resolve().parents[1]
+ASSETS = ROOT / "assets"
+SOURCE = ASSETS / "approved-fullbleed-icon.webp"
+EXPECTED_SHA256 = "da82db3a4f6f5525eb8ad947af8df1ee03f0905a6a9b7c4a12704ef5f67d649b"
+if not SOURCE.is_file():
+    raise SystemExit(f"Missing approved icon source: {SOURCE}")
+actual_sha = sha256(SOURCE.read_bytes()).hexdigest()
+if actual_sha != EXPECTED_SHA256:
+    raise SystemExit(f"Approved artwork checksum mismatch: {actual_sha}")
+with Image.open(SOURCE) as source:
+    if source.width != source.height:
+        raise SystemExit("Approved icon must be square")
+    image = source.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
 
-# Android/Chromium maskable artwork must have an opaque background within its
-# system-shaped silhouette. Use matching GALACTIC PURPLE, never black.
-maskable=Image.new("RGBA",(1024,1024),PURPLE)
-mark=image.resize((824,824),Image.Resampling.LANCZOS)
-maskable.alpha_composite(mark,(100,100))
-maskable.convert("RGB").save(ASSETS/"marmalade-maskable.png",optimize=True)
+for point in [(0,0),(1023,0),(0,1023),(1023,1023)]:
+    rgb = image.getpixel(point)
+    if sum(rgb) < 85 or rgb[2] < 60:
+        raise SystemExit(f"Black or empty corner {point}: {rgb}")
 
-# iOS always masks to its own rounded system shape and requires opaque icons.
-ios=Image.new("RGBA",(1024,1024),PURPLE)
-ios.alpha_composite(image)
-ios.convert("RGB").resize((180,180),Image.Resampling.LANCZOS).save(
-    ASSETS/"apple-touch-icon.png",optimize=True)
-
-# Verify an actual high-res RGBA PNG is available to desktop launchers.
-image.save(ASSETS/"marmalade-transparent.png",optimize=True)
-print("Verified alpha-corner PNG, purple maskable icon, and iOS touch icon")
+image.save(ASSETS / "marmalade-icon.webp", "WEBP", quality=91, method=6)
+# Keep filenames for compatibility; transparency is intentionally removed.
+image.save(ASSETS / "marmalade-transparent.png", "PNG", optimize=True)
+image.save(ASSETS / "marmalade-maskable.png", "PNG", optimize=True)
+image.resize((180, 180), Image.Resampling.LANCZOS).save(
+    ASSETS / "apple-touch-icon.png", "PNG", optimize=True)
+image.resize((32,32), Image.Resampling.LANCZOS).save(
+    ROOT / "favicon-32.png", "PNG", optimize=True)
+image.save(ROOT / "favicon.ico", format="ICO",
+           sizes=[(16,16),(32,32),(48,48),(64,64)])
+b64 = b64encode(SOURCE.read_bytes()).decode("ascii")
+(ROOT / "favicon.svg").write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">'
+    '<title>Marmalade Player</title>'
+    '<image width="256" height="256" href="data:image/webp;base64,'+b64+'"/>'
+    '</svg>\n', encoding="utf-8")
+for path in [ASSETS/"marmalade-icon.webp", ASSETS/"marmalade-transparent.png",
+             ASSETS/"marmalade-maskable.png", ASSETS/"apple-touch-icon.png",
+             ROOT/"favicon-32.png", ROOT/"favicon.ico"]:
+    with Image.open(path) as check:
+        edge = check.convert("RGBA")
+        for x,y in [(0,0),(edge.width-1,0),(0,edge.height-1),
+                    (edge.width-1,edge.height-1)]:
+            if edge.getpixel((x,y))[3] != 255:
+                raise SystemExit(f"Icon has a transparent corner: {path.name}")
+print("Verified full-bleed icons for web, PWA, mobile and desktop")
