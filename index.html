@@ -2646,12 +2646,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       params.encodings[0].maxBitrate = bitrate;
       params.encodings[0].maxFramerate = 24;
       params.encodings[0].scaleResolutionDownBy = scale;
-      // Prefer genuine 720p/1080p at 24fps on a capable device/link.
-      // Unlike the old fallback to maintain-resolution (which is allowed to
-      // drop to 0-2fps), an actual sustained encoding stall activates
-      // per-guest motion rescue and degrades resolution first.
+      // Preserve genuine 720p/1080p on capable networks. The original bug
+      // was leaving maintain-resolution active permanently even while FPS
+      // collapsed. Two sustained slow-encoder windows now trigger automatic
+      // maintain-framerate rescue for this guest only.
       params.degradationPreference = wantsHigh && !entry.motionRescue
-        ? 'maintain-framerate-and-resolution' : 'maintain-framerate';
+        ? 'maintain-resolution' : 'maintain-framerate';
       let scalingSupported=true,applied=false;
       try {
         await sender.setParameters(params);applied=true;
@@ -2674,9 +2674,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         if (!applied) {
           // If scaling itself is unsupported, use a correctly sized high
           // capture canvas instead of transmitting 1080p for a 720p choice.
-          if (wantsHigh && sender.track === state.nativeCapture?.getVideoTracks()[0] &&
+          if (sender.track === state.nativeCapture?.getVideoTracks()[0] &&
               sourceHeight()>current.height) {
-            const safe=getHighVideoTrack(current.height,true);
+            // Even at 144p/240p/360p, don't transmit an unscaled 1080p
+            // capture if this browser rejects RTP sender scaling.
+            const safe=wantsHigh
+              ?getHighVideoTrack(current.height,true)
+              :getCompatCanvasTrack();
             if (safe?.readyState==='live' && safe!==sender.track)
               await sender.replaceTrack(safe);
           }
