@@ -164,6 +164,30 @@ try {
   await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostPlaying,
     null,{timeout:8000});
   console.log('PASS guest video-area click pauses and resumes the host movie');
+  // Mute, volume, status and the surrounding controls are NOT video taps.
+  // Keep the host running and the guest connected during those actions.
+  const hostPlayingBefore=await host.evaluate(()=>!document.querySelector('#player').paused);
+  assert(hostPlayingBefore,'Host must be playing before testing guest controls');
+  await guest.locator('#muteBtn').click({force:true});
+  const guestControls=[
+    '#volumeMark','#currentTime','#seekArea','.theater-controls',
+    '.theater-top','#statusToggle','#settingsBtn','#subtitlesBtn'
+  ];
+  for(const selector of guestControls){
+    await guest.evaluate(selector=>{
+      const el=document.querySelector(selector);
+      if(!el)throw Error('Missing guest control '+selector);
+      el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    },selector);
+    assert(await host.evaluate(()=>!document.querySelector('#player').paused),
+      'Guest clicking '+selector+' must not pause the host movie');
+  }
+  await guest.locator('#muteBtn').click({force:true}); // Restore audible guest output.
+  assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.soundMuted),
+    false,'Guest mute toggles without affecting shared play state');
+  assert(await host.evaluate(()=>!document.querySelector('#player').paused),
+    'Guest mute/unmute must never pause the host');
+  console.log('PASS guest mute and all non-play controls preserve host playback');
   // The host can choose to monitor a separately decoded file delayed to
   // guest presentation time without changing the transmitted video source.
   const initialTrack=await host.evaluate(()=>{
