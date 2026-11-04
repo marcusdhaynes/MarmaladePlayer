@@ -476,6 +476,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 .stage.join-failed .stage-empty p{font-size:13px!important;max-width:340px;line-height:1.5!important;margin:0!important}
 .stage-retry-join{pointer-events:auto;position:relative;z-index:5;background:#eeb07b;color:#271421;border:0;border-radius:8px;font-size:12px;font-weight:800;padding:9px 16px;margin-top:6px}
 .stage-retry-join[hidden]{display:none!important}
+.room-not-ready{color:#ffcbab!important}
 
 .stage.guest-waiting .theater-controls,.stage.guest-waiting .theater-top{display:none!important}
 .stage.guest-waiting .stage-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:230px;padding:20px 15px;gap:10px}
@@ -608,7 +609,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         <section id="hostActive" class="compact-room" hidden>
           <div class="compact-heading"><span class="room-indicator"></span><strong>Hosting</strong><button id="endRoom" type="button" class="compact-text-btn">End Room</button></div>
           <input id="inviteLink" type="hidden" readonly>
-          <p class="compact-help">Copy this link to invite someone.</p>
+          <p class="compact-help" id="hostRoomHealth" role="status" aria-live="polite">Room registration pending. The invitation will work once this room is online.</p>
         </section>
         <section id="joinActive" class="compact-room" hidden>
           <div class="compact-heading"><span class="room-indicator"></span><strong>Watching Together</strong><button id="leaveRoom" type="button" class="compact-text-btn">Leave</button></div>
@@ -2086,7 +2087,17 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       state.localVerified?'Local Video Verified · Click to Change · Hold to Stream':
       'Choose Local Video · Hold to Turn Off';
     el.copy.disabled=false;
-    el.copy.title=state.code?'Share Room Invitation':'Start a Room to Share';
+    const hostReady=state.role==='host' && !!state.code && !!state.peer?.open &&
+      !state.peer.disconnected && !state.peer.destroyed;
+    el.copy.title=hostReady?'Share Verified Active Room':
+      state.role==='host'?'Reconnect Room Before Sharing':'Start Hosting to Share a Room';
+    const hostHealth=document.getElementById('hostRoomHealth');
+    if(hostHealth&&state.role==='host'){
+      hostHealth.textContent=hostReady?
+        'Room online · Guests can join with the current invitation.':
+        'Room not registered · Keep this app open until the room is online.';
+      hostHealth.classList.toggle('room-not-ready',!hostReady);
+    }
   }
   function localNotice(message) {
     el.localCopyStatus.textContent=message;
@@ -2717,10 +2728,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   function recoverHost(peer,code){
     if(state.peer!==peer||state.role!=='host'||hostRecoveryTimer)return;
     connection('Restoring room service…','error');
+    updateRoomActions();
     hostRecoveryTimer=setTimeout(()=>{
       hostRecoveryTimer=null;
       if(state.peer!==peer||state.role!=='host')return;
-      if(peer.open){stopHostRecovery();connection('Room is ready','online');return;}
+      if(peer.open&&!peer.disconnected){stopHostRecovery();connection('Room is ready','online');updateRoomActions();return;}
       if(peer.destroyed){
         const replacement=new window.Peer(PEER_PREFIX+code,PEER_OPTIONS);
         state.peer=replacement;
@@ -2747,7 +2759,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       autoStartIfPlaying();
     });
     peer.on('disconnected',()=>{
-      if(state.peer===peer)recoverHost(peer,code);
+      if(state.peer===peer){
+        updateRoomActions();
+        recoverHost(peer,code);
+      }
     });
     peer.on('error',error=>{
       if(state.peer!==peer)return;
@@ -2762,7 +2777,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         const replacement=new window.Peer(PEER_PREFIX+fresh,PEER_OPTIONS);
         state.peer=replacement;
         configureHostPeer(replacement,fresh);
-        notify('Room code changed. Please share the newly generated link.');
+        el.inviteLink.value='';
+        updateRoomActions();
+        notify('Room ID changed during recovery. Guests need a NEW invitation link.');
       }else recoverHost(peer,code);
     });
   }
@@ -2776,6 +2793,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     const peer=new window.Peer(PEER_PREFIX+code,PEER_OPTIONS);
     state.peer=peer;
     connection('Opening room…');
+    updateRoomActions();
     configureHostPeer(peer,code);
   }
   function setupGuestCallHandler(peer) {
@@ -2977,6 +2995,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     }
   }
   const JOIN_TIMEOUT_MS = 13500;
+  const SIGNALING_READY_DIAGNOSTIC_MS=2600;
   const MAX_JOIN_ATTEMPTS = 6;
   function joinFailed(message, fatal = false, expectedPeer = state.peer) {
     if (state.peer !== expectedPeer || !state.connecting) return;
@@ -2987,7 +3006,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       connection(`Retrying connection (${next}/${MAX_JOIN_ATTEMPTS})…`);
       el.joinProgressText.textContent = `Retrying · attempt ${next}/${MAX_JOIN_ATTEMPTS}`;
       if(!el.stage.classList.contains('has-video'))
-        setStage('Finding your host…','The host may still be opening the room. Retrying automatically.','RECONNECTING');
+        setStage('Finding your host…','The host must keep their app open and show "Room online". Checking again…','RECONNECTING');
       const stalePeer = state.peer;
       state.peer = null;
       state.guestConn = null;
@@ -3022,7 +3041,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     catch { joinFailed('Could not start the connection service. Check your internet and try again.',true); return; }
     state.peer = peer;
     state.joinTimeout = setTimeout(() => {
-      joinFailed('Host room is not registered yet. Keep the host app open and retry.',false,peer);
+      joinFailed('The host has not appeared on the room service. The host must show "Room online" and keep their app open.',false,peer);
     },JOIN_TIMEOUT_MS);
     setupGuestCallHandler(peer);
     peer.on('open', () => {
@@ -3132,7 +3151,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         const missing = error?.type === 'peer-unavailable';
         // An immediate peer-unavailable signal means this ID is not currently
         // registered. Retry: the host may be reconnecting or starting up.
-        joinFailed(missing ? 'Host not registered yet. Retrying the same invitation…'
+        joinFailed(missing ? 'Host room is not registered. Check that the host shows "Room online" and has shared the latest link.'
           : 'The connection service is having trouble. Trying again…',false,peer);
       } else if (error?.type === 'network' || error?.type === 'server-error') {
         connection('Signaling interrupted','error');
@@ -3520,7 +3539,16 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     }
   }
   async function copyInvite() {
-    if(!state.code){notify('Create or join a room to share its invitation.');return;}
+    if(state.role!=='host'){
+      notify('Only the host can share an invitation. Open a movie to create your room first.');
+      return;
+    }
+    if(!state.code||!state.peer?.open||state.peer.disconnected||state.peer.destroyed){
+      notify('Room is not online. Keep this tab open and reconnect the room before sharing.');
+      if(state.code&&state.peer)recoverHost(state.peer,state.code);
+      else if(!state.connecting)void createRoom();
+      return;
+    }
     const link=inviteUrl(state.code);
     // Launch the device share sheet directly from the trusted user gesture.
     // Guests can tap the HTTPS invitation in any browser even without the app.
