@@ -4007,7 +4007,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     primeGuestAudioFromGesture();
     // A generic control tap MUST NOT turn video playback on. Audio may
     // be unlocked only from the video surface or explicit Play/Sound control.
-    if(el.stage.contains(event.target) && !isVideoControlEvent(event) &&
+    if(event?.type==='pointerdown' && el.stage.contains(event.target) &&
+       !isVideoControlEvent(event) &&
        state.role==='guest' && state.source==='remote' &&
        state.audioUnlockRequired && media.muted && !state.soundMuted)
       void enableRemotePlayback();
@@ -4016,7 +4017,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // authorize audio when the media stream arrives moments later.
   document.addEventListener('pointerdown',onGuestGesture,{capture:true,passive:true});
   document.addEventListener('keydown',event=>{
-    if(!event.repeat)onGuestGesture();
+    if(!event.repeat)onGuestGesture(event);
   },{capture:true});
   // Host monitoring never sends commands to a guest or seeks the source.
   setInterval(()=>{
