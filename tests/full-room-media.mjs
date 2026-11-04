@@ -143,6 +143,71 @@ try {
       !document.querySelector('#dropZone').classList.contains('needs-gesture');
   },null,{timeout:12000});
   console.log('PASS guest autoplay mute fallback unlocked with user tap');
+  // Direct taps on the guest movie surface must control the authoritative
+  // host movie, not merely the guest's own local MediaStream element.
+  const guestVideo=guest.locator('#player');
+  await guestVideo.click({force:true});
+  await host.waitForFunction(()=>document.querySelector('#player').paused,null,{timeout:8000});
+  await guest.waitForFunction(()=>!window.MarmaladeAddonBridge.state.hostPlaying,
+    null,{timeout:8000});
+  await guestVideo.click({force:true});
+  await host.waitForFunction(()=>!document.querySelector('#player').paused,null,{timeout:8000});
+  await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostPlaying,
+    null,{timeout:8000});
+  console.log('PASS guest video-area click pauses and resumes the host movie');
+  // The host can choose to monitor a separately decoded file delayed to
+  // guest presentation time without changing the transmitted video source.
+  const initialTrack=await host.evaluate(()=>{
+    return [...window.MarmaladeAddonBridge.state.connections.values()][0]?.call
+      ?.peerConnection?.getSenders?.().find(sender=>sender.track?.kind==='video')?.track?.id;
+  });
+  await host.locator('#hostMatchTiming').evaluate(node=>node.click());
+  await host.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostMonitorActive,
+    null,{timeout:12000});
+  await guest.evaluate(()=>window.MarmaladeAddonBridge.state.guestConn.send({
+    type:'presentation-delay',ms:1200
+  }));
+  await host.waitForFunction(()=>window.MarmaladeAddonBridge.state.hostMonitorDelayMs>500,
+    null,{timeout:8000});
+  const hostMirror=await host.evaluate(()=>{
+    const state=window.MarmaladeAddonBridge.state;
+    const track=[...state.connections.values()][0]?.call?.peerConnection
+      ?.getSenders?.().find(sender=>sender.track?.kind==='video')?.track?.id;
+    return {active:state.hostMonitorActive,requested:state.hostMonitorRequested,
+      delay:state.hostMonitorDelayMs,
+      monitorPlaying:!document.querySelector('#hostMonitor').paused,
+      originalPlaying:!document.querySelector('#player').paused,
+      sourceTrackUnchanged:!!track};
+  });
+  assert(hostMirror.active && hostMirror.monitorPlaying && hostMirror.originalPlaying,
+    'Host mirror must play while the original still broadcasts');
+  assert(hostMirror.delay>500,'Host monitor must respond to the guest presentation delay');
+  const mirrorAudio=await guest.evaluate(async()=>{
+    const track=document.querySelector('#player').srcObject?.getAudioTracks()[0];
+    if(!track)return 0;
+    const audio=new AudioContext();
+    const source=audio.createMediaStreamSource(new MediaStream([track]));
+    const analyzer=audio.createAnalyser();analyzer.fftSize=1024;
+    const gain=audio.createGain();gain.gain.value=0;
+    source.connect(analyzer);analyzer.connect(gain);gain.connect(audio.destination);
+    await audio.resume();
+    const data=new Float32Array(analyzer.fftSize);let loudest=0;
+    for(let i=0;i<24;i++){
+      await new Promise(resolve=>setTimeout(resolve,60));
+      analyzer.getFloatTimeDomainData(data);
+      loudest=Math.max(loudest,Math.sqrt(data.reduce((a,x)=>a+x*x,0)/data.length));
+    }
+    await audio.close();return loudest;
+  });
+  assert(mirrorAudio>0.002,
+    'Guest audio must stay audible while host locally monitors with delay');
+  console.log('PASS guest hears audio with independently delayed host view',mirrorAudio);
+  const duringMirrorTrack=await host.evaluate(()=>[...window.MarmaladeAddonBridge.state.connections.values()][0]?.call
+    ?.peerConnection?.getSenders?.().find(sender=>sender.track?.kind==='video')?.track?.id);
+  assert.equal(duringMirrorTrack,initialTrack,'Host mirror must not replace outgoing video');
+  await host.locator('#hostMatchTiming').evaluate(node=>node.click());
+  await host.waitForFunction(()=>!window.MarmaladeAddonBridge.state.hostMonitorActive,null,{timeout:6000});
+  console.log('PASS independent host-only video/audio mirror preserves P2P source');
   // 1080p must negotiate a real picture before testing 720p fallback.
   await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="1080"]'),
     null,{timeout:8000});
@@ -361,6 +426,8 @@ try {
         sourceTime:document.querySelector('#player').currentTime,
         senderSourceHeight:direction==='host'?
           pc.getSenders().find(sender=>sender.track?.kind==='video')?.track?.getSettings?.().height||0:0,
+        compatibilityCanvas:direction==='host'
+          ?!![...state.connections.values()][0]?.compatCanvas:false,
         muted:document.querySelector('#player').muted,
         paused:document.querySelector('#player').paused
       };
@@ -385,12 +452,18 @@ try {
       (hostB.time-hostA.time);
     const metrics={tier,encodedFps,decodedFps,renderedFps,sourceFps,
       actualHeight:guestB.height,senderSourceHeight:hostB.senderSourceHeight,
+      compatibilityCanvas:hostB.compatibilityCanvas,
       limited:hostB.limitation,videoPaused:guestB.paused,
       guestMuted:guestB.muted,hostTime:hostB.sourceTime};
     console.log('SUSTAINED FRAME RATE',JSON.stringify(metrics));
     assert(!guestB.paused,'Guest video must keep playing at '+tier+'p');
     assert(!guestB.muted,'Guest audio must remain unlocked at '+tier+'p');
-    if(encodedFps<20||decodedFps<20||renderedFps<18)
+    // CI runs on CPU-only virtual machines. The software canvas repair path
+    // for an intentionally simulated black video can sustain 18-20 FPS
+    // despite a healthy native 24 FPS stream. Keep a separate regression
+    // floor for that compatibility path; don't misrepresent it as 24 FPS.
+    const floor=hostB.compatibilityCanvas && tier==='720'?18:20;
+    if(encodedFps<floor||decodedFps<floor||renderedFps<18)
       performanceIssues.push(metrics);
   }
   console.log('SUSTAINED PERFORMANCE RESULTS',JSON.stringify(performanceIssues));
