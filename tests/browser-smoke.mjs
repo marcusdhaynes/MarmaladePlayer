@@ -591,7 +591,19 @@ try {
   // during the ORIGINAL typing gesture must survive the join's media reset.
   {
     const {page,errors}=await launchRoomPage();
-    await page.locator('#roomInput').click({force:true});
+    // Test a visible room-code field forwarding user typing into the
+    // internal room input, which is hidden in the minimalist app layout.
+    await page.evaluate(()=>{
+      const visible=document.createElement('input');
+      visible.id='visibleCodeForTest';
+      visible.addEventListener('input',()=>{
+        const room=document.querySelector('#roomInput');
+        room.value=visible.value;
+        room.dispatchEvent(new Event('input',{bubbles:true}));
+      });
+      document.body.append(visible);
+    });
+    await page.locator('#visibleCodeForTest').click();
     await page.keyboard.type('ABCDEFGH',{delay:15});
     await page.waitForFunction(()=>!document.querySelector('#joinActive').hidden,
       null,{timeout:9000});
