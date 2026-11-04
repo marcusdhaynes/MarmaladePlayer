@@ -2118,6 +2118,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   }
   function updateRoomActions() {
     updateBroadcastIndicator();
+    const hostSyncControls=state.role==='host';
+    $('hostMatchRow').hidden=!hostSyncControls;
+    $('hostMatchStatus').hidden=!hostSyncControls;
     const connected=state.role==='guest' && !!state.guestConn?.open;
     el.localCopyButton.disabled=!connected;
     el.localCopyButton.classList.toggle('local-suspended',!!state.localModeOff);
