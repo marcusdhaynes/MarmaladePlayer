@@ -334,6 +334,15 @@ try {
   assert(aligned.sourceTrackHeight>=720,
     'Host monitor must not downscale or replace the working high-resolution WebRTC sender');
   console.log('PASS host-only delayed A/V monitor without changing outgoing video',JSON.stringify(aligned));
+  // Return to default streaming before codec, audio and sustained FPS checks.
+  // A second full-HD preview imposes unrelated local CPU/audio-graph load.
+  await host.locator('#hostSyncMode').evaluate(select=>{
+    select.value='off';
+    select.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+  await host.waitForFunction(()=>!window.MarmaladeAddonBridge.state.hostSyncActive,
+    null,{timeout:8000});
+  console.log('PASS optional host monitor releases resources after sync validation');
 
   // Switch 1080p -> 720p -> 540p, checking each retains actual WebRTC media.
   await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="720"]'),null,{timeout:8000});
