@@ -9,6 +9,8 @@ for(const name of ['video','localCopyInput','copyLink'])if(!html.includes(name))
 const script=readFileSync(resolve(root,'mobile/scripts/patch-native.mjs'),'utf8');
 if(!script.includes('RECORD_AUDIO')||!script.includes('NSMicrophoneUsageDescription'))
   throw Error('Missing native media permissions');
+if(!script.includes('setMediaPlaybackRequiresUserGesture(false)'))
+  throw Error('Android watch-party WebView must permit automatic sound playback');
 const assets=['index.html','movie-info.js','public-movie-info.js','watch-sync-subtitles.js'];
 for(const a of assets)if(!existsSync(resolve(root,a)))throw Error('Missing shared asset '+a);
 console.log('PASS: Android/iOS use the same source, player controls and media permission setup.');
