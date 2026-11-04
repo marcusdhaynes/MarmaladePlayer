@@ -41,4 +41,21 @@ try{
   assert.equal(gs.received,true,'Guest failed to discover cloud-host '+JSON.stringify(gs));
   assert.deepEqual(errors,[]);
   console.log('PASS live PeerJS cloud host registration and external guest discovery',room);
+  // Now test MarmaladePlayer's production room registration and invitation
+  // handling rather than merely proving the PeerJS server itself works.
+  const appHost=await browser.newPage(),appGuest=await browser.newPage();
+  for(const page of [appHost,appGuest])page.on('pageerror',e=>errors.push(String(e)));
+  await appHost.goto(url,{waitUntil:'load'});
+  await appHost.waitForFunction(()=>typeof Peer==='function');
+  await appHost.locator('#createRoom').evaluate(button=>button.click());
+  await appHost.waitForFunction(()=>!document.querySelector('#hostActive').hidden &&
+    document.querySelector('#connectionText').textContent==='Room is ready',null,{timeout:25000});
+  const invite=await appHost.locator('#inviteLink').inputValue();
+  assert.match(invite,/\\?room=[A-Z2-9]{8}$/);
+  await appGuest.goto(invite,{waitUntil:'load'});
+  await appGuest.waitForFunction(()=>document.querySelector('#connectionText').textContent==='Watching with host',
+    null,{timeout:30000});
+  assert.equal(await appGuest.locator('#joinActive').evaluate(e=>!e.hidden),true);
+  console.log('PASS live MarmaladePlayer app-host registration and guest invitation',invite);
+  await Promise.all([appHost.close(),appGuest.close()]);
 }finally{await browser.close();}
