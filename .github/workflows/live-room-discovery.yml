@@ -11,7 +11,7 @@ permissions:
   contents: read
 jobs:
   verify-live-signaling:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
