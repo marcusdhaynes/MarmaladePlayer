@@ -577,7 +577,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
              <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
-            <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast">Lowest Delay</option></select></label>
+            <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
             <label><input type="checkbox" id="peerAssist" checked> Peer Rescue</label>
             <button type="button" id="diagnosticsToggle" aria-expanded="false">Diagnostics</button>
@@ -828,7 +828,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     recommendation: DEFAULT_LEVEL, stableReports: 0, unhealthyReports: 0,
     highStream: null, highTrack: null, highTimer: null, highCanvas: null,
     bitrateEstimate: 0, videoFrameHandle: null, fpsFrames: 0, fpsAt: 0,
-    stabilityMode: 'smooth', strictSync: true, diagnostics: false, jitterTarget: 600,
+    stabilityMode: 'fast', strictSync: true, diagnostics: false, jitterTarget: 140,
     highPlayoutTarget: 0, highPlayoutLastSampleAt: 0, latencyStats: null, highEncoderStats: null,
     bufferTarget: 30, mediaStallAt: 0, mediaRetryCount: 0, lastRecoverAt: 0,
     remoteVideoConnectedAt: 0, remoteLastFrameAt: 0, remoteVideoFrameCount: 0,
@@ -1383,6 +1383,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     updateTransport();
     // For seekable sources this is an immediate local preview; P2P cannot
     // display future frames until the host's stream reaches the requested position.
+    // For live WebRTC the host still owns the shared play/pause clock; keep
+    // the local receiver playing so a paused/unpaused host cannot strand it.
+    if (state.source === 'remote' && (action === 'play' ||
+        (action === 'toggle' && state.hostPlaying)) && media.paused)
+      void enableRemotePlayback();
     if (state.localVerified || state.bufferedMode) {
       if (action === 'seek' || action === 'skip') {
         try { media.currentTime = state.sharedTime; } catch {}
@@ -1436,9 +1441,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   /* STABILITY ENGINE — independent delivery, common versioned movie timeline.
      WebRTC is still the fast fallback. Seekable sources allow deep forward buffers. */
   const STABILITY = {
-    fast: { rtcMs: 160, initial: 10 },
-    balanced: { rtcMs: 450, initial: 20 },
-    smooth: { rtcMs: 950, initial: 30 },
+    fast: { rtcMs: 120, initial: 10 },
+    balanced: { rtcMs: 280, initial: 20 },
+    smooth: { rtcMs: 700, initial: 30 },
   };
   const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
   function selectedMode() { return STABILITY[state.stabilityMode] || STABILITY.smooth; }
@@ -1503,13 +1508,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       // Limit unnecessary buffering on healthy 720/1080p connections.
       // Grow only on measured packet jitter, loss, freeze or stalls.
       const mode=state.stabilityMode;
-      const base=mode==='fast'?(height>=1080?180:130):
-        mode==='balanced'?(height>=1080?380:280):(height>=1080?560:380);
+      const base=mode==='fast'?(height>=1080?120:90):
+        mode==='balanced'?(height>=1080?290:220):(height>=1080?510:350);
       const r=state.statsReport;
       const loss=r?.loss||0,jitter=r?.packetJitterMs||0;
       const stressed=loss>.024||jitter>95||(r?.freezes||0)>0||(r?.stalls||0)>0;
       const mild=loss>.009||jitter>40;
-      const ceiling=mode==='fast'?420:mode==='balanced'?1050:1500;
+      const ceiling=mode==='fast'?330:mode==='balanced'?800:1400;
       const old=state.highPlayoutTarget||base;
       const target=stressed?Math.min(ceiling,Math.max(base,old)+150):
         mild?Math.min(ceiling,Math.max(base,old)+50):Math.max(base,old-45);
@@ -3704,8 +3709,14 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
        (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio output pending',error));
     if (state.role === 'guest') {
-      if (el.stage.classList.contains('needs-gesture')) { await enableRemotePlayback(); return; }
-      guestCommand('toggle'); return;
+      // An autoplay-unlock prompt must not swallow the shared movie's
+      // play/pause tap. The visible sound button is an independent control.
+      if (state.source === 'remote' && media.paused && state.hostPlaying) {
+        await enableRemotePlayback();
+        return; // Unblock local playback without pausing the host.
+      }
+      guestCommand('toggle');
+      return;
     }
     applyTransport('toggle');
   }
@@ -4149,6 +4160,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // The picture itself is a play/pause surface on mouse and touch devices.
   // Controls and popovers retain their own actions; do not double-toggle them.
   function playPauseFromStage() {
+    // Joining guests never own the host movie file; the whole open video area
+    // is a real shared transport gesture, regardless of active overlays.
+    if (state.role==='guest' && state.guestConn?.open &&
+        (state.source==='remote'||state.localVerified||state.bufferedMode)) {
+      void togglePlay();return;
+    }
     if (el.stage.classList.contains('is-pickable')) { openMoviePicker(); return; }
     // Some mobile browsers provide metadata but defer the first frame until
     // a tap. Allow that tap to begin decoding while the loading poster shows.
