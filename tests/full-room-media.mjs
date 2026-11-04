@@ -357,11 +357,16 @@ try {
         limitation:packet.qualityLimitationReason||'unknown',
         dropped:packet.framesDropped||0,
         rendered:state.remoteVideoFrameCount||0,
+        sourceFrames:document.querySelector('#player').getVideoPlaybackQuality?.().totalVideoFrames||0,
+        sourceTime:document.querySelector('#player').currentTime,
+        senderSourceHeight:direction==='host'?
+          pc.getSenders().find(sender=>sender.track?.kind==='video')?.track?.getSettings?.().height||0:0,
         muted:document.querySelector('#player').muted,
         paused:document.querySelector('#player').paused
       };
     },direction);
   };
+  const performanceIssues=[];
   for(const tier of ['144','240','360','480','540','720','1080']){
     await guest.locator('#qualitySelect').evaluate((el,value)=>{
       el.value=value;
@@ -376,17 +381,21 @@ try {
     const encodedFps=(hostB.frames-hostA.frames)*1000/(hostB.time-hostA.time);
     const decodedFps=(guestB.frames-guestA.frames)*1000/(guestB.time-guestA.time);
     const renderedFps=(guestB.rendered-guestA.rendered)*1000/(guestB.time-guestA.time);
-    const metrics={tier,encodedFps,decodedFps,renderedFps,
-      actualHeight:guestB.height,limited:hostB.limitation,
-      videoPaused:guestB.paused,guestMuted:guestB.muted};
+    const sourceFps=(hostB.sourceFrames-hostA.sourceFrames)*1000/
+      (hostB.time-hostA.time);
+    const metrics={tier,encodedFps,decodedFps,renderedFps,sourceFps,
+      actualHeight:guestB.height,senderSourceHeight:hostB.senderSourceHeight,
+      limited:hostB.limitation,videoPaused:guestB.paused,
+      guestMuted:guestB.muted,hostTime:hostB.sourceTime};
     console.log('SUSTAINED FRAME RATE',JSON.stringify(metrics));
     assert(!guestB.paused,'Guest video must keep playing at '+tier+'p');
     assert(!guestB.muted,'Guest audio must remain unlocked at '+tier+'p');
-    assert(encodedFps>=20,'Host must encode sustained motion, not 0-2fps, at '+tier+'p: '+JSON.stringify(metrics));
-    assert(decodedFps>=20,'Guest must decode sustained motion at '+tier+'p: '+JSON.stringify(metrics));
-    assert(renderedFps>=18,'Guest must render continuous motion at '+tier+'p: '+JSON.stringify(metrics));
+    if(encodedFps<20||decodedFps<20||renderedFps<18)
+      performanceIssues.push(metrics);
   }
-  console.log('PASS sustained host-to-guest moving video at every selectable tier');
+  console.log('SUSTAINED PERFORMANCE RESULTS',JSON.stringify(performanceIssues));
+  if(!performanceIssues.length)
+    console.log('PASS sustained host-to-guest moving video at every selectable tier');
   // Explicitly preserve the separate local-file path and its host clock.
   await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.remoteFingerprint,
     null,{timeout:10000});
@@ -431,6 +440,8 @@ try {
     .some(t=>t.readyState==='live')&&
     window.MarmaladeAddonBridge.state.source==='remote',null,{timeout:18000});
   console.log('PASS same-room media recovery after forced host call close');
+  assert.equal(performanceIssues.length,0,
+    'Sustained performance regressions: '+JSON.stringify(performanceIssues));
   assert.deepEqual(errors,[],'Browser runtime errors');
   console.log('PASS actual two-browser Marmalade PeerJS movie + sound');
   await guest.close();await host.close();
