@@ -761,9 +761,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (required) revealControls(); // Existing bottom Play is the sole playback gesture.
   }
 
+  // Multiple STUN routes improve direct connections. Symmetric NATs require
+  // provisioned TURN credentials; STUN alone cannot guarantee traversal.
   const PEER_OPTIONS = { debug: 0, config: { iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
   ] } };
   // Upload/encode-friendly base stream. Playback on the host remains at the original quality.
   // Each guest has a separate WebRTC sender, so caps avoid multiplying 1080p encoders.
@@ -2204,6 +2207,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       const entry = { conn, call: null, mode: DEFAULT_LEVEL, recommendation: DEFAULT_LEVEL,
         previousEncoderStats: null, lastEncoderMeasureAt: 0,
         mediaConfirmed: false, mediaOfferedAt: 0, lastMediaRetry: 0, mediaAttempt: 0,
+        mediaRetryTimer: null, mediaFailureCount: 0,
         tier: 2, healthy: 0, warning: 0, tuning: false,
         highBitrateFactor: 1, highStableSamples: 0, highHeadroomFactor: 1,
         applied: '', lastTuneAt: 0, requestedLevel: DEFAULT_LEVEL, trackType: 'base' };
@@ -2276,8 +2280,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         }
         if (data.type === 'media-received' && entry.call && !entry.localMirror) {
           // PeerJS versions without metadata can still confirm the active call.
-          if (data.id == null || data.id === entry.mediaAttempt)
+          if (data.id == null || data.id === entry.mediaAttempt) {
             entry.mediaConfirmed = true;
+            entry.mediaFailureCount = 0;
+            clearTimeout(entry.mediaRetryTimer);
+            entry.mediaRetryTimer = null;
+          }
         }
         if (data.type === 'requestmedia' && !entry.localMirror) {
           if(data.reason==='no-decoded-video-frames' && state.source==='file' &&
@@ -2346,6 +2354,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       conn.on('close', () => {
         const current = state.connections.get(conn.peer);
         if (current?.conn === conn) {
+          clearTimeout(current.mediaRetryTimer);
           try { current.call?.close(); } catch { /* no-op */ }
           state.connections.delete(conn.peer);
           renderCount();
@@ -2668,6 +2677,46 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       entry.call?.peerConnection && levelForGuest(entry).height>STREAM_HEIGHT &&
       !entry.localMirror).map(entry=>reportHostEncoder(entry)));
   }
+  // Retry a broken media path without dropping the peer's room/data channel.
+  function scheduleHostMediaRetry(entry,call,reason){
+    if(entry.call!==call||!entry.conn.open||entry.localMirror||
+       !state.broadcasting||!state.outgoing||entry.mediaRetryTimer)return;
+    const failures=++entry.mediaFailureCount;
+    if(failures>5){
+      send(entry.conn,{type:'media-error',
+        message:'Direct media connection failed. This network may need a TURN relay.'});
+      return;
+    }
+    send(entry.conn,{type:'media-retrying',attempt:failures});
+    const delay=Math.min(10000,800*Math.pow(1.8,failures-1));
+    entry.mediaRetryTimer=setTimeout(()=>{
+      entry.mediaRetryTimer=null;
+      if(entry.call===call&&entry.conn.open&&state.outgoing&&state.broadcasting)
+        callGuest(entry.conn.peer);
+    },delay);
+  }
+  function monitorHostMediaIce(entry,call){
+    let checks=0;
+    const attach=()=>{
+      if(entry.call!==call)return;
+      const pc=call.peerConnection;
+      if(!pc){if(++checks<20)setTimeout(attach,200);return;}
+      const check=()=>{
+        if(entry.call!==call)return;
+        if(pc.iceConnectionState==='failed'||pc.connectionState==='failed')
+          scheduleHostMediaRetry(entry,call,'ice-failed');
+        else if(pc.iceConnectionState==='disconnected')
+          setTimeout(()=>{
+            if(entry.call===call&&pc.iceConnectionState==='disconnected')
+              scheduleHostMediaRetry(entry,call,'ice-disconnected');
+          },4800);
+      };
+      pc.addEventListener('iceconnectionstatechange',check);
+      pc.addEventListener('connectionstatechange',check);
+      check();
+    };
+    attach();
+  }
   function callGuest(peerId) {
     if (!state.peer || !state.outgoing || state.source==='hosted') return;
     const entry = state.connections.get(peerId);
@@ -2684,26 +2733,28 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       entry.mediaOfferedAt = Date.now();
       entry.lastMediaRetry = entry.mediaOfferedAt;
       const mediaId = ++entry.mediaAttempt;
-      entry.call?.close();
+      clearTimeout(entry.mediaRetryTimer);
+      entry.mediaRetryTimer=null;
+      const oldCall=entry.call;
+      entry.call=null; // Close superseded calls without triggering their retry handlers.
+      try{oldCall?.close();}catch{}
       const call = state.peer.call(peerId, state.outgoing, { metadata: { mediaId } });
       if (!call) { notify('Could not start the media call.'); return; }
       entry.call = call;
       entry.applied = '';
       entry.healthy = 0;
       entry.warning = 0;
-      call.on('error', (error) => {
-        if (entry.call !== call) return;
-        console.warn('Media call error',error);
-        send(entry.conn,{type:'media-error',message:'Host media connection failed. Retrying may help; some networks require a TURN relay.'});
-        notify('Media connection failed. A TURN relay may be required.');
+      call.on('error',error=>{
+        if(entry.call!==call)return;
+        console.warn('Host-to-guest media error',error);
+        scheduleHostMediaRetry(entry,call,'call-error');
       });
-      call.on('close', () => {
-        if (entry.call === call) {
-          entry.call = null;
-          entry.applied = '';
-          void tuneAllGuests();
-        }
+      call.on('close',()=>{
+        if(entry.call!==call)return;
+        entry.applied='';
+        scheduleHostMediaRetry(entry,call,'call-closed');
       });
+      monitorHostMediaIce(entry,call);
       // PeerJS's RTCPeerConnection is created asynchronously; the periodic tuner
       // also picks it up later if negotiation takes longer on a remote network.
       setTimeout(() => { if (entry.call === call) void tuneAllGuests(); }, 650);
@@ -2713,11 +2764,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       setTimeout(() => {
         if (entry.call !== call || entry.mediaConfirmed || !entry.conn.open ||
             entry.localMirror || !state.outgoing) return;
-        if (Date.now() - entry.lastMediaRetry >= 12000) {
-          if (entry.mediaAttempt <= 3) callGuest(peerId);
-          else send(entry.conn,{type:'media-error',
-            message:'The media connection is blocked. Try another network or a TURN relay.'});
-        }
+        if(Date.now()-entry.lastMediaRetry>=12000)
+          scheduleHostMediaRetry(entry,call,'media-unconfirmed');
       }, 14000);
     } catch (error) { console.error(error); notify('Unable to establish the video call.'); }
   }
