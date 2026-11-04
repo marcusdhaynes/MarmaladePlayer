@@ -2133,11 +2133,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
     updateBroadcastIndicator();
   }
-  function removeMedia() {
+  function removeMedia({preserveGuestAudio=false}={}) {
     saveWatchPosition(true);
     state.resumeChecked=false;
     window.MarmaladeHostSyncCleanup?.();
-    stopGuestAudioRelay(true);
+    // Joining resets the old video, but must NOT destroy an AudioContext
+    // just unlocked by the visitor typing/pasting their room code.
+    stopGuestAudioRelay(!preserveGuestAudio);
     window.dispatchEvent(new Event('marmalade:media-cleared'));
     stopBroadcast();
     media.pause();
@@ -3415,7 +3417,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     const code = parseCode(el.joinInput.value);
     if (!code) { notify('Enter a valid 8-character room code or invite link.'); el.joinInput.focus(); return; }
     closeConnections();
-    removeMedia();
+    removeMedia({preserveGuestAudio:true});
     state.role = 'guest';
     // A deep link joins without a trusted in-page gesture; still attempt
     // autoplay where the browser permits it. Manual input/Join already
