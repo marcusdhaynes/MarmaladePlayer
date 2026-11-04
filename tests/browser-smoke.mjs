@@ -155,8 +155,11 @@ try {
     assert.equal(await page.locator('#volumeMark').textContent(),'100%','Soft 100% volume detent');
     await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='200';el.dispatchEvent(new Event('input',{bubbles:true}));});
     assert.equal(await page.locator('#volumeMark').textContent(),'200%','Moving away from the detent reaches 200%');
+    // Visible controls must be exposed before a physical click. A forced
+    // click through a faded, pointer-events:none overlay hits the movie!
+    await page.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
     const previousBufferState=await page.locator('#bufferToggle').getAttribute('aria-pressed');
-    await page.locator('#bufferToggle').click({force:true});
+    await page.locator('#bufferToggle').click();
     const newBufferState=await page.locator('#bufferToggle').getAttribute('aria-pressed');
     assert.notEqual(newBufferState,previousBufferState,'Buffer control toggles its state');
     assert.equal(await page.locator('#bufferReadout').isVisible(),newBufferState==='true');
