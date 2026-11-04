@@ -168,7 +168,10 @@ try {
   // Keep the host running and the guest connected during those actions.
   const hostPlayingBefore=await host.evaluate(()=>!document.querySelector('#player').paused);
   assert(hostPlayingBefore,'Host must be playing before testing guest controls');
-  await guest.locator('#muteBtn').click({force:true});
+  // A real user first reveals the floating controls; never force a click
+  // through pointer-events:none elements onto the underlying movie.
+  await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
+  await guest.locator('#muteBtn').click();
   const guestControls=[
     '#volumeMark','#currentTime','#seekArea','.theater-controls',
     '.theater-top','#statusToggle','#settingsBtn','#subtitlesBtn'
@@ -182,7 +185,8 @@ try {
     assert(await host.evaluate(()=>!document.querySelector('#player').paused),
       'Guest clicking '+selector+' must not pause the host movie');
   }
-  await guest.locator('#muteBtn').click({force:true}); // Restore audible guest output.
+  await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
+  await guest.locator('#muteBtn').click(); // Restore audible guest output.
   assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.soundMuted),
     false,'Guest mute toggles without affecting shared play state');
   assert(await host.evaluate(()=>!document.querySelector('#player').paused),
