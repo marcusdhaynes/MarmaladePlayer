@@ -103,6 +103,21 @@ try {
   console.log('HOST BROADCAST READY',invite);
   console.log('E2E host streaming');
   const guest=await makePage();
+  // Simulate real mobile autoplay restrictions: audible media can only start
+  // after the guest deliberately taps the sound-unlock button.
+  await guest.addInitScript(()=>{
+    let audioUnlocked=false;
+    document.addEventListener('click',event=>{
+      if(event.target.closest?.('#guestAudioUnlock'))audioUnlocked=true;
+    },true);
+    const nativePlay=HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play=function(...args){
+      if(this.id==='player'&&this.srcObject&&!this.muted&&!audioUnlocked)
+        return Promise.reject(new DOMException(
+          'Audible autoplay blocked until user gesture','NotAllowedError'));
+      return nativePlay.apply(this,args);
+    };
+  });
   await guest.goto(invite,{waitUntil:'load'});
   await guest.waitForFunction(()=>document.querySelector('#joinActive').hidden===false,
     null,{timeout:18000});
@@ -110,6 +125,18 @@ try {
   await guest.waitForFunction(()=>document.querySelector('#player').srcObject?.getVideoTracks()?.length>0,
     null,{timeout:22000});
   console.log('E2E guest received media tracks');
+  await guest.waitForFunction(()=>{
+    const unlock=document.querySelector('#guestAudioUnlock');
+    return unlock&&!unlock.hidden&&document.querySelector('#player').muted;
+  },null,{timeout:12000});
+  await guest.locator('#guestAudioUnlock').click({force:true});
+  await guest.waitForFunction(()=>{
+    const player=document.querySelector('#player');
+    const unlock=document.querySelector('#guestAudioUnlock');
+    return !player.muted&&!player.paused&&unlock.hidden &&
+      !document.querySelector('#dropZone').classList.contains('needs-gesture');
+  },null,{timeout:12000});
+  console.log('PASS guest autoplay mute fallback unlocked with user tap');
   // 1080p must negotiate a real picture before testing 720p fallback.
   await guest.waitForFunction(()=>document.querySelector('#qualitySelect option[value="1080"]'),
     null,{timeout:8000});
