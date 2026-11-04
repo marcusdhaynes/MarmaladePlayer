@@ -3972,10 +3972,30 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // audible playback. Never require a separate "Enable Sound" click when the
   // browser already permits unmuted playback; locked-down browsers still
   // receive a clear one-tap fallback rather than silent video.
-  function onGuestGesture(){
+  // All controls and their non-interactive children (icons, labels, seek
+  // bar spacing, status text, etc.) are excluded from the video's toggle
+  // surface. Using the whole container is essential: filtering only
+  // <button> and <input> made mute/volume/seek taps bubble into play/pause.
+  const VIDEO_CONTROL_SELECTOR = [
+    'button','input','select','label','textarea','a',
+    '[role="button"]','[role="slider"]','[role="switch"]',
+    '[role="menuitem"]','[role="dialog"]','[contenteditable="true"]',
+    '.theater-controls','.theater-top','.theater-popover',
+    '.mini-player-overlay','.stage-quick-actions',
+    '.exit-theater','#guestAudioUnlock','#hostVideoDiagnostic',
+    '[data-no-video-toggle]'
+  ].join(',');
+  function isVideoControlTarget(target){
+    const node=target instanceof Element?target:target?.parentElement;
+    return !!node?.closest(VIDEO_CONTROL_SELECTOR);
+  }
+  function onGuestGesture(event){
     if(state.role!=='guest' && !parseCode(el.joinInput?.value))return;
     primeGuestAudioFromGesture();
-    if(state.role==='guest' && state.source==='remote' &&
+    // A generic control tap MUST NOT turn video playback on. Audio may
+    // be unlocked only from the video surface or explicit Play/Sound control.
+    if(!isVideoControlTarget(event.target) &&
+       state.role==='guest' && state.source==='remote' &&
        state.audioUnlockRequired && media.muted && !state.soundMuted)
       void enableRemotePlayback();
   }
@@ -4458,7 +4478,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       void togglePlay('stage');
   }
   el.stage.addEventListener('click', event => {
-    if (event.target.closest('button,input,select,label,textarea,a,[role="button"],.theater-popover,[contenteditable="true"]')) return;
+    if(isVideoControlTarget(event.target))return;
     if(el.stage.classList.contains('mini-pip-visible')){showMiniControls();return;}
     if(el.stage.classList.contains('floating-player')){
       el.stage.classList.remove('floating-player');revealControls();return;
