@@ -28,5 +28,14 @@
   "current_stage": "database_reserved_not_live",
   "source_data_migrated": false,
   "docs": "AGENTS.md",
-  "canonical_map": "marcusdhaynes/somniel-holdings/database-routing.json"
+  "canonical_map": "marcusdhaynes/somniel-holdings/database-routing.json",
+  "domain_storage_guidance": {
+    "store": [
+      "Opt-in durable user preferences or session metadata after account and authorization design"
+    ],
+    "avoid": [
+      "Copyrighted video streams/files, direct media chunks, ephemeral peer-to-peer frame and sync traffic"
+    ],
+    "cutover": "Preserve the existing peer-to-peer stream and low-latency behavior; database must not gate playback."
+  }
 }
