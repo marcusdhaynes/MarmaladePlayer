@@ -4325,7 +4325,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if(!el.stage.classList.contains('mini-pip-visible'))return;
     el.stage.classList.add('mini-controls-awake');
     clearTimeout(miniFadeTimer);
-    miniFadeTimer=setTimeout(()=>el.stage.classList.remove('mini-controls-awake'),5000);
+    miniFadeTimer=setTimeout(()=>el.stage.classList.remove('mini-controls-awake'),Number(fadeDelayControl.value)*1000);
   };
   const setMiniOverlay=visible=>{
     clearTimeout(miniFadeTimer);
@@ -4588,16 +4588,25 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if(file)void chooseLocalCopy(file);
     event.target.value='';
   });
+  // Restore individual playback preferences without touching room or media state.
+  const storedStability=localPreference('stability-mode','fast');
+  if([...el.stabilityMode.options].some(o=>o.value===storedStability)){
+    el.stabilityMode.value=storedStability;
+    state.stabilityMode=storedStability;
+  }
+  state.strictSync=el.strictSync.checked=localPreference('strict-sync','true')==='true';
+  state.peerAssistance=el.peerAssist.checked=localPreference('peer-assist','true')==='true';
   el.stabilityMode.addEventListener('change',()=>{
     state.highPlayoutTarget=0;
     state.highPlayoutLastSampleAt=0;
     state.stabilityMode=el.stabilityMode.value;
+    rememberPreference('stability-mode',state.stabilityMode);
     recomputeBufferTarget();
     applyReceiverPlayout();
     updateDiagnostics();
   });
-  el.strictSync.addEventListener('change',()=>{state.strictSync=el.strictSync.checked;syncState();});
-  el.peerAssist.addEventListener('change',()=>{state.peerAssistance=el.peerAssist.checked;});
+  el.strictSync.addEventListener('change',()=>{state.strictSync=el.strictSync.checked;rememberPreference('strict-sync',state.strictSync);syncState();});
+  el.peerAssist.addEventListener('change',()=>{state.peerAssistance=el.peerAssist.checked;rememberPreference('peer-assist',state.peerAssistance);});
   el.diagnosticsToggle.addEventListener('click',()=>{
     state.diagnostics=!state.diagnostics;
     el.stabilityInfo.hidden=!state.diagnostics;
