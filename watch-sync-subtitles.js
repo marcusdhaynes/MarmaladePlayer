@@ -223,9 +223,9 @@
     if(typeof saved[key]===typeof value)prefs[key]=saved[key];
   function colorRow(label,key){
     const maximum=key==='text'?64:key==='outline'?8:key==='glow'?36:30;
-    return '<div class="subtitle-style-row"><span>'+label+'</span>'+
+    return '<div class="subtitle-style-row"><span>'+(key==='text'?'Font Size':label+' Size')+'</span>'+
       '<input type="color" data-sub-key="'+key+'Color" aria-label="'+label+' Color">'+
-      '<input type="range" data-sub-key="'+key+'Size" aria-label="'+label+' Size" min="0" max="'+maximum+'" step="1">'+
+      '<input type="range" data-sub-key="'+key+'Size" aria-label="'+(key==='text'?'Font Size':label+' Size')+'" min="'+(key==='text'?12:0)+'" max="'+maximum+'" step="1">'+
       '<output class="sub-setting-value" data-sub-value="'+key+'Size"></output></div>'+
       '<label class="subtitle-style-row" for="sub-'+key+'-alpha"><span>'+label+' Transparency</span>'+
       '<i class="sub-swatch-spacer" aria-hidden="true"></i>'+
@@ -236,29 +236,32 @@
   subStyle.className='subtitle-style';
   subStyle.setAttribute('aria-label','My subtitle appearance');
   subStyle.innerHTML=
-    '<h3>Subtitle Appearance · Only for Me</h3>'+
-    '<label for="subtitleFont">Font <select id="subtitleFont" data-sub-key="font">'+
-    '<option value="Arial, Helvetica, sans-serif">Arial</option>'+
-    '<option value="Verdana, Geneva, sans-serif">Verdana</option>'+
-    '<option value="Tahoma, Geneva, sans-serif">Tahoma</option>'+
-    '<option value="Georgia, serif">Georgia</option>'+
+    '<h3>Subtitle Appearance · Only For Me</h3>'+
+    '<label for="subtitleFont">Subtitle Font <select id="subtitleFont" data-sub-key="font">'+
+    '<option value="Arial, Helvetica, sans-serif">Arial (Classic)</option>'+
+    '<option value="Verdana, Geneva, sans-serif">Verdana (Clear)</option>'+
+    '<option value="Tahoma, Geneva, sans-serif">Tahoma (Compact)</option>'+
+    '<option value="Georgia, serif">Georgia (Serif)</option>'+
     '<option value="Times New Roman, serif">Times New Roman</option>'+
     '<option value="Trebuchet MS, sans-serif">Trebuchet MS</option>'+
     '<option value="Courier New, monospace">Courier New</option>'+
-    '<option value="system-ui, sans-serif">System</option></select></label>'+
-    colorRow('Subtitle','text')+colorRow('Outline','outline')+
+    '<option value="system-ui, sans-serif">System (Device Default)</option>'+ 
+    '<option value="Noto Sans, Noto Sans Arabic, Noto Sans Devanagari, Noto Sans Thai, Noto Sans CJK SC, Arial, sans-serif">Noto Sans (Multilingual)</option>'+ 
+    '<option value="Noto Naskh Arabic, Noto Sans Arabic, Tahoma, Arial, sans-serif">Arabic (Naskh)</option>'+ 
+    '<option value="Noto Sans Arabic, Tahoma, Arial, sans-serif">Arabic (Modern)</option></select></label>'+
+    colorRow('Font','text')+colorRow('Outline','outline')+
     colorRow('Glow','glow')+colorRow('Shadow','shadow')+
-    '<h3>Position</h3>'+
+    '<h3>Subtitle Position</h3>'+
     '<div class="subtitle-position-grid" id="subtitlePositionGrid" role="group" aria-label="Subtitle position, three by three grid">'+
     ['top-left','top-center','top-right','middle-left','middle-center','middle-right','bottom-left','bottom-center','bottom-right']
       .map((p,i)=>'<button type="button" data-sub-position="'+p+'" aria-label="'+p.replace('-',' ')+'" aria-pressed="false">'+
         (i===7?'●':'·')+'</button>').join('')+'</div>'+
-    '<label for="subtitleAlign">Alignment <select id="subtitleAlign" data-sub-key="alignment">'+
+    '<label for="subtitleAlign">Text Alignment <select id="subtitleAlign" data-sub-key="alignment">'+
     '<option value="left">Left</option><option value="center">Center</option>'+
     '<option value="right">Right</option><option value="justify">Justified</option></select></label>'+
     '<div class="subtitle-style-row subtitle-timing-row"><label for="subtitleTiming">Subtitle Timing</label><i class="sub-swatch-spacer" aria-hidden="true"></i>'+
     '<input id="subtitleTiming" type="range" data-sub-key="timing" min="-6" max="6" step="0.05"><output id="subtitleTimingValue" class="sub-setting-value">0.00s</output></div>'+
-    '<small class="subtitle-settings-note">Each viewer loads and styles their own .srt/.vtt subtitles. Appearance and timing stay on this device.</small>';
+    '<small class="subtitle-settings-note">Font Size, Colors, Position, And Timing Are Saved On This Device. Scripts Such As Arabic Use Native Text Shaping.</small>';
   el.subtitlePanel.appendChild(subStyle);
   const fields=[...subStyle.querySelectorAll('[data-sub-key]')];
   for(const field of fields){
@@ -276,6 +279,16 @@
   function applySubtitleStyle(){
     const overlay=el.subtitleOverlay;
     overlay.style.fontFamily=prefs.font;
+    // Browser-native Unicode shaping keeps Arabic letters joined and preserves
+    // Indic, Thai and mixed-direction captions without splitting glyph runs.
+    overlay.style.fontKerning='normal';
+    overlay.style.fontVariantLigatures='normal';
+    overlay.style.unicodeBidi='plaintext';
+    overlay.style.direction='auto';
+    overlay.style.wordBreak='normal';
+    overlay.style.overflowWrap='break-word';
+    overlay.style.whiteSpace='pre-line';
+    overlay.style.letterSpacing='normal';
     const miniature=el.stage.classList.contains('mini-pip-visible') ||
       document.body.classList.contains('floating-overlay-active') ||
       document.body.classList.contains('native-pip-active');
@@ -288,11 +301,15 @@
     overlay.style.boxSizing='border-box';
     overlay.style.color=rgba(prefs.textColor,prefs.textAlpha);
     overlay.style.webkitTextStroke=Math.min(miniature?0.65:1.5,Number(prefs.outlineSize)||0)+'px '+rgba(prefs.outlineColor,prefs.outlineAlpha);
-    overlay.style.textShadow='0 1px 2px #000,0 2px 5px #000c';
+    overlay.style.textShadow=[
+      '0 0 '+(Number(prefs.glowSize)||0)+'px '+rgba(prefs.glowColor,prefs.glowAlpha),
+      '0 '+(Number(prefs.shadowSize)||0)+'px '+(Number(prefs.shadowSize)||0)+'px '+rgba(prefs.shadowColor,prefs.shadowAlpha)
+    ].join(',');
     overlay.style.background='transparent';
     overlay.style.padding=miniature?'2px 4px':'3px 6px';
     overlay.style.width='max-content';
     overlay.style.textAlign=prefs.alignment;
+    overlay.setAttribute('dir','auto');
     const parts=prefs.position.split('-');
     const y=parts[0],x=parts[1];
     // Anchor each grid cell to the actual picture, excluding letterbox bars.
