@@ -100,8 +100,8 @@ body.theater-open{overflow:hidden}
 .stage-fps .fps-overlay[hidden]{display:none}
 .theater-controls{position:absolute;z-index:8;bottom:0;left:0;right:0;padding:40px 16px 10px;background:linear-gradient(transparent,#050509d9 37%,#07070be8);opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .23s ease,transform .23s ease}
 .theater-top .theater-pill{opacity:0;transition:opacity .23s ease}
-.stage:hover .theater-controls,.stage:focus-within .theater-controls,.stage.controls-visible .theater-controls{opacity:1;transform:translateY(0);pointer-events:auto}
-.stage:hover .theater-top .theater-pill,.stage:focus-within .theater-top .theater-pill,.stage.controls-visible .theater-top .theater-pill{opacity:1}
+.stage.controls-visible .theater-controls{opacity:1;transform:translateY(0);pointer-events:auto}
+.stage.controls-visible .theater-top .theater-pill{opacity:1}
 .stage:not(.has-video) .theater-controls{opacity:0;pointer-events:none}
 .theater-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:5px;color:#faf5ed;font-size:11px}
 .theater-title strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:650;max-width:70%}
@@ -317,7 +317,7 @@ body.theater-open{overflow:hidden}
 /* Minimal theater indicators and responsive native fullscreen */
 .connection-pill[hidden]{display:none!important}
 .theater-top{opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .24s ease,transform .24s ease}
-.stage.controls-visible .theater-top,.stage:hover .theater-top,.stage:focus-within .theater-top{opacity:1;transform:translateY(0);pointer-events:auto}
+.stage.controls-visible .theater-top{opacity:1;transform:translateY(0);pointer-events:auto}
 .stage .theater-top .theater-pill{opacity:1;transition:background .16s,border-color .16s}
 .stage:not(.has-video):not(.controls-visible) .theater-top{opacity:1;pointer-events:auto}
 .stage-quick-actions .quick-broadcast-btn{width:33px;min-width:33px;padding:4px!important;color:#f67d7d!important;border-color:#ad4444b5!important;background:#27151acc!important}
@@ -582,6 +582,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
              <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
+            <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2">2 Seconds</option><option value="3">3 Seconds</option><option value="5" selected>5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
             <label id="hostMatchRow"><input type="checkbox" id="hostMatchTiming"> Match My Playback To Guests (Host Only)</label>
@@ -703,6 +704,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     joinSection: $('joinSection'),
   };
   const media = el.player;
+  const fadeDelayControl=document.getElementById('controlFadeDelay');
+  const localPreference=(key,fallback)=>{try{return localStorage.getItem('marmalade:'+key)||fallback;}catch{return fallback;}};
+  const rememberPreference=(key,value)=>{try{localStorage.setItem('marmalade:'+key,String(value));}catch{}};
+  const savedFadeDelay=localPreference('control-fade-seconds','5');
+  fadeDelayControl.value=[...fadeDelayControl.options].some(o=>o.value===savedFadeDelay)?savedFadeDelay:'5';
+  fadeDelayControl.addEventListener('change',()=>{rememberPreference('control-fade-seconds',fadeDelayControl.value);revealControls();});
 
   // Keep cosmetic preferences device-local and restore without a layout flash.
   const backgroundTheme=document.getElementById('backgroundTheme');
@@ -835,8 +842,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     hostMonitorRequested: false, hostMonitorSeekAt: 0,
     theaterMode: false, broadcastStarting: false, streamWaitTimer: null,
     guestQualitySample: null, qualityTimer: null, hostPlaying: false,
-    sourceHeight: 0, sourceWidth: 0, requestedQuality: estimatedStartingLevel(),
-    userChoseQuality: false, sharedTime: 0, sharedDuration: 0, sharedAt: 0,
+    sourceHeight: 0, sourceWidth: 0, requestedQuality: localPreference('guest-quality',estimatedStartingLevel()),
+    userChoseQuality: localPreference('guest-quality','')!=='', sharedTime: 0, sharedDuration: 0, sharedAt: 0,
     seeking: false, transportRevision: 0, controlPending: false, mediaReconnectAt: 0,
     recommendation: DEFAULT_LEVEL, stableReports: 0, unhealthyReports: 0,
     highStream: null, highTrack: null, highTimer: null, highCanvas: null,
@@ -1024,7 +1031,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   }
   function availableLevels() {
     const max = sourceHeight();
-    return LEVELS.filter(level => !max || level.height <= max);
+    // Keep the requested 1080p tier visible for HD sources even when early
+    // capture metadata reports a temporary 720p ceiling. The sender still
+    // respects source dimensions and congestion; never claim upscaling.
+    return LEVELS.filter(level => !max || level.height <= max ||
+      (level.height===1080 && max>=720));
   }
   function recommendedLevel(id) {
     const available = availableLevels();
@@ -1036,7 +1047,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     el.qualitySelect.replaceChildren();
     const rec = recommendedLevel(state.recommendation);
     const items = host ? [['original', 'Original (local)']] :
-      availableLevels().slice().reverse().map(level => [level.id, `${level.id}p${level.id === rec ? ' ★ Recommended' : ''}`]);
+      availableLevels().slice().reverse().map(level => [level.id, `${level.id}p${level.id === rec ? ' ★ Recommended' : ''}${sourceHeight() && level.height>sourceHeight() ? ' (Source Limited)' : ''}`]);
     for (const [value, label] of items) {
       const option = document.createElement('option');
       option.value = value; option.textContent = label;
@@ -1189,14 +1200,15 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     return media.paused;
   }
   function canHideControls(){
-    if(!el.stage.classList.contains('has-video')||isPlaybackPausedForControls())return false;
+    if(!el.stage.classList.contains('has-video'))return false;
     if(!el.settingsPanel.hidden||!el.subtitlePanel.hidden)return false;
     // A persistent tapped focus must not trap controls on touch devices.
-    if(!isMobile&&el.stage.contains(document.activeElement)&&
-      document.activeElement!==el.stage)return false;
+    // Hover and persistent focus cannot block the timeout on desktop.
+    // Active settings/subtitle panels still remain visible for editing.
     return true;
   }
-  function scheduleControlsFade(delay=5000){
+  function scheduleControlsFade(delay){
+    delay=Number.isFinite(delay)?delay:Number(fadeDelayControl.value)*1000;
     clearTimeout(state.controlHideTimer);
     if(!canHideControls())return;
     state.controlHideTimer=setTimeout(()=>{
@@ -3424,8 +3436,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     // primes audio at the original trusted interaction.
     primeGuestAudioFromGesture(true);
     state.recommendation=DEFAULT_LEVEL;
-    state.requestedQuality=recommendedLevel(DEFAULT_LEVEL);
-    state.userChoseQuality=false;
+    state.requestedQuality=recommendedLevel(localPreference('guest-quality',DEFAULT_LEVEL));
+    state.userChoseQuality=localPreference('guest-quality','')!=='';
     buildQualitySelect();
     state.code = code;
     state.connecting = true;
@@ -4194,13 +4206,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     window.MarmaladeSubtitleReposition?.();
   });
 
-  // Stage controls fade when untouched; remain reachable through hover,
+  // Stage controls fade when untouched; remain reachable through interaction,
   // keyboard focus and mobile tap.
   el.stage.addEventListener('pointermove', revealControls, {passive:true});
   el.stage.addEventListener('pointerdown', revealControls, {passive:true});
   el.stage.addEventListener('focusin', revealControls);
   el.stage.addEventListener('pointerleave', () => {
-    if(!isMobile)scheduleControlsFade(5000);
+    scheduleControlsFade();
   });
 
   // Settings is a real floating palette, not a child clipped by the video.
@@ -4694,6 +4706,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (state.role !== 'guest') return;
     state.requestedQuality = el.qualitySelect.value;
     state.userChoseQuality = true;
+    rememberPreference('guest-quality',state.requestedQuality);
     state.latencyStats=null;
     state.highEncoderStats=null;
     state.highPlayoutTarget=0;
@@ -5010,7 +5023,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 </script>
 <script src="./public-movie-info.js?v=20261103-imdb-score-v3" defer></script>
 <script src="./movie-info.js?v=20261103-imdb-score-v3" defer></script>
-<script src="./watch-sync-subtitles.js?v=20261103-theater-fixes-v1"></script>
+<script src="./watch-sync-subtitles.js?v=20261108-multilingual-subtitles-v2"></script>
 <script src="./subtitle-match.js?v=20261022-multisource2"></script>
 <script src="./subtitle-search.js?v=20261103-theater-fixes-v1"></script>
 </body>
