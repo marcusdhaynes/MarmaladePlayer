@@ -992,7 +992,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       const file=await record.handle.getFile();
       if(file.name!==record.name||file.size>5*1024*1024)throw Error('Subtitle File Changed');
       if(progressKeys()[0]!==key)return;
-      const cues=parseSubtitles(await file.text());
+      const cues=parseSubtitles(await readSubtitleText(file));
       if(!cues.length)throw Error('No Readable Captions');
       state.subtitles=cues;state.subtitlesEnabled=true;
       state.subtitlePreviewSuppressed=false;
@@ -1316,6 +1316,20 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (!parts.length || parts.some(v=>!Number.isFinite(v))) return NaN;
     return parts.reduce((a,v)=>a*60+v,0);
   }
+  async function readSubtitleText(file){
+    const bytes=await file.arrayBuffer();
+    const head=new Uint8Array(bytes,0,Math.min(bytes.byteLength,4));
+    if(head[0]===0xff&&head[1]===0xfe)return new TextDecoder('utf-16le').decode(bytes);
+    if(head[0]===0xfe&&head[1]===0xff)return new TextDecoder('utf-16be').decode(bytes);
+    try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes);}
+    catch{
+      // Older Arabic SRT releases are often Windows-1256, not UTF-8.
+      // Preserve Arabic characters instead of decoding them as replacements.
+      const arabic=new TextDecoder('windows-1256').decode(bytes);
+      const count=(arabic.match(/[\u0600-\u06ff]/g)||[]).length;
+      return count>=3?arabic:new TextDecoder('windows-1252').decode(bytes);
+    }
+  }
   function parseSubtitles(raw) {
     const normalized = String(raw).replace(/\r\n?/g,'\n').replace(/^\uFEFF/,'');
     const blocks = normalized.replace(/^WEBVTT[^\n]*\n(?:[^\n]*\n)*?\n/,'').split(/\n\s*\n/);
@@ -1357,7 +1371,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     // playback is paused or seeking outside subtitle dialogue.
     const shown=cue?.text||(editing&&state.subtitles.length?state.subtitles[0].text:'');
     el.subtitleOverlay.hidden=!shown;
-    if(shown&&el.subtitleOverlay.textContent!==shown)el.subtitleOverlay.textContent=shown;
+    if(shown&&el.subtitleOverlay.textContent!==shown){
+      // Normal Unicode text nodes preserve Arabic joining and logical order.
+      el.subtitleOverlay.textContent=shown.normalize('NFC');
+      el.subtitleOverlay.lang=/[\u0600-\u08ff]/u.test(shown)?'ar':'';
+      el.subtitleOverlay.dir='auto';
+      window.MarmaladeSubtitleReposition?.();
+    }
   }
   window.MarmaladeSubtitleRefresh=updateSubtitles;
   function showStage(show) {
@@ -4357,7 +4377,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   async function loadSelectedSubtitle(file,handle=null){
     if(!file||file.size>5*1024*1024){notify('Choose A Subtitle File Under 5 MB.');return;}
     try{
-      const cues=parseSubtitles(await file.text());
+      const cues=parseSubtitles(await readSubtitleText(file));
       if(!cues.length)throw Error('No Readable Subtitle Cues');
       state.subtitles=cues;state.subtitlesEnabled=true;state.subtitlePreviewSuppressed=false;
       el.subtitleName.textContent=file.name+' · '+cues.length+' Cues';
