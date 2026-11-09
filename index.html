@@ -2964,6 +2964,47 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     };
     attach();
   }
+  // Favor H.264 when both devices support it. VP8 remains negotiated as a
+  // fallback; H.264 often avoids the software VP8 1080p encoder bottleneck.
+  function preferEfficientVideoCodec(sdp){
+    if(typeof sdp!=='string')return sdp;
+    try{
+      const sections=sdp.split(/(?=^m=)/m);
+      for(let i=0;i<sections.length;i++){
+        if(!sections[i].startsWith('m=video '))continue;
+        const lines=sections[i].split(/\r?\n/);
+        const m=lines[0].split(' ');
+        if(m.length<5)return sdp;
+        const available=m.slice(3);
+        const codecs=new Map(),fmtp=new Map(),rtx=new Map();
+        for(const line of lines){
+          let match=line.match(/^a=rtpmap:(\d+)\s+([^/\s]+)/i);
+          if(match)codecs.set(match[1],match[2].toLowerCase());
+          match=line.match(/^a=fmtp:(\d+)\s+(.+)/i);
+          if(match){
+            fmtp.set(match[1],match[2]);
+            const apt=match[2].match(/(?:^|;)\s*apt=(\d+)/);
+            if(apt)rtx.set(match[1],apt[1]);
+          }
+        }
+        const h264=available.filter(id=>codecs.get(id)==='h264');
+        if(!h264.length)continue;
+        const preferred=h264.filter(id=>/(?:^|;)\s*packetization-mode=1(?:;|$)/.test(fmtp.get(id)||''));
+        const first=preferred.length?preferred:h264;
+        const priority=[...first,...h264.filter(id=>!first.includes(id))];
+        const ordered=[];
+        for(const id of priority){
+          if(!ordered.includes(id))ordered.push(id);
+          for(const r of available)if(rtx.get(r)===id&&!ordered.includes(r))ordered.push(r);
+        }
+        const rest=available.filter(id=>!ordered.includes(id));
+        m.splice(3,m.length-3,...ordered,...rest);
+        lines[0]=m.join(' ');
+        sections[i]=lines.join('\r\n');
+      }
+      return sections.join('');
+    }catch{return sdp;}
+  }
   function callGuest(peerId) {
     if (!state.peer || !state.outgoing || state.source==='hosted') return;
     const entry = state.connections.get(peerId);
@@ -2985,7 +3026,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       const oldCall=entry.call;
       entry.call=null; // Close superseded calls without triggering their retry handlers.
       try{oldCall?.close();}catch{}
-      const call = state.peer.call(peerId, state.outgoing, { metadata: { mediaId } });
+      const call = state.peer.call(peerId, state.outgoing, {
+        metadata: { mediaId },sdpTransform:preferEfficientVideoCodec
+      });
       if (!call) { notify('Could not start the media call.'); return; }
       entry.call = call;
       entry.applied = '';
