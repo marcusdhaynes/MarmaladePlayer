@@ -6,6 +6,12 @@
   if(!bridge)return;
   const {state,media,el,ensureAudioPlayback}=bridge;
   const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+  // Load purpose-built Arabic fonts where internet access permits. Native
+  // shaping-safe system fallbacks remain available offline/on installed apps.
+  const arabicFontLink=document.createElement('link');
+  arabicFontLink.rel='stylesheet';
+  arabicFontLink.href='https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;600;700&family=Noto+Sans+Arabic:wght@400;600;700&display=swap';
+  document.head.appendChild(arabicFontLink);
   const style=document.createElement('style');
   style.textContent=[
     '#dropZone .host-sync-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent;z-index:2;pointer-events:none;display:none}',
@@ -278,13 +284,18 @@
   }
   function applySubtitleStyle(){
     const overlay=el.subtitleOverlay;
-    overlay.style.fontFamily=prefs.font;
+    const isArabic=/[\u0600-\u08ff]/u.test(overlay.textContent||'');
+    overlay.style.fontFamily=isArabic ?
+      '"Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, Arial, sans-serif, '+prefs.font : prefs.font;
     // Browser-native Unicode shaping keeps Arabic letters joined and preserves
     // Indic, Thai and mixed-direction captions without splitting glyph runs.
     overlay.style.fontKerning='normal';
+    overlay.style.fontFeatureSettings='"rlig" 1, "calt" 1, "liga" 1';
+    overlay.style.textTransform='none';
     overlay.style.fontVariantLigatures='normal';
     overlay.style.unicodeBidi='plaintext';
-    overlay.style.direction='auto';
+    // Direction is determined per caption line by dir=auto and plaintext bidi.
+    overlay.style.direction='';
     overlay.style.wordBreak='normal';
     overlay.style.overflowWrap='break-word';
     overlay.style.whiteSpace='pre-line';
@@ -310,6 +321,7 @@
     overlay.style.width='max-content';
     overlay.style.textAlign=prefs.alignment;
     overlay.setAttribute('dir','auto');
+    overlay.setAttribute('lang',isArabic?'ar':'');
     const parts=prefs.position.split('-');
     const y=parts[0],x=parts[1];
     // Anchor each grid cell to the actual picture, excluding letterbox bars.
