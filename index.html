@@ -960,6 +960,46 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       return ['hosted:'+state.hostedUrl];
     return [];
   }
+  // File handles are stored locally, never sent through the P2P channel.
+  // A file input intentionally cannot expose its original filesystem path.
+  const subtitleHandleDatabase=()=>new Promise((resolve,reject)=>{
+    if(!('indexedDB' in window)){reject(Error('File Handle Storage Unavailable'));return;}
+    const request=indexedDB.open('marmalade-local-subtitles',1);
+    request.onupgradeneeded=()=>request.result.createObjectStore('handles');
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error);
+  });
+  async function subtitleHandleStore(mode,key,value){
+    const db=await subtitleHandleDatabase();
+    try{return await new Promise((resolve,reject)=>{
+      const transaction=db.transaction('handles',mode==='get'?'readonly':'readwrite');
+      const store=transaction.objectStore('handles');
+      const request=mode==='get'?store.get(key):store.put(value,key);
+      request.onsuccess=()=>resolve(request.result);
+      request.onerror=()=>reject(request.error);
+    });}finally{db.close();}
+  }
+  async function restoreSavedSubtitle(){
+    const key=progressKeys()[0];
+    if(!key||state.subtitlesEnabled)return;
+    let record;
+    try{record=await subtitleHandleStore('get',key);}catch{return;}
+    if(!record)return;
+    if(!record.handle){notify('Previous Subtitle File Cannot Be Reopened Automatically. Select It Again.');return;}
+    try{
+      const permission=await record.handle.queryPermission({mode:'read'});
+      if(permission!=='granted')throw Error('Permission Required');
+      const file=await record.handle.getFile();
+      if(file.name!==record.name||file.size>5*1024*1024)throw Error('Subtitle File Changed');
+      if(progressKeys()[0]!==key)return;
+      const cues=parseSubtitles(await file.text());
+      if(!cues.length)throw Error('No Readable Captions');
+      state.subtitles=cues;state.subtitlesEnabled=true;
+      state.subtitlePreviewSuppressed=false;
+      el.subtitleName.textContent=file.name+' · '+cues.length+' Cues · Restored';
+      updateSubtitles();
+    }catch{notify('Previous Subtitle File Is Missing Or Requires Access. Please Select It Again.');}
+  }
   function saveWatchPosition(force=false){
     const keys=progressKeys();
     if(!keys.length)return;
@@ -1004,6 +1044,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     try{
       media.currentTime=Math.min(point,media.duration-3);
       notify('Resumed '+el.fileName.textContent+' at '+timeString(point)+'.');
+      void restoreSavedSubtitle();
     }catch{}
   }
   function notify(message) {
@@ -2148,6 +2189,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   function removeMedia({preserveGuestAudio=false}={}) {
     saveWatchPosition(true);
     state.resumeChecked=false;
+    state.subtitles=[];state.subtitlesEnabled=false;
+    el.subtitleName.textContent='Off · Supports .srt And .vtt';
+    updateSubtitles();
     window.MarmaladeHostSyncCleanup?.();
     // Joining resets the old video, but must NOT destroy an AudioContext
     // just unlocked by the visitor typing/pasting their room code.
@@ -4294,24 +4338,36 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     el.statusToggle.setAttribute('aria-pressed',String(state.showStatus));
     updateStatusDisplay();
   });
-  el.loadSubtitle.addEventListener('click',()=>el.subtitleFile.click());
+  el.loadSubtitle.addEventListener('click',async()=>{
+    if(typeof window.showOpenFilePicker!=='function'){el.subtitleFile.click();return;}
+    try{
+      const [handle]=await window.showOpenFilePicker({multiple:false,types:[{
+        description:'Subtitle Files',accept:{'text/plain':['.srt'], 'text/vtt':['.vtt']}
+      }]});
+      if(handle)await loadSelectedSubtitle(await handle.getFile(),handle);
+    }catch(error){if(error?.name!=='AbortError')el.subtitleFile.click();}
+  });
   el.hideSubtitle.addEventListener('click',()=>{
     state.subtitlesEnabled=false;
     state.subtitlePreviewSuppressed=true;
     updateSubtitles();el.subtitleName.textContent='Off';
   });
-  el.subtitleFile.addEventListener('change', async ()=>{
-    const file=el.subtitleFile.files?.[0]; if(!file)return;
-    if(file.size>5*1024*1024){notify('Choose a subtitle file under 5 MB.');return;}
+  async function loadSelectedSubtitle(file,handle=null){
+    if(!file||file.size>5*1024*1024){notify('Choose A Subtitle File Under 5 MB.');return;}
     try{
       const cues=parseSubtitles(await file.text());
-      if(!cues.length)throw Error('No readable subtitle cues');
+      if(!cues.length)throw Error('No Readable Subtitle Cues');
       state.subtitles=cues;state.subtitlesEnabled=true;state.subtitlePreviewSuppressed=false;
-      el.subtitleName.textContent=file.name+' · '+cues.length+' cues';
-      updateSubtitles();
-      revealControls();
-      notify('Subtitles loaded locally. Preview and edit them while the window stays open.');
-    }catch(e){notify('Subtitle file could not be read. Try .srt or .vtt.');}
+      el.subtitleName.textContent=file.name+' · '+cues.length+' Cues';
+      updateSubtitles();revealControls();
+      const key=progressKeys()[0];
+      if(key)try{await subtitleHandleStore('put',key,{name:file.name,handle});}catch{}
+      notify(handle?'Subtitles Loaded And Linked To This Video.':'Subtitles Loaded. Select Again After Restart If File Access Cannot Be Restored.');
+    }catch(e){notify('Subtitle File Could Not Be Read. Try .srt Or .vtt.');}
+  }
+  el.subtitleFile.addEventListener('change',async()=>{
+    const file=el.subtitleFile.files?.[0];
+    if(file)await loadSelectedSubtitle(file);
     el.subtitleFile.value='';
   });
   const miniOverlay=document.getElementById('miniPlayerOverlay');
