@@ -2542,6 +2542,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // base stream (and all smaller quality selections) remains completely untouched.
   function getHighVideoTrack(requestedHeight = 720, forceCanvas = false) {
     if (state.source === 'screen') return state.outgoing?.getVideoTracks()[0] || null;
+    // All high-quality guests share this capture. Avoid switching back to a
+    // starved native track while another guest uses the rescue canvas.
+    forceCanvas=forceCanvas || [...state.connections.values()].some(e=>
+      e.call && e.conn.open && !e.localMirror && e.captureRescue);
     const requested = [...state.connections.values()]
       .filter(e => e.call && e.conn.open && !e.localMirror)
       .map(e => levelForGuest(e).height).filter(h => h > STREAM_HEIGHT);
@@ -2682,9 +2686,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             entry.motionRescueSince=now;
             // An apparently-live native video track may have stopped emitting.
             // Recover by replacing it with a paced, decoded canvas track.
-            if(entry.call?.peerConnection?.getSenders?.().some(sender=>
-              sender.track===state.nativeCapture?.getVideoTracks()[0]))
-              entry.captureRescue=true;
+            entry.captureRescue=true;
             entry.applied='';
             void tuneGuest(entry);
             send(entry.conn,{type:'quality-health',
