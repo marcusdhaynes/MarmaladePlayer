@@ -2522,7 +2522,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       state.highCanvas=null;
       state.highStream=null;
       state.highTrack = nativeTrack; state.highTierHeight = sourceHeight();
-    } else if (nativeTrack?.readyState === 'live' && sourceHeight() <= height) {
+    } else if (!forceCanvas && nativeTrack?.readyState === 'live' && sourceHeight() <= height) {
       state.highTrack = nativeTrack; state.highTierHeight = sourceHeight();
     } else {
       if (!media.videoWidth || !media.videoHeight) return null;
@@ -2572,10 +2572,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
         };
         state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
-      }else{
-        state.highTimer=setInterval(()=>paint(performance.now()),
-          Math.round(1000/STREAM_FPS));
       }
+      // Backup capture clock: some browsers stop video frame callbacks
+      // while the capture track remains live, starving the encoder.
+      state.highTimer=setInterval(()=>{
+        if(state.highCanvas===canvas && !media.paused)paint(performance.now());
+      },Math.round(1000/STREAM_FPS));
       state.highTierHeight=height;
       if(state.highTrack && 'contentHint' in state.highTrack)
         try{state.highTrack.contentHint='motion';}catch{}
@@ -2634,6 +2636,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           if(entry.lowFpsWindows>=2 && !entry.motionRescue){
             entry.motionRescue=true;
             entry.motionRescueSince=now;
+            // An apparently-live native video track may have stopped emitting.
+            // Recover by replacing it with a paced, decoded canvas track.
+            if(entry.call?.peerConnection?.getSenders?.().some(sender=>
+              sender.track===state.nativeCapture?.getVideoTracks()[0]))
+              entry.captureRescue=true;
             entry.applied='';
             void tuneGuest(entry);
             send(entry.conn,{type:'quality-health',
@@ -2727,7 +2734,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     // delivers solid black. A guest whose sampled pixels disagree with the
     // host's can request a one-time canvas capture, per guest.
     const newTrack = wantsHigh
-      ? getHighVideoTrack(current.height,!!entry.compatCanvas)
+      ? getHighVideoTrack(current.height,!!(entry.compatCanvas||entry.captureRescue))
       : entry.compatCanvas ? getCompatCanvasTrack() : state.outgoing?.getVideoTracks()[0];
     if (!newTrack || newTrack.readyState !== 'live') return;
     const bitrate = budgetForGuest(entry,Math.round(current.bitrate *
@@ -2761,8 +2768,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       // was leaving maintain-resolution active permanently even while FPS
       // collapsed. Two sustained slow-encoder windows now trigger automatic
       // maintain-framerate rescue for this guest only.
-      params.degradationPreference = wantsHigh && !entry.motionRescue
-        ? 'maintain-resolution' : 'maintain-framerate';
+      params.degradationPreference = 'maintain-framerate';
       let scalingSupported=true,applied=false;
       try {
         await sender.setParameters(params);applied=true;
@@ -4215,6 +4221,18 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     scheduleControlsFade();
   });
 
+  // CSS hover/focus must not override the timeout on desktop or fullscreen.
+  const fadeOverride=document.createElement('style');
+  fadeOverride.textContent=`
+    .stage.has-video:not(.controls-visible) .theater-controls,
+    .stage.has-video:not(.controls-visible) .theater-top,
+    .stage.has-video:not(.controls-visible) .exit-theater {
+      opacity:0!important;pointer-events:none!important;
+    }
+    .stage.has-video.controls-visible .theater-controls,
+    .stage.has-video.controls-visible .theater-top {opacity:1!important;pointer-events:auto!important}
+  `;
+  document.head.appendChild(fadeOverride);
   // Settings is a real floating palette, not a child clipped by the video.
   // In native fullscreen it moves back into the fullscreen element, as
   // browsers cannot display an ordinary body child above a fullscreen layer.
