@@ -4854,12 +4854,16 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // initial file-picker screen, on mouse, touchscreen, pen, or keyboard.
   // A hold must never also dispatch the synthetic click that toggles playback.
   let playHoldTimer=0, suppressPlayClickUntil=0;
+  let activePlayPointer=null, stoppedPlayPointer=null;
   const cancelPlayHold=()=>{clearTimeout(playHoldTimer);playHoldTimer=0;};
   const beginPlayHold=()=>{
     if(state.role!=='host' || !state.source || el.play.disabled)return;
     cancelPlayHold();
     playHoldTimer=setTimeout(()=>{
       playHoldTimer=0;
+      // Remember this specific pointer: a user may keep holding for seconds
+      // after Stop. The eventual pointerup must not reopen the file picker.
+      stoppedPlayPointer=activePlayPointer;
       suppressPlayClickUntil=performance.now()+1000;
       stopPlaybackToPicker();
     },550);
@@ -4867,8 +4871,17 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   el.play.title='Click to Play/Pause · Hold to Stop';
   el.play.addEventListener('pointerdown',event=>{
     if(event.button!==0 || !event.isPrimary)return;
+    activePlayPointer=event.pointerId;
     beginPlayHold();
   });
+  document.addEventListener('pointerup',event=>{
+    if(stoppedPlayPointer!==null && event.pointerId===stoppedPlayPointer){
+      state.stopPickerUntil=performance.now()+800;
+      suppressPlayClickUntil=performance.now()+800;
+      stoppedPlayPointer=null;
+    }
+    if(event.pointerId===activePlayPointer)activePlayPointer=null;
+  },{capture:true});
   for(const eventName of ['pointerup','pointercancel','pointerleave'])
     el.play.addEventListener(eventName,cancelPlayHold);
   el.play.addEventListener('contextmenu',event=>{
