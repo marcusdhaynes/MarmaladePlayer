@@ -1,0 +1,34 @@
+name: MKV Dolby Audio Compatibility
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'auto-mkv-audio.js'
+      - 'scripts/install-mkv-decoder.mjs'
+      - 'tests/mkv-audio-compat.mjs'
+      - '.github/workflows/mkv-audio-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mkv-audio:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium and test tooling
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Install FFmpeg for synthetic E-AC-3 test
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Install streaming MKV audio decoder
+        run: node scripts/install-mkv-decoder.mjs
+      - name: Verify real audible E-AC-3 to AAC video playback and Stop
+        run: node tests/mkv-audio-compat.mjs
