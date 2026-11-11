@@ -4870,14 +4870,26 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       stopPlaybackToPicker();
     }
   });
+  let keyboardPlayPress=false;
   el.play.addEventListener('keydown',event=>{
-    if(event.repeat)return;
-    if(event.key===' '||event.key==='Enter')beginPlayHold();
+    if(event.key!==' '&&event.key!=='Enter')return;
+    // Enter normally clicks on keydown; defer it so a hold cannot pause first.
+    event.preventDefault();
+    if(event.repeat||keyboardPlayPress)return;
+    keyboardPlayPress=true;
+    beginPlayHold();
   });
   el.play.addEventListener('keyup',event=>{
-    if(event.key===' '||event.key==='Enter')cancelPlayHold();
+    if(event.key!==' '&&event.key!=='Enter')return;
+    event.preventDefault();
+    if(!keyboardPlayPress)return;
+    keyboardPlayPress=false;
+    const wasHolding=!!playHoldTimer;
+    cancelPlayHold();
+    if(wasHolding&&performance.now()>=suppressPlayClickUntil)
+      void togglePlay('button');
   });
-  el.play.addEventListener('blur',cancelPlayHold);
+  el.play.addEventListener('blur',()=>{keyboardPlayPress=false;cancelPlayHold();});
   el.play.addEventListener('click',event=>{
     if(performance.now()<suppressPlayClickUntil){
       event.preventDefault();
