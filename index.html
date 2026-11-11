@@ -2206,6 +2206,22 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     el.startBroadcast.disabled = !state.fileReady && state.source !== 'screen';
     updateBroadcastIndicator();
   }
+  // Stop is not Pause. It tears down the source, synchronized broadcast,
+  // subtitle state, room connections, and the current movie presentation.
+  function stopPlaybackToPicker(){
+    if(state.role!=='host' || !state.source)return;
+    // Tell guests not to auto-rejoin a room that was intentionally stopped.
+    broadcast({type:'playback-stopped'});
+    stopHostRecovery();
+    rememberHostCode('');
+    removeMedia();
+    closeConnections();
+    state.transportRevision++;
+    setStage('Choose a movie.', 'Click here or drop a video file to start your room.', 'CLICK TO HOST');
+    updateTransport();
+    updateRoomPanel();
+    notify('Playback stopped. Select a video to begin again.');
+  }
   function removeMedia({preserveGuestAudio=false}={}) {
     saveWatchPosition(true);
     state.resumeChecked=false;
@@ -2372,6 +2388,20 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     media.load();
     el.fileName.textContent = file.name;
     el.fileInfo.textContent = `${file.name} · ${(file.size / 1048576).toFixed(1)} MB`;
+    // MKV describes a container, not an audio codec. Detect known browser-
+    // incompatible audio tracks instead of silently playing video without
+    // sound or claiming that every MKV is supported. Never read the whole file.
+    if(/\.mkv$/i.test(file.name)){
+      void file.slice(0,2*1024*1024).arrayBuffer().then(buffer=>{
+        if(state.file!==file)return;
+        const probe=new TextDecoder('latin1').decode(buffer);
+        const match=/A_(EAC3|AC3|DTS(?:\/[^\x00\s]+)?|TRUEHD|MLP)/i.exec(probe);
+        if(!match)return;
+        const label=match[1].toUpperCase().replace('EAC3','E-AC-3');
+        el.fileInfo.textContent += ' · '+label+' audio may need conversion';
+        notify('This MKV contains '+label+' audio. Your browser may play its H.264 picture without sound. Convert the audio track to AAC (copy the video), or share playback from VLC with system audio.');
+      }).catch(()=>{});
+    }
     window.dispatchEvent(new CustomEvent('marmalade:video-selected', { detail: { file } }));
     el.hint.textContent = 'Only media formats decoded by your browser play as files.';
     setStage('Loading your video…', 'Preparing local playback. Your file stays on your device.', 'LOADING');
@@ -3444,6 +3474,18 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       });
       conn.on('data', (data) => {
         if (!data || typeof data !== 'object') return;
+        if(data.type==='playback-stopped'){
+          // The host deliberately stopped, not merely paused: clear the guest
+          // source and leave the old room rather than attempting auto-rejoin.
+          closeConnections();
+          removeMedia();
+          state.hostPlaying=false;
+          state.sharedDuration=0;
+          state.sharedTime=0;
+          setStage('Playback stopped.', 'The host stopped this video. Join another room to watch again.', 'ROOM ENDED');
+          updateRoomPanel();
+          return;
+        }
         if(data.type==='state' || (data.type==='local-clock' && state.localVerified))
           receiveState(data);
         if (data.type === 'media-error' && state.source !== 'remote' && !state.localVerified) {
@@ -3699,9 +3741,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       state.speakerGain.connect(state.audioContext.destination);
       media.volume=1;
     };
-    // Host's source must be connected synchronously inside the original
-    // playback click to capture a pre-volume audio track for the guest.
-    if(!guestRemote)connectGraph();
+    // createMediaElementSource immediately redirects native media output into
+    // Web Audio. When the context is still suspended that redirection produces
+    // SILENCE, including for otherwise perfectly playable MKV soundtracks.
+    // Resume FIRST, and only redirect once the graph is actually running.
+    // This also keeps native sound intact when autoplay policies reject resume.
     try{
       if(state.audioContext.state!=='running')await state.audioContext.resume();
     }catch(error){
@@ -3709,7 +3753,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       return false;
     }
     if(state.audioContext.state!=='running')return false;
-    if(guestRemote)connectGraph();
+    connectGraph();
     applyVolume();
     return true;
   }
@@ -4797,7 +4841,51 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   el.joinInput.addEventListener('input',()=>primeGuestAudioFromGesture());
   el.joinInput.addEventListener('paste',()=>queueMicrotask(()=>primeGuestAudioFromGesture()));
   el.leave.addEventListener('click', leaveRoom);
-  el.play.addEventListener('click',()=>void togglePlay('button'));
+  // Tap/click = Play/Pause. Hold for 550ms = FULL Stop and return to the
+  // initial file-picker screen, on mouse, touchscreen, pen, or keyboard.
+  // A hold must never also dispatch the synthetic click that toggles playback.
+  let playHoldTimer=0, suppressPlayClickUntil=0;
+  const cancelPlayHold=()=>{clearTimeout(playHoldTimer);playHoldTimer=0;};
+  const beginPlayHold=()=>{
+    if(state.role!=='host' || !state.source || el.play.disabled)return;
+    cancelPlayHold();
+    playHoldTimer=setTimeout(()=>{
+      playHoldTimer=0;
+      suppressPlayClickUntil=performance.now()+1000;
+      stopPlaybackToPicker();
+    },550);
+  };
+  el.play.title='Click to Play/Pause · Hold to Stop';
+  el.play.addEventListener('pointerdown',event=>{
+    if(event.button!==0 || !event.isPrimary)return;
+    beginPlayHold();
+  });
+  for(const eventName of ['pointerup','pointercancel','pointerleave'])
+    el.play.addEventListener(eventName,cancelPlayHold);
+  el.play.addEventListener('contextmenu',event=>{
+    if(playHoldTimer){
+      event.preventDefault();
+      cancelPlayHold();
+      suppressPlayClickUntil=performance.now()+1000;
+      stopPlaybackToPicker();
+    }
+  });
+  el.play.addEventListener('keydown',event=>{
+    if(event.repeat)return;
+    if(event.key===' '||event.key==='Enter')beginPlayHold();
+  });
+  el.play.addEventListener('keyup',event=>{
+    if(event.key===' '||event.key==='Enter')cancelPlayHold();
+  });
+  el.play.addEventListener('blur',cancelPlayHold);
+  el.play.addEventListener('click',event=>{
+    if(performance.now()<suppressPlayClickUntil){
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    void togglePlay('button');
+  });
   $('guestAudioUnlock').addEventListener('click',event=>{
     event.stopPropagation();
     void enableRemotePlayback();
