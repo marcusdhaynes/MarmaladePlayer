@@ -2210,6 +2210,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   // subtitle state, room connections, and the current movie presentation.
   function stopPlaybackToPicker(){
     if(state.role!=='host' || !state.source)return;
+    // Browsers may synthesize a click when the held control becomes disabled.
+    // Ignore that RELEASE click; only a later, deliberate picker press can open it.
+    state.stopPickerUntil=performance.now()+900;
     // Tell guests not to auto-rejoin a room that was intentionally stopped.
     broadcast({type:'playback-stopped'});
     stopHostRecovery();
@@ -2332,6 +2335,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     updateRoomPanel();
   }
   function openMoviePicker() {
+    if(performance.now() < (state.stopPickerUntil||0))return;
     if ((state.source && !(state.source === 'file' && media.error)) || state.connecting) return;
     if (state.role !== 'host') selectRole('host');
     el.fileInput.click();
@@ -2388,9 +2392,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     media.load();
     el.fileName.textContent = file.name;
     el.fileInfo.textContent = `${file.name} · ${(file.size / 1048576).toFixed(1)} MB`;
-    // MKV describes a container, not an audio codec. Detect known browser-
-    // incompatible audio tracks instead of silently playing video without
-    // sound or claiming that every MKV is supported. Never read the whole file.
+    // MKV is a container, and a working H.264 picture does not prove that
+    // the browser can decode E-AC-3 audio. Transparently remux via the
+    // on-demand WASM worker: copy H.264 video and decode/encode audio to AAC.
+    // The movie stays local, with incremental reads rather than a full upload.
     if(/\.mkv$/i.test(file.name)){
       void file.slice(0,2*1024*1024).arrayBuffer().then(buffer=>{
         if(state.file!==file)return;
@@ -2398,9 +2403,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         const match=/A_(EAC3|AC3|DTS(?:\/[^\x00\s]+)?|TRUEHD|MLP)/i.exec(probe);
         if(!match)return;
         const label=match[1].toUpperCase().replace('EAC3','E-AC-3');
-        el.fileInfo.textContent += ' · '+label+' audio may need conversion';
-        notify('This MKV contains '+label+' audio. Your browser may play its H.264 picture without sound. Convert the audio track to AAC (copy the video), or share playback from VLC with system audio.');
-      }).catch(()=>{});
+        el.fileInfo.textContent += ' · Preparing '+label+' audio automatically';
+        if(window.MarmaladeMkvAudio?.handle)
+          void window.MarmaladeMkvAudio.handle(file);
+        else
+          notify('Automatic MKV audio decoder was not packaged. Playback may lack sound.');
+      }).catch(error=>console.warn('MKV audio probe failed',error));
     }
     window.dispatchEvent(new CustomEvent('marmalade:video-selected', { detail: { file } }));
     el.hint.textContent = 'Only media formats decoded by your browser play as files.';
@@ -4687,6 +4695,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       void togglePlay('stage');
   }
   el.stage.addEventListener('click', event => {
+    if(performance.now() < (state.stopPickerUntil||0))return;
     if(isVideoControlEvent(event))return;
     if(el.stage.classList.contains('mini-pip-visible')){showMiniControls();return;}
     if(el.stage.classList.contains('floating-player')){
@@ -5269,6 +5278,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 })();
 
 </script>
+<script src="./auto-mkv-audio.js?v=20261111-streaming-aac-v1"></script>
 <script src="./public-movie-info.js?v=20261103-imdb-score-v3" defer></script>
 <script src="./movie-info.js?v=20261103-imdb-score-v3" defer></script>
 <script src="./watch-sync-subtitles.js?v=20261108-arabic-shaping-v3"></script>
