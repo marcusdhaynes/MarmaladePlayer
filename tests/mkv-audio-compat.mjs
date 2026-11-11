@@ -91,13 +91,15 @@ try{
   page.on('filechooser',()=>chooserCount++);
   await page.locator('#playPause').dispatchEvent('pointerdown',
     {pointerId:1,isPrimary:true,button:0});
-  await page.waitForTimeout(680);
-  await page.locator('#playPause').dispatchEvent('pointerup',
-    {pointerId:1,isPrimary:true,button:0});
-  await page.locator('#playPause').dispatchEvent('click',
-    {button:0});
-  await page.waitForTimeout(500);
-  assert.equal(chooserCount,0,'Stopping cannot automatically open the file explorer');
+  // Hold long enough that a timer-only suppression would have expired.
+  await page.waitForTimeout(1750);
+  await page.evaluate(()=>document.dispatchEvent(new PointerEvent('pointerup',
+    {pointerId:1,isPrimary:true,button:0,bubbles:true})));
+  // Simulate the delayed click some browsers synthesize onto the stage
+  // after the original Play button is disabled by Stop.
+  await page.locator('#dropZone').dispatchEvent('click',{button:0});
+  await page.waitForTimeout(300);
+  assert.equal(chooserCount,0,'Releasing a long Stop hold cannot open the file explorer');
   assert.equal(await page.locator('#stageTitle').textContent(),'Choose a movie.');
   assert.equal(await page.locator('#player').getAttribute('src'),null);
   console.log('PASS E-AC-3 AAC automatic playback and Stop without opening file picker');
