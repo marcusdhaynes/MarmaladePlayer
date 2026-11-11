@@ -11,3 +11,7 @@ desktop/src-tauri/target/
 desktop/src-tauri/icons/
 desktop/src-tauri/Cargo.lock
 .DS_Store
+
+# Build-staged WebAssembly audio decoder (pinned npm package)
+vendor/libav-wasm/
+.marmalade-decoder-install/
