@@ -48,7 +48,7 @@ try{
     assert.equal(await page.locator('#settingsPage'+key[0].toUpperCase()+key.slice(1)+' #'+id).count(),
       1,'Setting '+id+' belongs to '+key);
 
-  async function layout(which){
+  async function layout(which,variant=''){
     await page.locator('#settingsTab'+which[0].toUpperCase()+which.slice(1)).click();
     await page.waitForTimeout(60);
     const boxes=await page.evaluate(()=>{
@@ -73,7 +73,7 @@ try{
       assert(positions[j].top>=positions[j-1].bottom-1,
         'Settings rows must never overlap: '+which+' '+j);
     }
-    const filename='settings-'+viewport.width+'x'+viewport.height+'-'+which+'.png';
+    const filename='settings-'+viewport.width+'x'+viewport.height+'-'+which+(variant?'-'+variant:'')+'.png';
     await page.screenshot({path:resolve(capture,filename),animations:'disabled'});
     return boxes;
   }
@@ -97,7 +97,7 @@ try{
   assert.equal(await page.locator('#settingsAdvanced').getAttribute('open'),null);
   await page.locator('#settingsAdvanced summary').click();
   assert.equal(await page.locator('#screenShareBtn').isVisible(),true);
-  await layout('party');
+  await layout('party','advanced');
   if(viewport.width===1366){
     const prior=await page.locator('#strictSync').isChecked();
     await page.locator('#strictSync').click();

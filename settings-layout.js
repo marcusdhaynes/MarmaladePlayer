@@ -79,7 +79,9 @@
  subtitleLink.addEventListener('click',()=>$('subtitlesBtn')?.click());
  pages.get('video').querySelector('.settings-stack').appendChild(subtitleLink);
  into('skipInterval','controls');
- into('controlFadeDelay','controls');
+ const fadeRow=into('controlFadeDelay','controls');
+ if(fadeRow?.firstChild?.nodeType===Node.TEXT_NODE)
+   fadeRow.firstChild.textContent='Fade Controls ';
  const keyboard=document.createElement('div');
  keyboard.className='settings-shortcuts';
  keyboard.innerHTML='<span>Keyboard</span><span><kbd>Space</kbd> Play / Pause <em>·</em> <kbd>←</kbd> <kbd>→</kbd> Skip</span>';
@@ -97,13 +99,14 @@
    hostStatus.classList.add('settings-hint');
    pages.get('party').querySelector('.settings-stack').appendChild(hostStatus);
  }
- const hostSync=$('hostSyncSettings');
- if(hostSync){hostSync.classList.add('settings-monitor');pages.get('party').appendChild(hostSync);}
  const advanced=document.createElement('details');
  advanced.id='settingsAdvanced';advanced.className='settings-advanced';
  const summary=document.createElement('summary');
  summary.innerHTML='Advanced <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
  advanced.appendChild(summary);
+ // Detailed host A/V alignment belongs in Advanced, not the everyday Party view.
+ const hostSync=$('hostSyncSettings');
+ if(hostSync){hostSync.classList.add('settings-monitor');advanced.appendChild(hostSync);}
  const tools=panel.querySelector('.settings-tools')||document.createElement('div');
  tools.classList.add('settings-tools');
  const diagnostics=$('diagnosticsToggle'),info=$('stabilityInfo');
