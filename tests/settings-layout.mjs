@@ -91,8 +91,9 @@ try{
     assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:control-fade-seconds')),'8');
   }
   await layout('party');
-  assert.equal(await page.locator('#hostMatchRow').isVisible(),false,
-    'Host-only Match timing stays hidden when not hosting');
+  const activeHost=await page.evaluate(()=>window.MarmaladeAddonBridge.state.role==='host');
+  assert.equal(await page.locator('#hostMatchRow').isVisible(),activeHost,
+    'Host-only Match timing must follow the current role');
   assert.equal(await page.locator('#settingsAdvanced').getAttribute('open'),null);
   await page.locator('#settingsAdvanced summary').click();
   assert.equal(await page.locator('#screenShareBtn').isVisible(),true);

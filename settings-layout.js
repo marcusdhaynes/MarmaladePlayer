@@ -85,9 +85,13 @@
  keyboard.innerHTML='<span>Keyboard</span><span><kbd>Space</kbd> Play / Pause <em>·</em> <kbd>←</kbd> <kbd>→</kbd> Skip</span>';
  pages.get('controls').appendChild(keyboard);
  into('stabilityMode','party');
- into('strictSync','party','settings-toggle-row');
- into('peerAssist','party','settings-toggle-row');
- into('hostMatchRow','party','settings-toggle-row');
+ for(const id of ['strictSync','peerAssist','hostMatchRow']){
+   const row=into(id,'party','settings-toggle-row');
+   // Native labels began with their checkbox. Put the title on the left,
+   // the compact toggle on the far right without replacing the input.
+   const input=row?.querySelector('input[type="checkbox"]');
+   if(input)row.appendChild(input);
+ }
  const hostStatus=$('hostMatchStatus');
  if(hostStatus){
    hostStatus.classList.add('settings-hint');
