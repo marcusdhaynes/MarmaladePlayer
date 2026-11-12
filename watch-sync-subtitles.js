@@ -29,6 +29,12 @@
     '.subtitle-style>label{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,160px);gap:6px;align-items:center;min-height:28px}',
     '.subtitle-style>label select{min-width:0;width:100%;max-width:160px;padding:4px 6px}',
     '.subtitle-style-row select{max-width:175px}',
+    '.subtitle-style-row.subtitle-timing-row{grid-template-columns:minmax(0,1fr) auto!important}',
+    '.subtitle-timing-control{display:flex;align-items:center;gap:4px;justify-content:flex-end}',
+    '.subtitle-timing-control button{width:28px;min-width:28px;height:28px;border:1px solid #755848;border-radius:5px;background:#31272a;color:#ffd6ab;font-size:16px;font-weight:700;touch-action:none}',
+    '.subtitle-timing-control button:active{background:#634332}',
+    '.subtitle-timing-control input{width:65px;min-width:0;box-sizing:border-box;text-align:right;border:1px solid #755848;border-radius:5px;background:#252229;color:#fff2df;padding:5px 4px;font:inherit;font-size:11px;font-variant-numeric:tabular-nums}',
+    '.subtitle-timing-control .timing-unit{font-size:10px;color:#e5c3a7}',
     '.subtitle-position-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;width:135px;align-self:center}',
     '.subtitle-position-grid button{min-width:36px;min-height:25px;padding:3px;background:#302831;color:#e7d4c4}',
     '.subtitle-position-grid button[aria-pressed=true]{border-color:#ffb874;background:#624331;color:white}',
@@ -265,8 +271,12 @@
     '<label for="subtitleAlign">Text Alignment <select id="subtitleAlign" data-sub-key="alignment">'+
     '<option value="left">Left</option><option value="center">Center</option>'+
     '<option value="right">Right</option><option value="justify">Justified</option></select></label>'+
-    '<div class="subtitle-style-row subtitle-timing-row"><label for="subtitleTiming">Subtitle Timing</label><i class="sub-swatch-spacer" aria-hidden="true"></i>'+
-    '<input id="subtitleTiming" type="range" data-sub-key="timing" min="-6" max="6" step="0.05"><output id="subtitleTimingValue" class="sub-setting-value">0.00s</output></div>'+
+    '<div class="subtitle-style-row subtitle-timing-row"><label for="subtitleTiming">Subtitle Timing</label>'+
+    '<div class="subtitle-timing-control"><button type="button" id="subtitleTimingMinus" aria-label="Subtract 0.1 seconds; hold for 1 second steps">−</button>'+
+    '<input id="subtitleTiming" type="text" inputmode="decimal" pattern="[+-]?[0-9]*[.,]?[0-9]*" value="0.0" autocomplete="off" spellcheck="false" aria-label="Subtitle timing in seconds, to tenths of a second">'+
+    '<span class="timing-unit" aria-hidden="true">s</span>'+
+    '<button type="button" id="subtitleTimingPlus" aria-label="Add 0.1 seconds; hold for 1 second steps">+</button></div></div>'+
+    '<small class="subtitle-settings-note">Tap + or − for 0.1s. Hold for 0.25s to change by 1s.</small>'+
     '<small class="subtitle-settings-note">Font Size, Colors, Position, And Timing Are Saved On This Device. Scripts Such As Arabic Use Native Text Shaping.</small>';
   el.subtitlePanel.appendChild(subStyle);
   const fields=[...subStyle.querySelectorAll('[data-sub-key]')];
@@ -358,8 +368,8 @@
       const number=key.endsWith('Alpha')?100-Number(prefs[key]):Number(prefs[key]);
       output.textContent=Math.round(number)+(key.endsWith('Alpha')?'%':'px');
     }
-    subStyle.querySelector('#subtitleTimingValue').textContent=(Number(prefs.timing)>0?'+':'')+
-      Number(prefs.timing).toFixed(2)+'s';
+    // The timing text field is managed independently to preserve cursor position
+    // while a user enters a signed decimal value.
   }
   function saveStyle(){
     try{localStorage.setItem('marmalade-subtitle-style-v1',JSON.stringify(prefs));}catch{}
@@ -374,6 +384,102 @@
     prefs.position=button.dataset.subPosition;applySubtitleStyle();saveStyle();
     window.MarmaladeSubtitleRefresh?.();
   }));
+  // A subtitle offset belongs to a specific subtitle AND video, never globally.
+  // Only offsets (not subtitle text or movie bytes) are kept in localStorage.
+  const timingStoreKey='marmalade:subtitle-offsets:v2';
+  let timingOffsets={};
+  try{
+    const records=JSON.parse(localStorage.getItem(timingStoreKey)||'{}');
+    if(records&&typeof records==='object'&&!Array.isArray(records))timingOffsets=records;
+  }catch{}
+  let timingMedia='',timingSubtitle='';
+  const timingText=subStyle.querySelector('#subtitleTiming');
+  const tenths=value=>clamp(Math.round(Number(value)*10)/10,-3600,3600);
+  function formatTiming(){
+    if(document.activeElement!==timingText)
+      timingText.value=Number(prefs.timing).toFixed(1);
+  }
+  function writeTimingOffset(){
+    if(!timingMedia||!timingSubtitle)return;
+    timingOffsets[timingMedia+'\u0000'+timingSubtitle]={
+      seconds:Number(prefs.timing),updated:Date.now()
+    };
+    const latest=Object.entries(timingOffsets)
+      .filter(([,entry])=>Number.isFinite(entry?.seconds))
+      .sort((a,b)=>(b[1].updated||0)-(a[1].updated||0)).slice(0,500);
+    timingOffsets=Object.fromEntries(latest);
+    try{localStorage.setItem(timingStoreKey,JSON.stringify(timingOffsets));}catch{}
+  }
+  function setTiming(seconds){
+    if(!Number.isFinite(Number(seconds)))return false;
+    prefs.timing=tenths(seconds);
+    state.subtitleOffsetSeconds=prefs.timing;
+    writeTimingOffset();saveStyle();formatTiming();
+    window.MarmaladeSubtitleRefresh?.();
+    return true;
+  }
+  function commitTiming(){
+    const raw=timingText.value.trim().replace(/s$/i,'').trim().replace(',','.');
+    if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw)||!setTiming(Number(raw))){
+      timingText.value=Number(prefs.timing).toFixed(1);
+      return;
+    }
+    timingText.value=Number(prefs.timing).toFixed(1);
+  }
+  timingText.addEventListener('change',commitTiming);
+  timingText.addEventListener('blur',commitTiming);
+  timingText.addEventListener('keydown',event=>{
+    if(event.key==='Enter'){event.preventDefault();commitTiming();timingText.blur();}
+    if(event.key==='ArrowUp'||event.key==='ArrowDown'){
+      event.preventDefault();setTiming(Number(prefs.timing)+(event.key==='ArrowUp'?.1:-.1));
+      timingText.value=Number(prefs.timing).toFixed(1);
+    }
+  });
+  function timingButton(id,direction){
+    const button=subStyle.querySelector(id);
+    let timer=null,interval=null,held=false;
+    const clear=()=>{clearTimeout(timer);clearInterval(interval);timer=null;interval=null;};
+    const change=step=>{
+      setTiming(Number(prefs.timing)+direction*step);
+      timingText.value=Number(prefs.timing).toFixed(1);
+    };
+    button.addEventListener('pointerdown',event=>{
+      if(event.button!==0)return;
+      clear();held=false;
+      timer=setTimeout(()=>{
+        held=true;change(1);
+        interval=setInterval(()=>change(1),250);
+      },250);
+    });
+    button.addEventListener('pointerup',clear);
+    button.addEventListener('pointercancel',()=>{clear();held=false;});
+    button.addEventListener('pointerleave',event=>{
+      if(event.pointerType==='mouse'&&!event.buttons)clear();
+    });
+    button.addEventListener('click',()=>{
+      if(held){held=false;return;}
+      change(.1);
+    });
+    button.addEventListener('blur',clear);
+    window.addEventListener('pagehide',clear);
+  }
+  timingButton('#subtitleTimingMinus',-1);
+  timingButton('#subtitleTimingPlus',1);
+  window.MarmaladeSubtitleTiming={
+    activate(mediaKey,subtitleId){
+      timingMedia=String(mediaKey||'');
+      timingSubtitle=String(subtitleId||'');
+      const entry=timingOffsets[timingMedia+'\u0000'+timingSubtitle];
+      const previous=entry&&Number.isFinite(Number(entry.seconds))?entry.seconds:0;
+      prefs.timing=tenths(previous);
+      state.subtitleOffsetSeconds=prefs.timing;
+      timingText.value=prefs.timing.toFixed(1);
+      window.MarmaladeSubtitleRefresh?.();
+    },
+    get:()=>Number(prefs.timing)
+  };
+  prefs.timing=0;
+  timingText.value='0.0';
   window.MarmaladeSubtitleReposition=applySubtitleStyle;
   addEventListener('resize',applySubtitleStyle,{passive:true});
   addEventListener('orientationchange',applySubtitleStyle,{passive:true});

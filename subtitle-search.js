@@ -9,7 +9,7 @@
   const actions=el.loadSubtitle.closest('.popover-actions');
   panel.classList.add('subtitle-studio');
   panel.querySelector('.popover-heading strong').textContent='My Subtitles';
-  el.loadSubtitle.textContent='Load .srt / .vtt';
+  el.loadSubtitle.textContent='Load .srt / .vtt / .sub';
   el.hideSubtitle.textContent='Off';
   const css=document.createElement('style');
   css.textContent=[
@@ -155,7 +155,7 @@
   let priorName='',edited=false,sequence=0,controller=null;
   function defaultFromFile(force=false){
     const current=videoFilename();
-    if(!force&&(edited||current===priorName))return;
+    if(!force&&current===priorName)return;
     priorName=current;
     const info=parseFilename(current);
     title.value=info.title;year.value=info.year;kind.value=info.kind;
@@ -202,7 +202,7 @@
         const url=dlUrl(file.url||s.url);
         found.push({source:'SubDL',name:release,lang:language,filename,url,
           site:'https://subdl.com/',
-          direct:file!==s&&(/^(srt|vtt)$/i.test(file.format||'')||/\.(srt|vtt)$/i.test(filename))});
+          direct:/^(srt|vtt|sub|ass|ssa)$/i.test(String(file.format||''))||/\.(srt|vtt|sub|ass|ssa)$/i.test(filename)});
       }
     }
     return found;
@@ -211,7 +211,9 @@
     const root=document.createElement('div');root.className='sub-result';
     const info=document.createElement('div'),name=document.createElement('strong'),detail=document.createElement('small');
     name.textContent=item.name.slice(0,140);
-    detail.textContent=[item.source,item.lang.toUpperCase(),item.filename&&item.filename!==item.name?item.filename.slice(0,75):''].filter(Boolean).join(' · ');
+    const score=matcher?.scoreRelease?.(videoFilename(),item.name+' '+item.filename)||0;
+    const match=score>=60?'Closest Release':score>=25?'Similar Release':'Timing Not Verified';
+    detail.textContent=[item.source,item.lang.toUpperCase(),match,item.filename&&item.filename!==item.name?item.filename.slice(0,75):''].filter(Boolean).join(' · ');
     info.append(name,detail);
     const buttons=document.createElement('div');
     if(item.direct&&item.url){
@@ -219,19 +221,15 @@
       use.addEventListener('click',async()=>{
         use.disabled=true;use.textContent='Loading…';
         try{
-          const response=await fetch(item.url,{mode:'cors',credentials:'omit'});
-          if(!response.ok||Number(response.headers.get('content-length')||0)>5*1024*1024)throw Error('Download failed');
-          const text=await response.text();
-          if(text.length>5*1024*1024||!text.includes('-->')||/^\s*<(!doctype|html)/i.test(text))
-            throw Error('Not a supported SRT/VTT file');
-          const fileName=/\.(srt|vtt)$/i.test(item.filename)?item.filename:'downloaded.srt';
-          const data=new DataTransfer();
-          data.items.add(new File([text],fileName,{type:'text/plain'}));
-          el.subtitleFile.files=data.files;
-          el.subtitleFile.dispatchEvent(new Event('change',{bubbles:true}));
+          if(typeof window.MarmaladeSubtitleUseSearchResult!=='function')
+            throw Error('Subtitle Loader Unavailable');
+          const result=await window.MarmaladeSubtitleUseSearchResult(item);
+          if(!result?.cues?.length)throw Error('No Readable Subtitle Cues');
           use.textContent='Loaded ✓';
         }catch(error){
-          use.textContent='Use';progress.textContent='Direct download unavailable. Use Download ↗ and load the .srt / .vtt manually.';
+          use.textContent='Use';
+          progress.textContent='Could Not Use This Subtitle: '+
+            String(error?.message||error).slice(0,140)+'. Try Another Release Or Download.';
         }finally{use.disabled=false;}
       });
       buttons.append(use);
@@ -248,19 +246,34 @@
   // Never assume the upstream year parameter disambiguated similarly named films.
   function selectedSubdlRelease(data) {
     const selected=matcher.selectTitle(data,title.value.trim(),year.value,kind.value);
-    if(selected?.index===0)return {items:subdlResults(data),media:selected.title};
+    if(selected?.index===0){
+      const items=subdlResults(data);
+      const alternatives=!items.length&&quality.value?subdlResults(data,{ignoreQuality:true}):[];
+      return {items:items.length?items:alternatives,media:selected.title,
+        qualityFallback:!items.length&&alternatives.length>0};
+    }
     const requested=Number(year.value||0);
     if(requested) {
       const confirmed=(Array.isArray(data?.subtitles)?data.subtitles:[]).filter(sub=>{
         const label=[sub.release_name,sub.name].filter(Boolean).join(' ');
         return matcher.releaseYear(label)===requested;
       });
-      if(confirmed.length)return {items:subdlResults({subtitles:confirmed}),
-        media:{name:title.value.trim(),year:requested},validatedBy:'subtitle release year'};
+      if(confirmed.length){
+        const items=subdlResults({subtitles:confirmed});
+        const alternatives=!items.length&&quality.value?
+          subdlResults({subtitles:confirmed},{ignoreQuality:true}):[];
+        return {items:items.length?items:alternatives,
+          media:{name:title.value.trim(),year:requested},
+          qualityFallback:!items.length&&alternatives.length>0,
+          validatedBy:'subtitle release year'};
+      }
       return {items:[],reason:'SubDL returned a different edition; its subtitles were excluded.'};
     }
     // No release year was specified: display provider matches as before.
-    return {items:subdlResults(data),media:{name:title.value.trim()}};
+    const items=subdlResults(data);
+    const alternatives=!items.length&&quality.value?subdlResults(data,{ignoreQuality:true}):[];
+    return {items:items.length?items:alternatives,media:{name:title.value.trim()},
+      qualityFallback:!items.length&&alternatives.length>0};
   }
   async function findSubdl(params,signal){
     const data=await get(proxyUrl+'?'+params,{headers:{Accept:'application/json'}},signal);
@@ -339,6 +352,11 @@
         if(seen.has(identity))continue;
         seen.add(identity);combined.push(item);
       }
+      // Match the actual video filename/release first, not merely the title.
+      // Release metadata is only a ranking signal, never guaranteed sync.
+      const localName=videoFilename();
+      combined.sort((a,b)=>(matcher.scoreRelease(localName,b.name+' '+b.filename)-
+        matcher.scoreRelease(localName,a.name+' '+a.filename)));
       const list=combined.slice(0,40);
       results.replaceChildren(...list.map(row));
       const verified=completed.find(x=>x.media)?.media;
@@ -349,7 +367,7 @@
         ' · No exact quality match; showing alternative releases.':'';
       const errors=failures.length?' · '+failures.join(' · '):'';
       progress.textContent=list.length
-        ?list.length+' verified subtitle matches'+identity+qualityNote+errors
+        ?list.length+' subtitle matches by title / episode'+identity+qualityNote+errors
         :['No matching subtitle files found.',
           ...completed.map(x=>x.reason).filter(Boolean),...failures].join(' ');
     }catch(e){
@@ -360,6 +378,9 @@
     }
   });
   defaultFromFile();
+  window.addEventListener('marmalade:video-selected',()=>{
+    defaultFromFile();results.replaceChildren();progress.textContent='Based on your selected video.';
+  });
   window.setInterval(()=>{if(!panel.hidden){defaultFromFile();place();}},1200);
   window.MarmaladeSubtitleFinder={parseFilename,subdlResults,defaultFromFile,findSubdl,findOpenSubtitles,fromOpenSubtitles};
 })();

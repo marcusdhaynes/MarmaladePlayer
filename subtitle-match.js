@@ -94,24 +94,48 @@
     const candidates=String(value||'').match(/(?:18|19|20|21)\d{2}/g)||[];
     return candidates.length?Number(candidates[0]):null;
   }
+  function episodeToken(text) {
+    const m=String(text||'').match(/(?:^|[._\s-])s(\d{1,3})[._\s-]*e(\d{1,4})(?:\D|$)|(?:^|[._\s-])(\d{1,3})x(\d{1,4})(?:\D|$)/i);
+    return m?{season:Number(m[1]||m[3]),episode:Number(m[2]||m[4])}:null;
+  }
   function matchesEpisode(file, subtitle, type, season, episode) {
-    if (type !== 'tv') return true;
-    const specifiedSeason = Number(season || 0), specifiedEpisode = Number(episode || 0);
-    const fileSeason = Number(file?.season || subtitle?.season || 0);
-    if (specifiedSeason && fileSeason && specifiedSeason !== fileSeason) return false;
-    if (specifiedEpisode) {
-      const fileEpisode = Number(file?.episode || subtitle?.episode || 0);
-      const from = Number(subtitle?.episode_from || 0);
-      const to = Number(subtitle?.episode_end || 0);
-      if (fileEpisode && fileEpisode !== specifiedEpisode &&
-          !(from && to && specifiedEpisode >= from && specifiedEpisode <= to)) return false;
-      if (!fileEpisode && from && to && (specifiedEpisode < from || specifiedEpisode > to))
-        return false;
+    if(type!=='tv')return true;
+    const specifiedSeason=Number(season||0),specifiedEpisode=Number(episode||0);
+    const named=episodeToken([file?.name,file?.release_name,subtitle?.name,subtitle?.release_name,
+      subtitle?.subtitleFileName,subtitle?.movieReleaseName].filter(Boolean).join(' '));
+    const fileSeason=Number(file?.season||subtitle?.season||named?.season||0);
+    if(specifiedSeason&&fileSeason&&specifiedSeason!==fileSeason)return false;
+    if(specifiedEpisode){
+      const fileEpisode=Number(file?.episode||subtitle?.episode||named?.episode||0);
+      const from=Number(subtitle?.episode_from||0),to=Number(subtitle?.episode_end||0);
+      if(fileEpisode&&fileEpisode!==specifiedEpisode&&
+          !(from&&to&&specifiedEpisode>=from&&specifiedEpisode<=to))return false;
+      if(!fileEpisode&&from&&to&&(specifiedEpisode<from||specifiedEpisode>to))return false;
     }
     return true;
   }
+  function scoreRelease(video,release){
+    const source=normalizeTitle(video).split(' '),candidate=normalizeTitle(release).split(' ');
+    if(!source.length||!candidate.length)return 0;
+    const media=new Set(source),subs=new Set(candidate);
+    const significant=new Set(['web','webrip','webdl','bluray','bdrip','remux','hdtv',
+      'dvdrip','extended','directors','cut','proper','repack','x264','x265','h264','h265',
+      'hevc','av1','480p','720p','1080p','2160p','4k','hdr','dv']);
+    let score=0;
+    for(const token of media){
+      if(token.length<3)continue;
+      if(subs.has(token))score+=significant.has(token)?10:3;
+      else if(significant.has(token)&&candidate.some(x=>significant.has(x)))score-=8;
+    }
+    const episodeA=episodeToken(video),episodeB=episodeToken(release);
+    if(episodeA&&episodeB)score+=episodeA.season===episodeB.season&&episodeA.episode===episodeB.episode?100:-150;
+    const a=normalizeTitle(video),b=normalizeTitle(release);
+    if(a===b)score+=120;
+    else if(a&&b&&(a.includes(b)||b.includes(a)))score+=35;
+    return score;
+  }
   const api = {normalizeTitle,resultYear,matchesTitle,selectTitle,lookupParams,searchParams,
-    matchesQuality,matchesLanguage,canonicalLanguage,matchesEpisode,selectCatalogTitle,releaseYear};
+    matchesQuality,matchesLanguage,canonicalLanguage,matchesEpisode,episodeToken,scoreRelease,selectCatalogTitle,releaseYear};
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.MarmaladeSubtitleMatch = api;
 })(typeof window !== 'undefined' ? window : globalThis);
