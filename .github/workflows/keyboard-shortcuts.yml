@@ -1,0 +1,22 @@
+name: Marmalade Keyboard Shortcuts
+on:
+  push:
+    paths:
+      - index.html
+      - tests/keyboard-shortcuts.mjs
+      - .github/workflows/keyboard-shortcuts.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shortcuts:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --no-package-lock playwright@1.56.1
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/keyboard-shortcuts.mjs

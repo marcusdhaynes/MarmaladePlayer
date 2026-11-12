@@ -582,6 +582,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
              <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
+            <label>Skip Interval <select id="skipInterval" aria-label="Seconds to rewind or fast forward"><option value="5">5 Seconds</option><option value="10" selected>10 Seconds</option><option value="15">15 Seconds</option><option value="20">20 Seconds</option><option value="30">30 Seconds</option><option value="60">60 Seconds</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2">2 Seconds</option><option value="3">3 Seconds</option><option value="5" selected>5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
@@ -707,6 +708,30 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   const fadeDelayControl=document.getElementById('controlFadeDelay');
   const localPreference=(key,fallback)=>{try{return localStorage.getItem('marmalade:'+key)||fallback;}catch{return fallback;}};
   const rememberPreference=(key,value)=>{try{localStorage.setItem('marmalade:'+key,String(value));}catch{}};
+  const skipIntervalControl=document.getElementById('skipInterval');
+  const savedSkipInterval=localPreference('skip-interval-seconds','10');
+  skipIntervalControl.value=[...skipIntervalControl.options].some(o=>o.value===savedSkipInterval)
+    ?savedSkipInterval:'10';
+  const skipSeconds=()=>Number(skipIntervalControl.value)||10;
+  function updateSkipLabels(){
+    const seconds=skipSeconds();
+    for(const [control,caption] of [
+      [el.back,'Rewind'],[el.forward,'Forward'],
+      [document.getElementById('miniSkipBack'),'Rewind'],
+      [document.getElementById('miniSkipForward'),'Forward']
+    ]){
+      if(!control)continue;
+      const label=caption+' '+seconds+' seconds';
+      control.title=label;
+      control.setAttribute('aria-label',label);
+      const iconNumber=control.querySelector('svg text');
+      if(iconNumber)iconNumber.textContent=String(seconds);
+    }
+  }
+  skipIntervalControl.addEventListener('change',()=>{
+    rememberPreference('skip-interval-seconds',skipIntervalControl.value);
+    updateSkipLabels();
+  });
   const savedFadeDelay=localPreference('control-fade-seconds','5');
   fadeDelayControl.value=[...fadeDelayControl.options].some(o=>o.value===savedFadeDelay)?savedFadeDelay:'5';
   fadeDelayControl.addEventListener('change',()=>{rememberPreference('control-fade-seconds',fadeDelayControl.value);revealControls();});
@@ -4789,7 +4814,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     playPauseFromStage();
   });
   el.stage.addEventListener('keydown', event => {
-    if (event.target !== el.stage || !['Enter',' '].includes(event.key)) return;
+    if (event.target !== el.stage || event.key !== 'Enter') return;
     event.preventDefault();
     playPauseFromStage();
   });
@@ -4979,7 +5004,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   });
   let keyboardPlayPress=false;
   el.play.addEventListener('keydown',event=>{
-    if(event.key!==' '&&event.key!=='Enter')return;
+    if(event.key!=='Enter')return;
     // Enter normally clicks on keydown; defer it so a hold cannot pause first.
     event.preventDefault();
     if(event.repeat||keyboardPlayPress)return;
@@ -4987,7 +5012,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     beginPlayHold();
   });
   el.play.addEventListener('keyup',event=>{
-    if(event.key!==' '&&event.key!=='Enter')return;
+    if(event.key!=='Enter')return;
     event.preventDefault();
     if(!keyboardPlayPress)return;
     keyboardPlayPress=false;
@@ -5009,8 +5034,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     event.stopPropagation();
     void enableRemotePlayback();
   });
-  el.back.addEventListener('click', () => { if (state.role === 'guest') guestCommand('skip', -10); else applyTransport('skip', -10); });
-  el.forward.addEventListener('click', () => { if (state.role === 'guest') guestCommand('skip', 10); else applyTransport('skip', 10); });
+  el.back.addEventListener('click', () => { const seconds=skipSeconds(); if (state.role === 'guest') guestCommand('skip', -seconds); else applyTransport('skip', -seconds); });
+  el.forward.addEventListener('click', () => { const seconds=skipSeconds(); if (state.role === 'guest') guestCommand('skip', seconds); else applyTransport('skip', seconds); });
   const seekTime = () => (state.role === 'guest' ? state.sharedDuration : media.duration) * Number(el.seek.value) / 1000;
   el.seek.addEventListener('pointerdown', () => { state.seeking = true; });
   el.seek.addEventListener('input', () => { state.seeking = true; el.current.textContent = timeString(seekTime()); });
@@ -5083,6 +5108,39 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   });
   el.fullscreen.addEventListener('click', toggleFullscreen);
   el.exitTheater.addEventListener('click', leaveTheater);
+  // Capture before a focused button can synthesize a Space click. Playback
+  // shortcuts belong to the player, never the last pressed control.
+  // Text editors and selects retain their standard typing and selection.
+  const isKeyboardEditor=target=>{
+    if(!(target instanceof Element))return false;
+    if(target.closest('[contenteditable]:not([contenteditable="false"]),[role="textbox"],textarea,select'))return true;
+    const input=target.closest('input');
+    return !!input && !['range','checkbox','radio','button','submit','reset'].includes(input.type);
+  };
+  document.addEventListener('keydown',event=>{
+    if(event.isComposing||event.ctrlKey||event.metaKey||event.altKey||
+       isKeyboardEditor(event.target))return;
+    const space=event.key===' '||event.code==='Space';
+    const left=event.key==='ArrowLeft',right=event.key==='ArrowRight';
+    if(!space&&!left&&!right)return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if(space){
+      if(!event.repeat)void togglePlay('keyboard');
+      return;
+    }
+    if(left)el.back.click();
+    else el.forward.click();
+  },{capture:true});
+  document.addEventListener('keyup',event=>{
+    if(event.isComposing||event.ctrlKey||event.metaKey||event.altKey||
+       isKeyboardEditor(event.target))return;
+    if(event.key===' '||event.code==='Space'||event.key==='ArrowLeft'||event.key==='ArrowRight'){
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  },{capture:true});
+  updateSkipLabels();
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') leaveTheater(); });
   // A video must remain renderable during decode. Also reveal valid media on
   // frame/ready-state events, not solely metadata, which is unreliable on some
