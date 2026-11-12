@@ -1,0 +1,19 @@
+name: Live SubDL Service Connectivity
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - tests/subdl-service-health.mjs
+      - .github/workflows/subdl-service-health.yml
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tests/subdl-service-health.mjs

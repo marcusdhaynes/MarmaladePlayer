@@ -69,12 +69,23 @@ async function extract(data,{filename='',video=''}={}){
  let content;
  if(entry.method===0)content=compressed.slice();
  else if(typeof module==='object'&&module.exports)
-   content=new Uint8Array(require('node:zlib').inflateRawSync(compressed));
+   content=new Uint8Array(require('node:zlib').inflateRawSync(compressed,{maxOutputLength:MAX_TEXT}));
  else if(typeof DecompressionStream==='function'){
    let stream;
    try{stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));}
    catch{throw Error('This browser cannot unzip subtitles; extract .srt manually.');}
-   content=new Uint8Array(await new Response(stream).arrayBuffer());
+   const reader=stream.getReader(),chunks=[];let total=0;
+   try{
+     for(;;){
+       const part=await reader.read();
+       if(part.done)break;
+       total+=part.value.byteLength;
+       if(total>MAX_TEXT)throw Error('Subtitle ZIP expands beyond 5 MB');
+       chunks.push(part.value);
+     }
+   }catch(error){await reader.cancel().catch(()=>{});throw error;}
+   content=new Uint8Array(total);
+   let at=0;for(const chunk of chunks){content.set(chunk,at);at+=chunk.byteLength;}
  }else throw Error('This browser cannot unzip subtitles; extract .srt manually.');
  if(content.length!==entry.size||content.length>MAX_TEXT)
    throw Error('Subtitle ZIP content exceeds 5 MB or is damaged');
