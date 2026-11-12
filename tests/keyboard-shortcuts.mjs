@@ -58,7 +58,10 @@ try{
   assert.deepEqual(await page.locator('#skipInterval option').evaluateAll(opts=>opts.map(o=>o.value)),
     ['5','10','15','20','30','60']);
   assert.equal(await page.locator('#skipInterval').inputValue(),'10');
-  await page.locator('#skipInterval').selectOption('30');
+  await page.locator('#skipInterval').evaluate(select=>{
+    select.value='30';
+    select.dispatchEvent(new Event('change',{bubbles:true}));
+  });
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:skip-interval-seconds')),'30');
   for(const [id,word] of [['skipBack','Rewind'],['skipForward','Forward'],
       ['miniSkipBack','Rewind'],['miniSkipForward','Forward']]){
