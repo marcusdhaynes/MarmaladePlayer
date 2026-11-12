@@ -4,9 +4,11 @@ on:
     paths:
       - subtitle-match.js
       - subtitle-codec.js
+      - subtitle-archive.js
       - watch-sync-subtitles.js
       - index.html
       - tests/subtitle-codec.test.cjs
+      - tests/subtitle-archive.test.cjs
       - subtitle-search.js
       - tests/subtitle-search-regression.cjs
       - tests/live-subtitle-fallback.mjs
@@ -22,7 +24,8 @@ jobs:
           node-version: '22'
       - run: node --check subtitle-match.js
       - run: node --check subtitle-codec.js
+      - run: node --check subtitle-archive.js
       - run: node --check watch-sync-subtitles.js
       - run: node --check subtitle-search.js
-      - run: node --test tests/subtitle-search-regression.cjs tests/subtitle-codec.test.cjs
+      - run: node --test tests/subtitle-search-regression.cjs tests/subtitle-codec.test.cjs tests/subtitle-archive.test.cjs
       - run: node tests/live-subtitle-fallback.mjs

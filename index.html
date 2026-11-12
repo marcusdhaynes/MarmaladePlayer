@@ -576,7 +576,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             </div>
             <span id="networkLabel" hidden aria-hidden="true"></span>
           </div>
-          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><div class="popover-heading"><strong>Subtitles</strong><button type="button" id="closeSubtitlePanel" aria-label="Close subtitles">✕</button></div><p id="subtitleName">Off · Supports .srt, .vtt And Text .sub</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load Captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,.sub,.ass,.ssa,text/vtt,application/x-subrip,text/plain" hidden></div>
+          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><div class="popover-heading"><strong>Subtitles</strong><button type="button" id="closeSubtitlePanel" aria-label="Close subtitles">✕</button></div><p id="subtitleName">Off · Supports .srt, .vtt And Text .sub</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load Captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,.sub,.ass,.ssa,.sbv,.zip,text/vtt,application/x-subrip,text/plain,application/zip" hidden></div>
           <div class="theater-popover settings-popover" id="settingsPanel" hidden>
             <div class="popover-heading"><strong>Playback Settings</strong><button type="button" id="closeSettingsPanel" aria-label="Close settings">✕</button></div>
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
@@ -1030,11 +1030,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     try{record=await subtitleHandleStore('get',key);}catch{return;}
     if(!record||ticket!==subtitleRestoreSequence||subtitleMediaKey()!==key)return;
     const source={kind:record.kind==='search'?'search':'local',url:record.url||'',
-      name:record.name||'',id:record.id||'',restored:true,restoreToken:ticket,mediaKey:key};
+      name:record.name||'',filename:record.entryName||record.name||'',fps:record.fps||0,
+      id:record.id||'',restored:true,restoreToken:ticket,mediaKey:key};
     if(source.kind==='search'){
       try{
         if(!source.url)throw Error('Subtitle URL Was Not Saved');
-        const file=await fetchSubtitleUrl(source.url,record.name||'searched.srt');
+        const file=await fetchSubtitleUrl(source.url,record.containerName||record.name||'searched.srt');
         await loadSelectedSubtitle(file,null,source);
         return;
       }catch(error){
@@ -1052,7 +1053,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         if(await record.handle.queryPermission({mode:'read'})!=='granted')
           throw Error('File Permission Required');
         const file=await record.handle.getFile();
-        if(file.name!==record.name||file.size>5*1024*1024)
+        if(file.name!==(record.containerName||record.name)||file.size>20*1024*1024)
           throw Error('Subtitle File Changed');
         if(ticket!==subtitleRestoreSequence||subtitleMediaKey()!==key)return;
         await loadSelectedSubtitle(file,record.handle,source);
@@ -1079,11 +1080,15 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if(url.protocol!=='https:'||!(/(^|\.)strem\.io$|(^|\.)opensubtitles\.(org|com)$|^dl\.subdl\.com$/i.test(url.hostname)))
       throw Error('Untrusted Subtitle Source');
     const response=await fetch(url.href,{mode:'cors',credentials:'omit'});
-    if(!response.ok||Number(response.headers.get('content-length')||0)>5*1024*1024)
+    if(!response.ok||Number(response.headers.get('content-length')||0)>20*1024*1024)
       throw Error('Subtitle Download Failed ('+response.status+')');
     const bytes=await response.arrayBuffer();
-    if(bytes.byteLength>5*1024*1024)throw Error('Subtitle Download Too Large');
-    return new File([bytes],filename||'searched.srt',{type:'text/plain'});
+    if(bytes.byteLength>20*1024*1024)throw Error('Subtitle Download Too Large');
+    const archive=window.MarmaladeSubtitleArchive?.isZip(bytes);
+    const contentType=response.headers.get('content-type')||'';
+    if(!archive&&/text\/html|application\/json/i.test(contentType))
+      throw Error('Subtitle Provider Returned A Web Page Instead Of Captions');
+    return new File([bytes],filename||'searched.srt',{type:archive?'application/zip':'text/plain'});
   }
   function saveWatchPosition(force=false){
     const keys=progressKeys();
@@ -1410,10 +1415,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       return count>=3?arabic:new TextDecoder('windows-1252').decode(bytes);
     }
   }
-  function parseSubtitles(raw,name=''){
+  function parseSubtitles(raw,name='',fps=0){
     const decoder=window.MarmaladeSubtitleCodec;
     if(!decoder)throw Error('Subtitle Decoder Not Loaded');
-    return decoder.decode(raw,name);
+    return decoder.decode(raw,name,{fps:Number(fps)||0});
   }
   function updateSubtitles() {
     if(!el.stage.classList.contains('has-video')){
@@ -4535,7 +4540,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if(typeof window.showOpenFilePicker!=='function'){el.subtitleFile.click();return;}
     try{
       const [handle]=await window.showOpenFilePicker({multiple:false,types:[{
-        description:'Text Subtitle Files',accept:{'text/plain':['.srt','.sub','.ass','.ssa'], 'text/vtt':['.vtt']}
+        description:'Subtitle Files And ZIP Packages',accept:{'text/plain':['.srt','.sub','.ass','.ssa','.sbv'], 'text/vtt':['.vtt'],'application/zip':['.zip']}
       }]});
       if(handle)await loadSelectedSubtitle(await handle.getFile(),handle);
     }catch(error){if(error?.name!=='AbortError')el.subtitleFile.click();}
@@ -4546,11 +4551,22 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     updateSubtitles();el.subtitleName.textContent='Off';
   });
   async function loadSelectedSubtitle(file,handle=null,source={}){
-    if(!file||file.size>5*1024*1024)throw Error('Choose A Subtitle File Under 5 MB');
+    if(!file||file.size>20*1024*1024)throw Error('Choose A Subtitle File Under 20 MB');
     const key=source.mediaKey||subtitleMediaKey();
     const token=source.restoreToken??++subtitleRestoreSequence;
+    const original=file,buffer=await file.arrayBuffer();
+    const archive=window.MarmaladeSubtitleArchive;
+    if(archive?.isZip(buffer)){
+      const match=await archive.extract(buffer,{
+        filename:source.filename||'',video:String(state.file?.name||state.remoteFileName||el.fileName.textContent||'')
+      });
+      file=new File([match.bytes],match.name,{type:'text/plain'});
+    }else if(file.name.toLowerCase().endsWith('.zip')){
+      throw Error('Subtitle ZIP is damaged or not a ZIP archive');
+    }
+    if(file.size>5*1024*1024)throw Error('Subtitle Text Exceeds 5 MB');
     const raw=await readSubtitleText(file);
-    const decoded=parseSubtitles(raw,file.name);
+    const decoded=parseSubtitles(raw,file.name,source.fps);
     if(!decoded.cues.length)throw Error(decoded.error||'No Readable Subtitle Cues');
     if(token!==subtitleRestoreSequence||key!==subtitleMediaKey())
       throw Error('Video Changed While Loading Subtitles');
@@ -4566,7 +4582,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     updateSubtitles();revealControls();
     if(key){
       const record={kind:source.kind==='search'?'search':'local',name:file.name,
-        id,url:source.url||'',handle:handle||null,
+        containerName:original.name,entryName:file.name,
+        id,url:source.url||'',fps:Number(source.fps)||0,handle:handle||null,
         content:(source.kind==='search'||!handle)?raw:undefined};
       try{await subtitleHandleStore('put',key,record);}catch(error){
         console.warn('Could not save subtitle selection',error);
@@ -4589,13 +4606,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   });
   window.MarmaladeSubtitleUseSearchResult=async item=>{
     const mediaKey=subtitleMediaKey(),ticket=++subtitleRestoreSequence;
-    const name=/\.(srt|vtt|sub|ass|ssa)$/i.test(String(item.filename||''))
-      ?item.filename:'searched.srt';
+    const name=/\.(srt|vtt|sub|ass|ssa|sbv|zip)$/i.test(String(item.filename||''))
+      ?item.filename:/\.zip(?:$|\?)/i.test(item.url||'')?'searched.zip':'searched.srt';
     const file=await fetchSubtitleUrl(item.url,name);
     if(ticket!==subtitleRestoreSequence||subtitleMediaKey()!==mediaKey)
       throw Error('Video Or Subtitle Selection Changed');
     return loadSelectedSubtitle(file,null,{kind:'search',url:item.url,
-      name:item.name,mediaKey,restoreToken:ticket});
+      name:item.name,filename:item.filename,fps:item.fps||0,mediaKey,restoreToken:ticket});
   };
   const miniOverlay=document.getElementById('miniPlayerOverlay');
   const miniBack=document.getElementById('miniSkipBack');
@@ -5438,9 +5455,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 <script src="./auto-mkv-audio.js?v=20261111-streaming-aac-v1"></script>
 <script src="./public-movie-info.js?v=20261103-imdb-score-v3" defer></script>
 <script src="./movie-info.js?v=20261103-imdb-score-v3" defer></script>
-<script src="./subtitle-codec.js?v=20261112-text-subtitles-v1"></script>
+<script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
+<script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261112-timing-v1"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
-<script src="./subtitle-search.js?v=20261112-restoration-v1"></script>
+<script src="./subtitle-search.js?v=20261112-subdl-fix-v2"></script>
 </body>
 </html>

@@ -12,6 +12,7 @@
     return String(value||'').replace(/\r/g,'')
       .replace(/\\[Nn]/g,'\n').replace(/\\h/g,' ')
       .replace(/\[br\]/gi,'\n')
+      .replace(/\{(?:y|c|f|s|h|o|p):[^}]*\}/gi,'')
       .replace(/\{\\[^}]*\}/g,'')
       .replace(/<\d{1,2}:\d\d:\d\d(?:[.,]\d+)?>/g,'')
       .replace(/<[^>\n]{1,180}>/g,'')
@@ -33,17 +34,23 @@
     const text=plain(body);
     if(text&&cues.length<10000)cues.push({start,end,text});
   }
+  // Handle timestamped cues even if a SubDL release lacks blank lines.
   function parseArrow(source,cues){
-    const cleaned=source.replace(/^WEBVTT[^\n]*\n/i,'');
-    for(const block of cleaned.split(/\n\s*\n/)){
-      const lines=block.trim().split('\n');
-      const index=lines.findIndex(line=>line.includes('-->'));
-      if(index<0)continue;
-      const pair=lines[index].split(/\s*-->\s*/);
-      const end=String(pair[1]||'').split(/\s+/)[0];
-      const body=lines.slice(index+1).join('\n');
-      cue(cues,time(pair[0]),time(end),body);
+    const lines=source.replace(/^\s*WEBVTT[^\n]*\n/i,'').split('\n');
+    let active=null;
+    const flush=()=>{if(active)cue(cues,active.start,active.end,active.body.join('\n'));};
+    for(let i=0;i<lines.length;i++){
+      const line=lines[i];
+      if(line.includes('-->')){
+        const m=line.match(/^\s*(\d{1,3}:\d{2}:\d{2}[.,]\d+|\d{1,3}:\d{2}[.,]\d+|\d{1,3}:\d{2}:\d{2})\s*-->\s*(\d{1,3}:\d{2}:\d{2}[.,]\d+|\d{1,3}:\d{2}[.,]\d+|\d{1,3}:\d{2}:\d{2})(?:\s|$)/);
+        if(m){flush();active={start:time(m[1]),end:time(m[2]),body:[]};continue;}
+      }
+      if(!active||/^\s*(?:NOTE|STYLE|REGION)(?:\s|$)/i.test(line))continue;
+      if(/^\s*\d{1,7}\s*$/.test(line)&&lines[i+1]?.includes('-->'))continue;
+      if(!line.trim()&&!active.body.length)continue;
+      active.body.push(line);
     }
+    flush();
   }
   function parseSubViewer(source,cues){
     const lines=source.split('\n');
@@ -99,6 +106,10 @@
   }
   function decode(raw,filename='',options={}){
     const source=String(raw||'').replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
+    if(/^PK\u0003\u0004/.test(source))
+      return {cues:[],format:'archive',error:'Subtitle ZIP was not extracted before decoding.'};
+    if(/^\s*<!doctype html|^\s*<html|^\s*\{\s*"(?:error|status)"\s*:/i.test(source))
+      return {cues:[],format:'response',error:'Subtitle URL returned a web page or API error, not captions.'};
     if(source.includes('\0')||/^# VobSub index file/i.test(source))
       return {cues:[],format:'bitmap',error:'Bitmap VobSub .sub requires the paired .idx file and an image decoder.'};
     const cues=[];

@@ -191,6 +191,7 @@
   function subdlResults(raw,{ignoreQuality=false}={}){
     const found=[];
     for(const s of Array.isArray(raw?.subtitles)?raw.subtitles:[]){
+      // SubDL v1 returns ZIP packs if unpack_files is absent.
       const files=Array.isArray(s.unpack_files)&&s.unpack_files.length?s.unpack_files:[s];
       for(const file of files){
         const release=String(file.release_name||s.release_name||file.name||s.name||'Subtitle');
@@ -200,9 +201,12 @@
            !matcher.matchesLanguage(language,lang.value)||
            !matcher.matchesEpisode(file,s,kind.value,season.value,episode.value))continue;
         const url=dlUrl(file.url||s.url);
-        found.push({source:'SubDL',name:release,lang:language,filename,url,
-          site:'https://subdl.com/',
-          direct:/^(srt|vtt|sub|ass|ssa)$/i.test(String(file.format||''))||/\.(srt|vtt|sub|ass|ssa)$/i.test(filename)});
+        if(!url)continue;
+        const packaged=file===s||/\.zip(?:$|\?)/i.test(url);
+        const displayFile=filename||(/\.zip(?:$|\?)/i.test(url)?'SubDL.zip':'SubDL.srt');
+        found.push({source:'SubDL',name:release,lang:language,filename:displayFile,url,
+          fps:Number(file.fps||s.fps)||0,
+          site:'https://subdl.com/',direct:true,archive:packaged});
       }
     }
     return found;
@@ -216,7 +220,7 @@
     detail.textContent=[item.source,item.lang.toUpperCase(),match,item.filename&&item.filename!==item.name?item.filename.slice(0,75):''].filter(Boolean).join(' · ');
     info.append(name,detail);
     const buttons=document.createElement('div');
-    if(item.direct&&item.url){
+    if(item.url){
       const use=document.createElement('button');use.type='button';use.textContent='Use';
       use.addEventListener('click',async()=>{
         use.disabled=true;use.textContent='Loading…';
@@ -228,8 +232,9 @@
           use.textContent='Loaded ✓';
         }catch(error){
           use.textContent='Use';
-          progress.textContent='Could Not Use This Subtitle: '+
-            String(error?.message||error).slice(0,140)+'. Try Another Release Or Download.';
+          const reason=String(error?.message||error).slice(0,180);
+          progress.textContent='Could Not Load This Subtitle: '+reason+
+            '. Download the file to import the ZIP or text subtitle locally.';
         }finally{use.disabled=false;}
       });
       buttons.append(use);
@@ -276,8 +281,17 @@
       qualityFallback:!items.length&&alternatives.length>0};
   }
   async function findSubdl(params,signal){
-    const data=await get(proxyUrl+'?'+params,{headers:{Accept:'application/json'}},signal);
+    let data=await get(proxyUrl+'?'+params,{headers:{Accept:'application/json'}},signal);
     if(data?.status===false)throw Error(String(data.error||'SubDL search rejected'));
+    const selected=matcher.selectTitle(data,title.value.trim(),year.value,kind.value);
+    // API v1 lists matches but returns subtitle files for ONLY the first result.
+    if(selected&&selected.index!==0){
+      const lookup=matcher.lookupParams(params,selected.title);
+      if(lookup){
+        const second=await get(proxyUrl+'?'+lookup,{headers:{Accept:'application/json'}},signal);
+        if(second?.status!==false)data=second;
+      }
+    }
     return selectedSubdlRelease(data);
   }
   function trustedSubtitleUrl(raw) {

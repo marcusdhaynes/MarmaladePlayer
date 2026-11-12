@@ -33,6 +33,10 @@ const shim=[
   ':new Actual({...idOrOptions,...local});};})();'
 ].join('');
 const web=createServer((req,res)=>{
+  if(req.url?.startsWith('/subtitle-archive.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../subtitle-archive.js',import.meta.url)));return;
+  }
   if(req.url?.startsWith('/subtitle-codec.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-codec.js',import.meta.url)));return;
