@@ -45,6 +45,10 @@ const web=createServer((req,res)=>{
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-search.js',import.meta.url)));return;
   }
+  if(req.url?.startsWith('/auto-mkv-audio.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../auto-mkv-audio.js',import.meta.url)));return;
+  }
   if(req.url?.startsWith('/watch-sync-subtitles.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../watch-sync-subtitles.js',import.meta.url)));return;

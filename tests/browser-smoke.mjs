@@ -34,6 +34,9 @@ const server = createServer((req,res) => {
   } else if (req.url?.startsWith('/subtitle-match.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-match.js', import.meta.url), 'utf8'));
+  } else if (req.url?.startsWith('/auto-mkv-audio.js')) {
+    res.writeHead(200, {'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../auto-mkv-audio.js', import.meta.url), 'utf8'));
   } else if (req.url?.startsWith('/watch-sync-subtitles.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../watch-sync-subtitles.js', import.meta.url), 'utf8'));
@@ -265,14 +268,14 @@ try {
     assert.equal(await subdlRow.locator('button').count(),1,
       'Direct unpacked SubDL subtitle must offer one-click loading');
     await subdlRow.locator('button').click({force:true});
-    await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.includes('1 cues'));
+    await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.match(/1 Cues/i));
     assert.equal(await page.locator('#subtitleOverlay').count(),1,'Local subtitle overlay is preserved');
     // Preserve a currently open subtitle editor; clicking its toggle would close it.
     if (await page.locator('#subtitlePanel').evaluate(panel=>panel.hidden))
       await page.locator('#subtitlesBtn').click({force:true});
     await page.locator('#subStyleTab').click({force:true});
     await page.locator('#subtitleFile').setInputFiles({name:'test.vtt',mimeType:'text/vtt',buffer:Buffer.from('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello from subtitles!\n')});
-    await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.includes('1 cues'),{timeout:3000});
+    await page.waitForFunction(()=>document.querySelector('#subtitleName')?.textContent?.match(/1 Cues/i),{timeout:3000});
     const overflow = await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2);
     assert.equal(overflow,false,'Theater must fit mobile viewport');
     assert.deepEqual(errors,[], 'Browser runtime errors');

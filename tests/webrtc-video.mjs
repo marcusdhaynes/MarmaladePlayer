@@ -24,6 +24,9 @@ const server=createServer((req,res)=>{
   }else if(req.url?.startsWith('/subtitle-match.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-match.js',import.meta.url)));
+  }else if(req.url?.startsWith('/auto-mkv-audio.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../auto-mkv-audio.js',import.meta.url)));
   }else if(req.url?.startsWith('/watch-sync-subtitles.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../watch-sync-subtitles.js',import.meta.url)));
