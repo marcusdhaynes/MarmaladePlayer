@@ -698,7 +698,15 @@ try {
         revision:1,mediaKind:'file',name:'test.webm',sourceWidth:1280,
         sourceHeight:720,fingerprint:''});
     });
-    await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.requestedQuality==='720');
+    // The default quality remains 1080p even if the source temporarily
+    // advertises 720p; the actual sender never upscales source frames.
+    await page.waitForFunction(()=>{
+      const st=window.MarmaladeAddonBridge.state;
+      return st.sourceHeight===720 && st.requestedQuality==='1080' &&
+        document.querySelector('#qualitySelect').value==='1080';
+    });
+    assert.match(await page.locator('#qualitySelect').textContent(),/Source Limited/,
+      'Source-limited 1080p must be labeled rather than silently upscaled');
     await page.evaluate(()=>{
       const st=window.MarmaladeAddonBridge.state;
       st.recommendation='240'; // A network hint must not overwrite user default.
