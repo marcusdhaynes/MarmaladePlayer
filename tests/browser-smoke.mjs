@@ -25,7 +25,13 @@ assert.deepEqual(parseMovieFilename('The.Last.of.Us.1x03.720p.mp4'),
   {title:'The Last of Us',year:null,kind:'tv',season:1,episode:3});
 const port = 38817;
 const server = createServer((req,res) => {
-  if (req.url?.startsWith('/subtitle-archive.js')) {
+  if (req.url?.startsWith('/settings-layout.js')) {
+    res.writeHead(200, {'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../settings-layout.js', import.meta.url), 'utf8'));
+  } else if (req.url?.startsWith('/settings-layout.css')) {
+    res.writeHead(200, {'content-type':'text/css'});
+    res.end(readFileSync(new URL('../settings-layout.css', import.meta.url), 'utf8'));
+  } else if (req.url?.startsWith('/subtitle-archive.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-archive.js', import.meta.url), 'utf8'));
   } else if (req.url?.startsWith('/subtitle-codec.js')) {

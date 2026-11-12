@@ -33,6 +33,14 @@ const shim=[
   ':new Actual({...idOrOptions,...local});};})();'
 ].join('');
 const web=createServer((req,res)=>{
+  if(req.url?.startsWith('/settings-layout.js')){
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../settings-layout.js',import.meta.url)));return;
+  }
+  if(req.url?.startsWith('/settings-layout.css')){
+    res.writeHead(200,{'content-type':'text/css'});
+    res.end(readFileSync(new URL('../settings-layout.css',import.meta.url)));return;
+  }
   if(req.url?.startsWith('/subtitle-archive.js')){
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-archive.js',import.meta.url)));return;
