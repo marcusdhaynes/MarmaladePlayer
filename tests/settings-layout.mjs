@@ -95,7 +95,7 @@ try{
   assert.equal(await page.locator('#hostMatchRow').isVisible(),activeHost,
     'Host-only Match timing must follow the current role');
   assert.equal(await page.locator('#settingsAdvanced').getAttribute('open'),null);
-  await page.locator('#settingsAdvanced summary').click();
+  await page.locator('#settingsAdvanced > summary').click();
   assert.equal(await page.locator('#screenShareBtn').isVisible(),true);
   await layout('party','advanced');
   if(viewport.width===1366){

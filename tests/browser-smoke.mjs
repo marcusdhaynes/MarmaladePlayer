@@ -207,6 +207,7 @@ try {
         'glowColor','glowSize','glowAlpha','shadowColor','shadowSize','shadowAlpha','font','alignment'])
       assert.equal(await page.locator('[data-sub-key="'+key+'"]').count(),1,
         'Independent subtitle setting missing: '+key);
+    await page.locator('#subSyncTab').click({force:true});
     assert.equal(await page.locator('#subtitleTiming').getAttribute('type'),'text',
       'Timing must use an editable seconds box instead of a slider');
     assert.equal(await page.locator('#subtitleTimingPlus').count(),1);
@@ -218,6 +219,7 @@ try {
     await page.locator('#subtitleTiming').press('Enter');
     assert.equal(await page.locator('#subtitleTiming').inputValue(),'-1.5',
       'Direct timing edits must preserve signed tenths');
+    await page.locator('#subStyleTab').click({force:true});
     await page.locator('[data-sub-position="top-left"]').click({force:true});
     assert.equal(await page.locator('[data-sub-position="top-left"]').getAttribute('aria-pressed'),'true');
     assert.match(await page.locator('#subtitleOverlay').evaluate(e=>e.style.top),/^\d+px$/,'Top-left captions positioned within decoded picture');
