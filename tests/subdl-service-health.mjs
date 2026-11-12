@@ -20,6 +20,13 @@ try{
     const remote=new URL(file.url,'https://dl.subdl.com');
     const dl=await fetch(remote,{signal:AbortSignal.timeout(15000),headers:{Origin:origin,Range:'bytes=0-50'}});
     const data=new Uint8Array(await dl.arrayBuffer());
+    const utf8=new TextDecoder('utf-8');
+    const text=utf8.decode(data);
+    const codec=(await import('../subtitle-codec.js')).default;
+    const decoded=codec.decode(text,String(file.name||'actual.srt'),{fps:Number(file.fps)||0});
+    console.log(JSON.stringify({provider:'SubDL direct decode',filename:String(file.name||'').slice(-70),
+      validUtf8:!text.includes('\uFFFD'),format:decoded.format,cues:decoded.cues.length,
+      error:decoded.error,warning:decoded.warning},null,2));
     console.log(JSON.stringify({provider:'SubDL download',status:dl.status,
       cors:dl.headers.get('access-control-allow-origin')||'none',
       contentType:dl.headers.get('content-type')||'',
