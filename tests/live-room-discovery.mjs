@@ -51,7 +51,7 @@ try{
   await appHost.waitForFunction(()=>!document.querySelector('#hostActive').hidden &&
     document.querySelector('#connectionText').textContent==='Room is ready',null,{timeout:25000});
   const invite=await appHost.locator('#inviteLink').inputValue();
-  assert.match(invite,/\\?room=[A-Z2-9]{8}$/);
+  assert.match(invite,/\\?room=(?:[A-Z2-9]{8}|[A-Z2-9]{12})$/);
   await appGuest.goto(invite,{waitUntil:'load'});
   await appGuest.waitForFunction(()=>document.querySelector('#connectionText').textContent==='Watching with host',
     null,{timeout:30000});

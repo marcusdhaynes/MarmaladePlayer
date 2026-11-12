@@ -1467,12 +1467,17 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       window.MarmaladeSubtitleClock(timeline):timeline;
     // Cues are ordered: logarithmic lookup instead of scanning thousands of cues
     // on every displayed frame. End is exclusive to avoid adjacent overlap.
-    let low=0,high=state.subtitles.length-1,cue=null;
-    while(low<=high){
-      const middle=(low+high)>>1,candidate=state.subtitles[middle];
-      if(candidate.start>subtitleTime)high=middle-1;
-      else if(candidate.end<=subtitleTime)low=middle+1;
-      else{cue=candidate;break;}
+    let low=0,high=state.subtitles.length,cue=null;
+    while(low<high){
+      const middle=(low+high)>>1;
+      if(state.subtitles[middle].start<=subtitleTime)low=middle+1;
+      else high=middle;
+    }
+    // Subtitle releases may contain overlapping cues. Find the most recent
+    // still-live cue (end times need not themselves be sorted).
+    for(let index=low-1;index>=Math.max(0,low-32);index--){
+      const candidate=state.subtitles[index];
+      if(candidate.end>subtitleTime){cue=candidate;break;}
     }
     // A sample cue can be inspected live while the editor is open—even when
     // playback is paused or seeking outside subtitle dialogue.

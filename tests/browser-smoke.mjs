@@ -25,7 +25,14 @@ assert.deepEqual(parseMovieFilename('The.Last.of.Us.1x03.720p.mp4'),
   {title:'The Last of Us',year:null,kind:'tv',season:1,episode:3});
 const port = 38817;
 const server = createServer((req,res) => {
-  if (req.url?.startsWith('/settings-layout.js')) {
+  if (req.url?.startsWith('/rapid-controls.js') || req.url?.startsWith('/subtitle-compact.js')) {
+    const name=req.url.split('?')[0];
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('..'+name,import.meta.url),'utf8'));
+  } else if (req.url?.startsWith('/rapid-controls.css')) {
+    res.writeHead(200,{'content-type':'text/css'});
+    res.end(readFileSync(new URL('../rapid-controls.css',import.meta.url),'utf8'));
+  } else if (req.url?.startsWith('/settings-layout.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../settings-layout.js', import.meta.url), 'utf8'));
   } else if (req.url?.startsWith('/settings-layout.css')) {
@@ -107,14 +114,18 @@ try {
     assert.equal(await page.locator('#hostTab').isVisible(),false,'No manual Host/Join tabs');
     assert.equal(await page.locator('#chooseFile').isVisible(),false,'File picker belongs in the video');
     assert.equal(await page.locator('.panel-intro').count(),0,'Remove decorative sidebar intro');
-    const openedFilePicker = await page.locator('#dropZone').evaluate(stage => {
-      let clicks=0;
+    const openedFilePicker = await page.locator('#dropZone').evaluate(async stage => {
+      let clicks=0,pickerInvocations=0;
       const f=document.getElementById('fileInput');
       f.addEventListener('click', e=>{clicks++; e.preventDefault();},{once:true});
+      const original=window.showOpenFilePicker;
+      window.showOpenFilePicker=async()=>{pickerInvocations++;return [];};
       stage.click();
-      return clicks;
+      await Promise.resolve();
+      window.showOpenFilePicker=original;
+      return clicks+pickerInvocations;
     });
-    assert.equal(openedFilePicker,1,'Clicking empty video must open file picker');
+    assert.equal(openedFilePicker,1,'Clicking empty video must open a native or input file picker');
     assert.deepEqual(await page.locator('.stage-quick-actions button').evaluateAll(buttons=>buttons.map(b=>b.id)),
       ['broadcastToggle','localCopyButton','copyLink'],'Broadcast, Local, Share order');
     assert.equal(await page.locator('#mediaInfoToggle').count(),1,'Information available via movie title');

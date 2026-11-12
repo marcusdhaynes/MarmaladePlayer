@@ -123,3 +123,9 @@
 @media(prefers-reduced-motion:reduce){
  .subtitle-studio.sub-compact .sub-tabs button{transition:none}
 }
+/* The movie-information drawer must not ghost through the floating studio. */
+.theater-popover.subtitle-studio.sub-compact{
+  background:linear-gradient(155deg,rgba(40,34,47,.997),rgba(23,22,30,.997) 55%)!important;
+  backdrop-filter:blur(18px)!important;
+  -webkit-backdrop-filter:blur(18px)!important;
+}
