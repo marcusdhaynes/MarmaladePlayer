@@ -43,8 +43,8 @@ try{
  await page.route('https://marmalade-subdl-proxy-somnielsynchreaua-4637.vercel.app/**',route=>
    route.fulfill({status:200,contentType:'application/json',
      headers:{'access-control-allow-origin':'*'},
-     body:JSON.stringify({status:true,results:[{name:'Example',year:2026,type:'movie'}],
-       subtitles:[{release_name:'Example.2026.1080p',name:'Example.2026.1080p.zip',
+     body:JSON.stringify({status:true,results:[],
+       subtitles:[{release_name:'Example.1080p',name:'Example.1080p.zip',
          url:'/subtitle/example.zip',language:'EN',fps:'25'}]})}));
  await page.route('https://v3-cinemeta.strem.io/**',route=>
    route.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},
@@ -87,7 +87,7 @@ try{
  });
  assert.equal(stored.kind,'search');
  assert.equal(stored.name,'Example.2026.1080p.srt');
- assert.equal(stored.containerName,'Example.2026.1080p.zip');
+ assert.equal(stored.containerName,'Example.1080p.zip');
  assert.equal(stored.fps,25);
  assert.ok(stored.content.includes('Hello from SubDL'));
  await page.locator('#subtitleTiming').evaluate(el=>{

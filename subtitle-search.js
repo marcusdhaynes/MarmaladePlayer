@@ -259,20 +259,26 @@
     }
     const requested=Number(year.value||0);
     if(requested) {
-      const confirmed=(Array.isArray(data?.subtitles)?data.subtitles:[]).filter(sub=>{
-        const label=[sub.release_name,sub.name].filter(Boolean).join(' ');
-        return matcher.releaseYear(label)===requested;
+      const identityAvailable=Array.isArray(data?.results)&&data.results.length>0;
+      const matching=(Array.isArray(data?.subtitles)?data.subtitles:[]).filter(sub=>{
+        const label=[sub.release_name,sub.name,...(sub.unpack_files||[])
+          .flatMap(file=>[file.release_name,file.name])].filter(Boolean).join(' ');
+        const knownYear=matcher.releaseYear(label);
+        // Existing SubDL proxy strips results[]. Unknown year does not mean
+        // a different movie. Explicit mismatched years remain excluded.
+        return knownYear===requested||(!identityAvailable&&knownYear===null);
       });
-      if(confirmed.length){
-        const items=subdlResults({subtitles:confirmed});
+      if(matching.length){
+        const items=subdlResults({subtitles:matching});
         const alternatives=!items.length&&quality.value?
-          subdlResults({subtitles:confirmed},{ignoreQuality:true}):[];
+          subdlResults({subtitles:matching},{ignoreQuality:true}):[];
         return {items:items.length?items:alternatives,
           media:{name:title.value.trim(),year:requested},
           qualityFallback:!items.length&&alternatives.length>0,
-          validatedBy:'subtitle release year'};
+          unverifiedYear:!identityAvailable&&matching.some(sub=>
+            !matcher.releaseYear([sub.release_name,sub.name].filter(Boolean).join(' ')))};
       }
-      return {items:[],reason:'SubDL returned a different edition; its subtitles were excluded.'};
+      return {items:[],reason:'SubDL returned a different movie year; excluded mismatched releases.'};
     }
     // No release year was specified: display provider matches as before.
     const items=subdlResults(data);
@@ -379,9 +385,11 @@
         (edition?' ('+edition+')':''):'';
       const qualityNote=completed.some(x=>x.qualityFallback)?
         ' · No exact quality match; showing alternative releases.':'';
+      const identityNote=completed.some(x=>x.unverifiedYear)?
+        ' · SubDL did not confirm the release year; verify the match.':'';
       const errors=failures.length?' · '+failures.join(' · '):'';
       progress.textContent=list.length
-        ?list.length+' subtitle matches by title / episode'+identity+qualityNote+errors
+        ?list.length+' subtitle matches by title / episode'+identity+qualityNote+identityNote+errors
         :['No matching subtitle files found.',
           ...completed.map(x=>x.reason).filter(Boolean),...failures].join(' ');
     }catch(e){
