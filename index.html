@@ -497,6 +497,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
 
+<link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 </head>
 <body>
   <div class="app-shell">
@@ -4499,6 +4500,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     el.settingsPanel.style.left = `${Math.round(x)}px`;
     el.settingsPanel.style.top = `${Math.round(top)}px`;
   }
+  window.MarmaladeSettingsReposition=placeSettingsPalette;
   document.body.appendChild(el.settingsPanel);
   el.settingsPanel.classList.add('settings-floating');
   document.addEventListener('fullscreenchange',placeSettingsPalette);
@@ -5458,6 +5460,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261112-timing-v1"></script>
+<script src="./settings-layout.js?v=20261112-compact-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261112-subdl-fix-v2"></script>
 </body>
