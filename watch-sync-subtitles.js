@@ -446,6 +446,7 @@
     button.addEventListener('pointerdown',event=>{
       if(event.button!==0)return;
       clear();held=false;
+      try{button.setPointerCapture(event.pointerId);}catch{}
       timer=setTimeout(()=>{
         held=true;change(1);
         interval=setInterval(()=>change(1),250);
@@ -453,6 +454,7 @@
     });
     button.addEventListener('pointerup',clear);
     button.addEventListener('pointercancel',()=>{clear();held=false;});
+    button.addEventListener('lostpointercapture',clear);
     button.addEventListener('pointerleave',event=>{
       if(event.pointerType==='mouse'&&!event.buttons)clear();
     });
