@@ -14,7 +14,7 @@
       let code=parsed.searchParams.get('room')||'';
       if(parsed.protocol==='marmaladeplayer:'&&parsed.hostname==='join')
         code=parsed.pathname.replace(/^\//,'')||code;
-      return /^[A-Z2-9]{8}$/i.test(code)?code.toUpperCase():'';
+      return /^(?:[A-Z2-9]{8}|[A-Z2-9]{12})$/i.test(code)?code.toUpperCase():'';
     }catch{return '';}
   };
   const route=url=>{

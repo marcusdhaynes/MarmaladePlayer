@@ -498,6 +498,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
 
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
+<link rel="stylesheet" href="./rapid-controls.css?v=20261112-rapid-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -828,6 +829,24 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
   ] } };
+  const STUN_SERVERS=PEER_OPTIONS.config.iceServers.slice();
+  // TURN cannot work without real provider credentials. Keep secrets in
+  // sessionStorage (not links or rooms). Reconfigure before every new peer.
+  function configureIce(){
+    const servers=STUN_SERVERS.slice();
+    try{
+      const raw=sessionStorage.getItem('marmalade:turn-relay-url')||'';
+      const username=sessionStorage.getItem('marmalade:turn-relay-user')||'';
+      const credential=sessionStorage.getItem('marmalade:turn-relay-password')||'';
+      if(/^(?:turn|turns):[A-Za-z0-9.:[\]-]+(?::\d{1,5})?(?:\?transport=(?:tcp|udp))?$/.test(raw)&&
+          username&&credential)servers.push({urls:raw,username,credential});
+      PEER_OPTIONS.config.iceTransportPolicy=servers.length>STUN_SERVERS.length&&
+        sessionStorage.getItem('marmalade:turn-force-relay')==='true'?'relay':'all';
+    }catch{PEER_OPTIONS.config.iceTransportPolicy='all';}
+    PEER_OPTIONS.config.iceServers=servers;
+  }
+  window.MarmaladeConfigureIce=configureIce;
+  configureIce();
   // Upload/encode-friendly base stream. Playback on the host remains at the original quality.
   // Each guest has a separate WebRTC sender, so caps avoid multiplying 1080p encoders.
   const STREAM_WIDTH = isMobile ? 640 : 960;
@@ -1240,6 +1259,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           state.remoteVideoFrameCount++;
           state.remoteFramesAvailable = true;
         }
+        // Refresh captions against presented frames, not a 500 ms polling grid.
+        window.MarmaladeSubtitleRefresh?.();
         if (!el.fpsOverlay.hidden && !media.paused && media.readyState >= 2) {
           if (!state.fpsAt) { state.fpsAt = now; state.fpsFrames = 0; }
           state.fpsFrames++;
@@ -1435,12 +1456,24 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       if(preview)el.subtitleOverlay.textContent='Subtitle Preview';
       return;
     }
-    const t = state.role === 'guest' ? Math.max(0, state.sharedTime +
-      (state.hostPlaying ? (performance.now()-state.sharedAt)/1000 : 0)) :
-      media.currentTime;
+    // Locally decoded guests MUST follow their actual presented movie frame,
+    // not the host's projected clock (which can lead buffered playback by seconds).
+    // Only the remote live receiver needs the host-time/presentation-delay estimate.
+    const localPresentation=state.role!=='guest'||state.localVerified||
+      state.bufferedMode||state.source==='hosted-guest';
+    const timeline=localPresentation?Number(media.currentTime)||0:
+      expectedHostTime();
     const subtitleTime=window.MarmaladeSubtitleClock ?
-      window.MarmaladeSubtitleClock(t):t;
-    const cue=state.subtitles.find(c=>c.start<=subtitleTime&&c.end>=subtitleTime);
+      window.MarmaladeSubtitleClock(timeline):timeline;
+    // Cues are ordered: logarithmic lookup instead of scanning thousands of cues
+    // on every displayed frame. End is exclusive to avoid adjacent overlap.
+    let low=0,high=state.subtitles.length-1,cue=null;
+    while(low<=high){
+      const middle=(low+high)>>1,candidate=state.subtitles[middle];
+      if(candidate.start>subtitleTime)high=middle-1;
+      else if(candidate.end<=subtitleTime)low=middle+1;
+      else{cue=candidate;break;}
+    }
     // A sample cue can be inspected live while the editor is open—even when
     // playback is paused or seeking outside subtitle dialogue.
     const shown=cue?.text||(editing&&!document.getElementById('subStyleView')?.hidden&&
@@ -1455,11 +1488,15 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     }
   }
   window.MarmaladeSubtitleRefresh=updateSubtitles;
+  for(const eventName of ['timeupdate','seeking','seeked','play','pause','ratechange','loadedmetadata'])
+    media.addEventListener(eventName,updateSubtitles,{passive:true});
   function showStage(show) {
     el.stage.classList.toggle('has-video', show);
     el.empty.hidden = show;
     if (!show) { needsTapToPlay(false);
-      el.settingsPanel.hidden = true; el.subtitlePanel.hidden = true; }
+      el.settingsPanel.hidden = true; el.subtitlePanel.hidden = true;
+      el.settingsBtn.setAttribute('aria-expanded','false');
+      el.subtitleBtn.setAttribute('aria-expanded','false'); }
   }
   function setStage(title, subtitle, eyebrow) {
     el.stageTitle.textContent = title;
@@ -1629,9 +1666,22 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     return false;
   }
   function newCode() {
-    const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    const bytes = crypto.getRandomValues(new Uint8Array(8));
-    return Array.from(bytes, v => characters[v % characters.length]).join('');
+    // 12 symbols ≈ 60 bits of entropy. Signaling rejects duplicate *active*
+    // IDs; a global never-reuse guarantee needs a durable server registry.
+    const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let seen=[];
+    try{seen=JSON.parse(localStorage.getItem('marmalade:previous-room-codes')||'[]');}
+    catch{}
+    for(let attempt=0;attempt<20;attempt++){
+      const random=crypto.getRandomValues(new Uint8Array(12));
+      const code=Array.from(random,n=>chars[n%chars.length]).join('');
+      if(!seen.includes(code)){
+        try{localStorage.setItem('marmalade:previous-room-codes',
+          JSON.stringify([...seen.slice(-999),code]));}catch{}
+        return code;
+      }
+    }
+    throw Error('Could not allocate a new room code');
   }
   function parseCode(input) {
     let raw = String(input || '').trim();
@@ -1640,7 +1690,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       catch { return ''; }
     }
     raw = raw.replace(/^marmalade-/i, '').replace(/^MP-/i, '').toUpperCase();
-    return /^[A-Z2-9]{8}$/.test(raw) ? raw : '';
+    return /^(?:[A-Z2-9]{8}|[A-Z2-9]{12})$/.test(raw) ? raw : '';
   }
   function inviteUrl(code) {
     const address = new URL(window.location.href);
@@ -2414,7 +2464,18 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if(performance.now() < (state.stopPickerUntil||0))return;
     if ((state.source && !(state.source === 'file' && media.error)) || state.connecting) return;
     if (state.role !== 'host') selectRole('host');
-    el.fileInput.click();
+    if(typeof window.showOpenFilePicker==='function'){
+      // This gesture can retain a persistent, permission-checked file handle.
+      void window.showOpenFilePicker({multiple:false}).then(async handles=>{
+        const handle=handles?.[0];if(!handle)return;
+        const file=await handle.getFile();
+        if(!isVideoFile(file)){notify('Choose a video or audio file.');return;}
+        state.lastOpenedHandle=handle;
+        selectHostFile(file);
+      }).catch(error=>{
+        if(error?.name!=='AbortError'){console.debug('Native picker unavailable',error);el.fileInput.click();}
+      });
+    }else el.fileInput.click();
   }
   function autoJoinCode() {
     const code = parseCode(el.joinInput.value);
@@ -2486,7 +2547,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           notify('Automatic MKV audio decoder was not packaged. Playback may lack sound.');
       }).catch(error=>console.warn('MKV audio probe failed',error));
     }
-    window.dispatchEvent(new CustomEvent('marmalade:video-selected', { detail: { file } }));
+    window.dispatchEvent(new CustomEvent('marmalade:video-selected',
+      { detail: { file,handle:state.lastOpenedHandle||null } }));
+    state.lastOpenedHandle=null;
     void restoreSavedSubtitle();
     el.hint.textContent = 'Only media formats decoded by your browser play as files.';
     setStage('Loading your video…', 'Preparing local playback. Your file stays on your device.', 'LOADING');
@@ -3180,6 +3243,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   }
   function recoverHost(peer,code){
     if(state.peer!==peer||state.role!=='host'||hostRecoveryTimer)return;
+    configureIce();
     connection('Restoring room service…','error');
     updateRoomActions();
     hostRecoveryTimer=setTimeout(()=>{
@@ -3243,6 +3307,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   }
   async function createRoom(){
     if(!requirePeerJS()||state.connecting)return;
+    configureIce();
     stopHostRecovery();
     const code=previousHostCode()||newCode();
     closeConnections();
@@ -3515,6 +3580,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   }
   function startGuestJoinAttempt(code, attempt) {
     if (!state.connecting || state.role !== 'guest' || state.code !== code) return;
+    configureIce();
     state.joinAttempt = attempt;
     el.joinProgressText.textContent = `Connecting · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`;
     connection(attempt === 1 ? 'Connecting…' : `Connecting · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`);
@@ -3674,7 +3740,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     // resume promise pending until a gesture, blocking subsequent playback.
     if (!requirePeerJS() || state.connecting) return;
     const code = parseCode(el.joinInput.value);
-    if (!code) { notify('Enter a valid 8-character room code or invite link.'); el.joinInput.focus(); return; }
+    if (!code) { notify('Enter a valid room code or invitation link.'); el.joinInput.focus(); return; }
     closeConnections();
     removeMedia({preserveGuestAudio:true});
     state.role = 'guest';
@@ -4522,12 +4588,28 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   el.closeSubtitles.addEventListener('click',()=>{
     el.subtitlePanel.hidden=true;el.subtitleBtn.setAttribute('aria-expanded','false');revealControls();
   });
-  el.stage.addEventListener('pointerdown',event=>{
-    if(event.target.closest('.theater-popover,#settingsBtn,#subtitlesBtn'))return;
-    if(!el.settingsPanel.hidden){el.settingsPanel.hidden=true;el.settingsBtn.setAttribute('aria-expanded','false');}
-    // Keep the subtitle editor open so transport, seeking, and video taps can
-    // preview subtitle changes without reopening the panel.
-  });
+  // A floating palette closes at the first outside pointer-down or Escape.
+  // Capture-level handling also catches clicks on the header, film area and
+  // external controls; switching between settings/subtitles remains one click.
+  function dismissPalettes(){
+    const wasOpen=!el.settingsPanel.hidden||!el.subtitlePanel.hidden;
+    el.settingsPanel.hidden=true;el.subtitlePanel.hidden=true;
+    el.settingsBtn.setAttribute('aria-expanded','false');
+    el.subtitleBtn.setAttribute('aria-expanded','false');
+    if(wasOpen){updateSubtitles();revealControls();}
+    return wasOpen;
+  }
+  document.addEventListener('pointerdown',event=>{
+    if(el.settingsPanel.hidden&&el.subtitlePanel.hidden)return;
+    const path=event.composedPath?.()||[];
+    const inside=path.some(node=>node===el.settingsPanel||node===el.subtitlePanel||
+      node===el.settingsBtn||node===el.subtitleBtn);
+    if(!inside)dismissPalettes();
+  },true);
+  window.addEventListener('keydown',event=>{
+    if(event.key!=='Escape'||event.defaultPrevented)return;
+    if(dismissPalettes()){event.preventDefault();event.stopImmediatePropagation();}
+  },true);
   el.subtitleBtn.addEventListener('click',()=>{
     if(el.subtitlePanel.hidden)state.subtitlePreviewSuppressed=false;
     togglePopover(el.subtitlePanel,el.subtitleBtn);
@@ -4854,7 +4936,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   });
   el.hostTab.addEventListener('click', () => selectRole('host'));
   el.joinTab.addEventListener('click', () => selectRole('guest'));
-  el.chooseFile.addEventListener('click', () => el.fileInput.click());
+  el.chooseFile.addEventListener('click', openMoviePicker);
   el.fileInput.addEventListener('change', (event) => { if (event.target.files[0]) selectHostFile(event.target.files[0]); event.target.value = ''; });
   el.stage.addEventListener('dragover', (event) => { event.preventDefault(); el.stage.classList.add('dragover'); });
   el.stage.addEventListener('dragleave', () => el.stage.classList.remove('dragover'));
@@ -5440,7 +5522,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   applyVolume();
   // Add-on uses only the local player and presentation-delay telemetry. It never
   // changes capture tracks, sender parameters, quality selection or transport.
-  window.MarmaladeAddonBridge={state,media,el,ensureAudioPlayback};
+  window.MarmaladeAddonBridge={state,media,el,ensureAudioPlayback,
+    chooseVideo:selectHostFile,openMoviePicker,notify};
   // Offline app shell is optional; room signaling and WebRTC require connectivity.
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
@@ -5463,5 +5546,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 <script src="./settings-layout.js?v=20261112-compact-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261112-subdl-fix-v2"></script>
+<script src="./rapid-controls.js?v=20261112-rapid-v1"></script>
+<script src="./subtitle-compact.js?v=20261112-rapid-v1"></script>
 </body>
 </html>

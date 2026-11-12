@@ -1,0 +1,44 @@
+name: Marmalade Rapid UX And Subtitle Clock
+on:
+  push:
+    paths:
+      - index.html
+      - rapid-controls.js
+      - rapid-controls.css
+      - subtitle-compact.js
+      - watch-sync-subtitles.js
+      - movie-info.js
+      - public-movie-info.js
+      - tests/rapid-ui.mjs
+      - .github/workflows/rapid-ui.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rapid-ui:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --no-package-lock playwright@1.56.1
+      - run: npx playwright install --with-deps chromium
+      - name: Validate shared scripts
+        run: |
+          node --check rapid-controls.js
+          node --check subtitle-compact.js
+          node --check movie-info.js
+          node --check public-movie-info.js
+          node --check mobile/scripts/patch-native.mjs
+      - run: node tests/subtitle-archive.test.cjs
+      - run: node tests/subtitle-codec.test.cjs
+      - run: node tests/rapid-ui.mjs
+      - name: Preserve visual screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marmalade-rapid-ux-screenshots
+          path: test-artifacts/rapid-ui
+          if-no-files-found: ignore

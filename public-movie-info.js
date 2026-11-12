@@ -72,7 +72,14 @@
     if(info.type==='disambiguation')throw Error('This title has multiple editions.');
     if(!/film|movie/i.test(info.description||'')&&!/film|movie/i.test(info.title||''))
       throw Error('This article could not be verified as a film.');
-    const year=Number((info.title||'').match(/\b(?:19|20)\d{2}\b/)?.[0]||0)||parsed.year||'';
+    const articleName=String(info.title||'').replace(/\s*\((?:19|20)\d{2}\s*(?:film|movie)\)/ig,'')
+      .replace(/\s*\((?:film|movie)\)/ig,'').trim();
+    if(titleScore(articleName,parsed.title)!==100)
+      throw Error('Public movie source returned a different title; please select the correct film.');
+    const foundYear=Number((info.title||'').match(/\b(?:19|20)\d{2}\b/)?.[0]||0);
+    if(parsed.year&&foundYear&&foundYear!==Number(parsed.year))
+      throw Error('Public movie source returned a different release year.');
+    const year=foundYear||parsed.year||'';
     const page=info.content_urls?.desktop?.page||
       'https://en.wikipedia.org/wiki/'+encodeURIComponent(title.replace(/ /g,'_'));
     return empty(parsed,{source:'wikipedia',id:info.pageid||null,sourceUrl:page,
@@ -197,7 +204,11 @@
         .replace(/\s*\((?:film|movie)\)/ig,'').trim();
       return {title,score:titleScore(simplified,parsed.title)+
         (parsed.year&&title.includes(String(parsed.year))?100:0)};
-    }).filter(x=>x.score>=0&&/\bfilm\b|\bmovie\b/i.test(x.title))
+    }).filter(x=>titleScore(x.title.replace(/\s*\((?:19|20)\d{2}\s*(?:film|movie)\)/ig,'')
+      .replace(/\s*\((?:film|movie)\)/ig,''),parsed.title)===100&&
+      /\bfilm\b|\bmovie\b/i.test(x.title)&&
+      (!parsed.year||!(/\b(?:19|20)\d{2}\b/.test(x.title))||
+        x.title.includes(String(parsed.year))))
       .sort((a,b)=>b.score-a.score);
     if(!matches.length)throw Error('No confidently matching film article.');
     const primary=matches[0].title;

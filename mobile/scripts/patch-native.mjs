@@ -26,6 +26,18 @@ if(existsSync(manifest)){
     '            </intent-filter>';
   xml=xml.replace('</activity>',filter+'\n        </activity>');
  }
+ // HTTPS watch-party invitations are eligible for Android's Open With flow.
+ // Automatic App Link verification additionally requires an assetlinks.json
+ // matching a stable release signing certificate; debug APK signing is ephemeral.
+ if(!xml.includes('android:host="marcusdhaynes.github.io"')){
+  const webFilter='\n            <intent-filter android:autoVerify="true">\n'+
+    '                <action android:name="android.intent.action.VIEW" />\n'+
+    '                <category android:name="android.intent.category.DEFAULT" />\n'+
+    '                <category android:name="android.intent.category.BROWSABLE" />\n'+
+    '                <data android:scheme="https" android:host="marcusdhaynes.github.io" android:pathPrefix="/MarmaladePlayer/" />\n'+
+    '            </intent-filter>';
+  xml=xml.replace('</activity>',webFilter+'\n        </activity>');
+ }
  // True OS Picture-in-Picture without overlay or special accessibility rights.
  xml=xml.replace(/<activity\b([^>]*?)>/,(_original,attributes)=>{
    let flags=attributes;

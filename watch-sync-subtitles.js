@@ -492,8 +492,11 @@
   // Read existing local cues only. Never transmit subtitle bytes or settings.
   window.MarmaladeSubtitleClock=(time)=>{
     const base=state.role==='host'&&state.hostSyncActive?
-      preview.currentTime:time;
-    const remoteCorrection=state.role==='guest'&&state.source==='remote'?
+      (Number.isFinite(preview.currentTime)?preview.currentTime:time):time;
+    // Only live WebRTC requires presentation-delay correction. Local files
+    // and buffered streams use the actual decoded media.currentTime already.
+    const fresh=performance.now()-(state.lastFrameLatencyReportAt||0)<5000;
+    const remoteCorrection=state.role==='guest'&&state.source==='remote'&&fresh?
       clamp((state.guestPresentationMs||0)/1000,0,8):0;
     return Math.max(0,base-remoteCorrection+Number(prefs.timing||0));
   };

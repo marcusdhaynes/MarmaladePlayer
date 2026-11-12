@@ -688,7 +688,9 @@
       initial.year!==parsed.year||initial.season!==parsed.season||
       initial.episode!==parsed.episode||match?.tmdb_id||
       match?.parent_tmdb_id||match?.imdb_id){
-      await findMovie(parsed,++sequence,match);
+      const trustedFeature=match&&(!initial.year||
+        normalize(match.title||match.parent_title||'')===normalize(initial.title))?match:null;
+      await findMovie(parsed,++sequence,trustedFeature);
     }
   }
   ui.form.addEventListener('submit', event => {
