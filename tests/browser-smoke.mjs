@@ -271,6 +271,7 @@ try {
       contentType:'text/plain',body:'1\n00:00:01,000 --> 00:00:03,000\nDownload works!\n'}));
     await page.locator('#subSearchTitle').fill('Dune');
     await page.locator('#subSearchYear').fill('2021');
+    await page.locator('#subMoreFilters > summary').click();
     await page.locator('#subSearchQuality').selectOption('1080p');
     await page.locator('#subSearchSubmit').click({force:true});
     try {
