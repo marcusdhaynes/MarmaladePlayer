@@ -14,7 +14,7 @@ execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i',
 const fixture=readFileSync(videoPath);
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const server=createServer((req,res)=>{
-  if(req.url?.startsWith('/rapid-controls.js') || req.url?.startsWith('/subtitle-compact.js')){
+  if(req.url?.startsWith('/rapid-controls.js') || req.url?.startsWith('/subtitle-compact.js') || req.url?.startsWith('/seek-preview.js')){
     const name=req.url.split('?')[0];
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('..'+name,import.meta.url)));return;
