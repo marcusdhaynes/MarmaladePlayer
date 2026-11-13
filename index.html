@@ -498,7 +498,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
 
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
-<link rel="stylesheet" href="./rapid-controls.css?v=20261112-rapid-v1">
+<link rel="stylesheet" href="./rapid-controls.css?v=20261113-scene-hover-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -2597,6 +2597,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
           entry.hostPresentationReportAt=performance.now();
           if(state.hostMonitorRequested)updateHostMonitor();
         }
+        if(data.type==='seek-thumbnail-request')
+          void window.MarmaladeSeekPreview?.handleRequest(conn,data,send);
         if(data.type==='segment-request' && state.source==='hosted' && state.peerAssistance){
           void shareCachedSegment(conn,data.id,data.url);
         }
@@ -3662,6 +3664,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
             setStage('Reconnecting your video…',
               'The room is connected. Recovering the video stream.','RECONNECTING');
         }
+        if (data.type === 'seek-thumbnail-response')
+          window.MarmaladeSeekPreview?.handleResponse(data);
         if (data.type === 'movie-info') window.MarmaladeInfoReceive?.(data.payload);
         if(data.type==='segment-part' && typeof data.id==='string')receiveRescueChunk(data);
         if(data.type==='segment-missing' && state.peerTransfer.has(data.id)){
@@ -5547,11 +5551,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 <script src="./movie-info.js?v=20261103-imdb-score-v3" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
-<script src="./watch-sync-subtitles.js?v=20261112-timing-v1"></script>
-<script src="./settings-layout.js?v=20261112-compact-v2"></script>
+<script src="./watch-sync-subtitles.js?v=20261113-timing-v3"></script>
+<script src="./settings-layout.js?v=20261113-hold-setting-v1"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261112-subdl-fix-v2"></script>
 <script src="./rapid-controls.js?v=20261112-rapid-v1"></script>
-<script src="./subtitle-compact.js?v=20261112-rapid-v1"></script>
+<script src="./subtitle-compact.js?v=20261113-line-search-v1"></script>
+<script src="./seek-preview.js?v=20261113-scene-hover-v1"></script>
 </body>
 </html>

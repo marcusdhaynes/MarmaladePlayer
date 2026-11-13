@@ -129,3 +129,97 @@
   backdrop-filter:blur(18px)!important;
   -webkit-backdrop-filter:blur(18px)!important;
 }
+
+/* Subtitle cue alignment: search every line, reveal complete text without truncation. */
+.subtitle-studio.sub-compact .sub-cue-search-row{
+ display:flex;align-items:stretch;gap:5px;min-width:0;
+}
+.subtitle-studio.sub-compact .sub-cue-search-row input{
+ flex:1;min-width:0;height:32px;border:1px solid #76565b;
+ border-radius:7px;padding:6px 9px;background:#1b1923;color:#fcece4;
+ font:inherit;font-size:10px;outline-offset:2px;
+}
+.subtitle-studio.sub-compact .sub-cue-search-row input:focus{
+ border-color:#e7b58b;box-shadow:0 0 0 2px #ce946029;
+}
+.subtitle-studio.sub-compact .sub-cue-expand{
+ width:34px;flex:none;border:1px solid #87654a;border-radius:7px;
+ background:#44302f;color:#ffe2bd;cursor:pointer;font-size:17px;
+}
+.subtitle-studio.sub-compact .sub-cue-selected{
+ border:1px solid #80684b70;background:#af845019;
+ border-radius:7px;padding:8px;min-height:27px;
+ font:500 10px/1.55 system-ui,sans-serif;color:#ffe2bd;
+ white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;
+}
+.subtitle-studio.sub-compact .sub-cue-list{
+ border:1px solid #92715480;border-radius:8px;
+ max-height:min(230px,35dvh);min-height:36px;overflow-y:auto;
+ overscroll-behavior:contain;scrollbar-width:thin;
+ background:#1a1921;box-shadow:0 12px 20px #0004;
+}
+.subtitle-studio.sub-compact .sub-cue-list[hidden],
+.subtitle-studio.sub-compact #subCueMore[hidden]{display:none!important}
+.subtitle-studio.sub-compact .sub-cue-option{
+ display:block;width:100%;height:auto;min-height:35px;
+ padding:8px 10px;text-align:left;color:#e9deda;
+ font:400 10px/1.5 system-ui,sans-serif;
+ white-space:pre-wrap;overflow-wrap:anywhere;
+ background:transparent;border:0;border-bottom:1px solid #ffffff14;
+ cursor:pointer;border-radius:0;
+}
+.subtitle-studio.sub-compact .sub-cue-option:hover,
+.subtitle-studio.sub-compact .sub-cue-option:focus{
+ background:#4c394090;color:#ffe2bd;outline:1px solid #c59678;
+ outline-offset:-2px;
+}
+.subtitle-studio.sub-compact .sub-cue-option[aria-selected="true"]{
+ border-left:3px solid #efb783;background:#986c4226;
+}
+.subtitle-studio.sub-compact .sub-cue-count{
+ color:#b9adb1;font-size:9px;line-height:1.3;
+}
+.subtitle-studio.sub-compact .sub-cue-more{
+ width:100%;min-height:27px;padding:5px;
+ color:#ffd7a4;font-size:10px;
+ border:1px solid #76554b;border-radius:6px;
+ background:#342a31;cursor:pointer;
+}
+.settings-popover .settings-hold-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.settings-popover .settings-hold-row span{min-width:0}
+.settings-popover .settings-hold-row select{
+ width:95px;min-width:95px;padding:5px 7px;border-radius:6px;
+ background:#2b252d;border:1px solid #6c5155;color:#ffe1c2;font-size:10px;
+}
+/* Thumbnail follows the pointer and remains clear of the seek track. */
+.seek-stack .seek-preview{
+ position:absolute;z-index:40;left:0;bottom:calc(100% + 14px);
+ width:156px;padding:5px;border:1px solid #cda48675;
+ border-radius:9px;background:#17141cfa;
+ box-shadow:0 12px 28px #000b;transform:translateX(-50%);
+ display:flex;flex-direction:column;gap:4px;
+ align-items:center;pointer-events:none;
+ color:#ffe8cd;user-select:none;
+}
+.seek-stack .seek-preview[hidden]{display:none!important}
+.seek-stack .seek-preview:after{
+ content:'';position:absolute;left:calc(50% - 5px);
+ top:100%;border:5px solid transparent;border-top-color:#241821;
+}
+.seek-stack .seek-preview canvas{
+ width:146px;height:82px;object-fit:contain;
+ background:#06060a;border-radius:5px;
+}
+.seek-stack .seek-preview canvas[hidden]{display:none!important}
+.seek-stack .seek-preview .seek-preview-time{
+ font:700 10px ui-monospace,Consolas,monospace;
+ font-variant-numeric:tabular-nums;letter-spacing:.3px;
+}
+.seek-stack .seek-preview .seek-preview-status{
+ font-size:9px;line-height:1.3;text-align:center;color:#b8aeb5;
+}
+.seek-stack .seek-preview .seek-preview-status[hidden]{display:none!important}
+@media(max-width:470px){
+ .seek-stack .seek-preview{width:132px;padding:4px}
+ .seek-stack .seek-preview canvas{width:122px;height:69px}
+}

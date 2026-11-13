@@ -79,6 +79,23 @@
  subtitleLink.addEventListener('click',()=>$('subtitlesBtn')?.click());
  pages.get('video').querySelector('.settings-stack').appendChild(subtitleLink);
  into('skipInterval','controls');
+ const longPress=document.createElement('label');
+ longPress.id='subtitleHoldSetting';longPress.className='settings-row settings-hold-row';
+ longPress.setAttribute('for','subtitleTimingHold');
+ longPress.innerHTML='<span>Subtitle Timing Hold</span><select id="subtitleTimingHold" aria-label="Hold duration for one-second subtitle timing adjustment">'+
+   [[150,'0.15 s'],[200,'0.20 s'],[250,'0.25 s'],[350,'0.35 s'],
+    [500,'0.50 s'],[750,'0.75 s'],[1000,'1.00 s']].map(([value,label])=>
+      '<option value="'+value+'">'+label+'</option>').join('')+'</select>';
+ pages.get('controls').querySelector('.settings-stack').appendChild(longPress);
+ const holdControl=$('subtitleTimingHold');
+ try{
+   const stored=localStorage.getItem('marmalade:subtitle-timing-hold-ms')||'250';
+   holdControl.value=[...holdControl.options].some(o=>o.value===stored)?stored:'250';
+ }catch{holdControl.value='250';}
+ holdControl.addEventListener('change',()=>{
+   try{localStorage.setItem('marmalade:subtitle-timing-hold-ms',holdControl.value);}catch{}
+   window.dispatchEvent(new Event('marmalade:subtitle-hold-setting'));
+ });
  const fadeRow=into('controlFadeDelay','controls');
  if(fadeRow?.firstChild?.nodeType===Node.TEXT_NODE)
    fadeRow.firstChild.textContent='Fade Controls ';

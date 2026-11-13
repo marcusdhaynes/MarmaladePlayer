@@ -99,16 +99,48 @@
  });
  timing.appendChild(reset);
  const cueTitle=document.createElement('label');
- cueTitle.htmlFor='subTimingCue';cueTitle.textContent='Align a spoken line';
- const cueSelect=document.createElement('select');
- cueSelect.id='subTimingCue';
+ cueTitle.htmlFor='subTimingCueSearch';
+ cueTitle.textContent='Line Alignment';
+ const cueSearchBar=document.createElement('div');cueSearchBar.className='sub-cue-search-row';
+ const cueSearch=document.createElement('input');
+ cueSearch.id='subTimingCueSearch';cueSearch.type='search';
+ cueSearch.autocomplete='off';cueSearch.spellcheck=false;
+ cueSearch.placeholder='Search by words in any line…';
+ cueSearch.setAttribute('aria-label','Search subtitle lines by keywords');
+ cueSearch.setAttribute('aria-autocomplete','list');
+ cueSearch.setAttribute('aria-controls','subTimingCue');
+ cueSearch.setAttribute('aria-expanded','false');
+ const expand=document.createElement('button');
+ expand.type='button';expand.className='sub-cue-expand';expand.id='subCueExpand';
+ expand.textContent='⌄';expand.setAttribute('aria-label','Browse complete subtitle lines');
+ cueSearchBar.append(cueSearch,expand);
+ const selectedDisplay=document.createElement('div');
+ selectedDisplay.className='sub-cue-selected';selectedDisplay.id='subSelectedLine';
+ selectedDisplay.setAttribute('aria-live','polite');
+ selectedDisplay.textContent='Load a subtitle file to align its lines.';
+ const cueList=document.createElement('div');
+ cueList.id='subTimingCue';cueList.className='sub-cue-list';
+ cueList.setAttribute('role','listbox');cueList.setAttribute('aria-label','Subtitle lines: time and full text');
+ cueList.hidden=true;
+ const count=document.createElement('small');count.className='sub-cue-count';count.id='subCueCount';
+ const more=document.createElement('button');
+ more.id='subCueMore';more.className='sub-cue-more';more.type='button';
+ more.textContent='Show More Lines';more.hidden=true;
  const button=document.createElement('button');
- button.id='subTimingAlign';button.type='button';
- button.className='sub-timing-action';button.textContent='Sync Selected Line To This Moment';
- button.disabled=true;
- const tip=document.createElement('p');
- tip.textContent='When the chosen line is spoken on-screen, click Sync. For releases with different edits or intros, use the matching subtitle release.';
- timing.append(cueTitle,cueSelect,button,tip);
+ button.id='subTimingAlign';button.type='button';button.className='sub-timing-action';
+ button.textContent='Align Selected Line To Now';button.disabled=true;
+ const message=document.createElement('p');
+ message.className='sub-cue-help';
+ message.textContent='When the line begins in the video, click Align. + makes captions earlier; − makes them later. Each change is saved with this subtitle.';
+ timing.append(cueTitle,cueSearchBar,selectedDisplay,cueList,more,count,button,message);
+ let selectedCue=-1,matches=[],rendered=0,knownCues=null,filterFrame=0;
+ const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g,' ').trim();
+ function formatTime(value){
+  const n=Math.max(0,Number(value)||0),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=(n%60).toFixed(1).padStart(4,'0');
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+s;
+ }
+ const cueText=cue=>String(cue?.text||'').replace(/\r/g,'').trim();
+ const cueLabel=cue=>formatTime(cue.start)+' | '+cueText(cue);
  function playbackTime(){
   if(state.role!=='guest'||state.localVerified||state.bufferedMode||state.source==='hosted-guest')
    return Number(media.currentTime)||0;
@@ -118,47 +150,142 @@
  }
  function currentBaseTime(){
   const projected=playbackTime();
-  const clock=window.MarmaladeSubtitleClock?.(projected)??projected;
-  return clock-(Number(state.subtitleOffsetSeconds)||0);
+  return window.MarmaladeSubtitleClockBase?.(projected)??projected;
  }
  function showTiming(){
-  currentTime.textContent='Video '+formatTime(playbackTime())+' · Offset '+(Number(state.subtitleOffsetSeconds)||0).toFixed(1)+' s';
+  const video=playbackTime(),clock=currentBaseTime()+(Number(state.subtitleOffsetSeconds)||0);
+  currentTime.textContent='Video '+formatTime(video)+' · Captions '+formatTime(clock)+
+    ' · Offset '+(Number(state.subtitleOffsetSeconds)||0).toFixed(1)+'s';
  }
- function formatTime(value){
-  const n=Math.max(0,Number(value)||0),min=Math.floor(n/60),sec=Math.floor(n%60);
-  return min+':'+String(sec).padStart(2,'0');
+ function selectedLine(){
+  const cue=state.subtitles?.[selectedCue];
+  selectedDisplay.textContent=cue?cueLabel(cue):'No subtitle line selected.';
+  button.disabled=!cue;
  }
- function refreshCueOptions(){
-  cueSelect.replaceChildren();
+ function closeList(){
+  cueList.hidden=true;more.hidden=true;cueSearch.setAttribute('aria-expanded','false');
+  expand.setAttribute('aria-expanded','false');
+ }
+ function openList(){
+  cueList.hidden=false;cueSearch.setAttribute('aria-expanded','true');
+  expand.setAttribute('aria-expanded','true');
+  renderMore();
+ }
+ function renderMore(){
   const cues=state.subtitles||[];
-  if(!cues.length){
-   const option=document.createElement('option');option.textContent='Load subtitles first';
-   option.value='';cueSelect.appendChild(option);button.disabled=true;showTiming();return;
+  if(cueList.hidden)return;
+  const end=Math.min(matches.length,rendered+120);
+  const fragment=document.createDocumentFragment();
+  for(let n=rendered;n<end;n++){
+   const i=matches[n],cue=cues[i];
+   if(!cue)continue;
+   const option=document.createElement('button');
+   option.type='button';option.className='sub-cue-option';option.setAttribute('role','option');
+   option.dataset.index=String(i);
+   option.id='subCueOption'+i;
+   option.setAttribute('aria-selected',String(i===selectedCue));
+   // Never truncate, html-inject or replace the subtitle text.
+   option.textContent=cueLabel(cue);
+   option.addEventListener('click',()=>chooseCue(i));
+   fragment.append(option);
   }
-  const target=currentBaseTime(),closest=cues.reduce((best,c,i)=>
-   Math.abs(c.start-target)<Math.abs(cues[best].start-target)?i:best,0);
-  const start=Math.max(0,Math.min(cues.length-16,closest-7));
-  for(let i=start;i<Math.min(cues.length,start+16);i++){
-   const cue=cues[i],option=document.createElement('option');
-   option.value=String(i);
-   option.textContent=formatTime(cue.start)+' · '+String(cue.text||'').replace(/\s+/g,' ').slice(0,57);
-   if(i===closest)option.selected=true;
-   cueSelect.appendChild(option);
-  }
-  button.disabled=false;showTiming();
+  cueList.append(fragment);rendered=end;
+  more.hidden=end>=matches.length;
+  count.textContent=matches.length?
+    'Showing '+rendered+' of '+matches.length+' lines':'No lines match these keywords.';
  }
- button.addEventListener('click',()=>{
-  const cue=state.subtitles?.[Number(cueSelect.value)];
-  if(!cue)return;
-  const shift=cue.start-currentBaseTime();
-  const field=$('subtitleTiming');
-  // Timing has 0.1-second resolution, in the original saved offset system.
-  field.value=(Number(state.subtitleOffsetSeconds||0)+shift).toFixed(1);
-  field.dispatchEvent(new Event('change',{bubbles:true}));
-  showTiming();window.MarmaladeSubtitleRefresh?.();
-  button.textContent='Line Synced ✓';
-  setTimeout(()=>{button.textContent='Sync Selected Line To This Moment';},1600);
+ function filterCues(){
+  const cues=state.subtitles||[];
+  const terms=normalize(cueSearch.value).split(' ').filter(Boolean);
+  matches=[];
+  for(let i=0;i<cues.length;i++){
+   if(!terms.length||terms.every(word=>normalize(cueText(cues[i])).includes(word)))
+    matches.push(i);
+  }
+  cueList.replaceChildren();rendered=0;
+  count.textContent=matches.length+' matching line'+(matches.length===1?'':'s');
+  if(!cueList.hidden)renderMore();
+ }
+ function chooseCue(index){
+  if(!state.subtitles?.[index])return;
+  selectedCue=index;selectedLine();
+  cueList.querySelectorAll('[aria-selected="true"]').forEach(e=>e.setAttribute('aria-selected','false'));
+  cueList.querySelector('[data-index="'+index+'"]')?.setAttribute('aria-selected','true');
+  closeList();showTiming();
+ }
+ function refreshCueOptions({force=false}={}){
+  const cues=state.subtitles||[];
+  if(!force&&knownCues===cues)return;
+  knownCues=cues;
+  if(!cues.length){
+   selectedCue=-1;cueSearch.value='';matches=[];cueList.replaceChildren();
+   count.textContent='Load a subtitle file to choose a line.';
+   closeList();selectedLine();showTiming();return;
+  }
+  const base=currentBaseTime()+(Number(state.subtitleOffsetSeconds)||0);
+  let closest=0,lo=0,hi=cues.length;
+  while(lo<hi){const mid=(lo+hi)>>1;if(cues[mid].start<base)lo=mid+1;else hi=mid;}
+  closest=Math.min(cues.length-1,lo);
+  if(closest>0&&Math.abs(cues[closest-1].start-base)<Math.abs(cues[closest].start-base))closest--;
+  selectedCue=closest;cueSearch.value='';filterCues();
+  selectedLine();closeList();showTiming();
+ }
+ cueSearch.addEventListener('focus',()=>{refreshCueOptions();openList();});
+ cueSearch.addEventListener('input',()=>{
+  cancelAnimationFrame(filterFrame);
+  filterFrame=requestAnimationFrame(()=>{filterCues();openList();});
  });
+ cueSearch.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){closeList();event.stopPropagation();return;}
+  if(event.key==='ArrowDown'||event.key==='Enter'){
+   if(cueList.hidden){openList();event.preventDefault();return;}
+   const first=cueList.querySelector('.sub-cue-option');
+   if(first){event.preventDefault();first.focus();}
+  }
+ });
+ cueList.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){closeList();cueSearch.focus();event.stopPropagation();return;}
+  const options=[...cueList.querySelectorAll('.sub-cue-option')];
+  const index=options.indexOf(document.activeElement);
+  if(event.key==='ArrowDown'&&index>=0){
+   event.preventDefault();
+   if(index===options.length-1&&rendered<matches.length)renderMore();
+   (cueList.querySelectorAll('.sub-cue-option')[index+1]||options[index])?.focus();
+  }else if(event.key==='ArrowUp'&&index>0){event.preventDefault();options[index-1].focus();}
+ });
+ more.addEventListener('click',renderMore);
+ cueList.addEventListener('scroll',()=>{
+  if(!cueList.hidden&&cueList.scrollTop+cueList.clientHeight>=cueList.scrollHeight-65)
+   renderMore();
+ },{passive:true});
+ expand.addEventListener('click',()=>cueList.hidden?openList():closeList());
+ panel.addEventListener('pointerdown',event=>{
+  if(!event.target.closest('.sub-cue-search-row,.sub-cue-list,#subCueMore')&&!cueList.hidden)
+   closeList();
+ });
+ button.addEventListener('click',()=>{
+  const cue=state.subtitles?.[selectedCue];if(!cue)return;
+  // Align directly to the exact underlying renderer clock, never calculate
+  // a correction from a possibly-clamped already-shifted subtitle time.
+  const desired=cue.start-currentBaseTime();
+  const changed=window.MarmaladeSubtitleTiming?.set?.(desired);
+  if(!changed)return;
+  showTiming();window.MarmaladeSubtitleRefresh?.();
+  button.textContent='Aligned & Saved ✓';
+  setTimeout(()=>{button.textContent='Align Selected Line To Now';},1600);
+ });
+ window.addEventListener('marmalade:subtitles-loaded',()=>refreshCueOptions({force:true}));
+ window.addEventListener('marmalade:media-cleared',()=>{
+  knownCues=null;selectedCue=-1;cueSearch.value='';refreshCueOptions({force:true});
+ });
+ window.addEventListener('marmalade:subtitle-timing-changed',showTiming);
+ window.addEventListener('marmalade:subtitle-hold-setting',()=>{
+  const hint=$('subtitleTimingHoldHint');
+  if(hint)hint.textContent='Tap for 0.1s · Hold once for 1.0s after '+
+   (window.MarmaladeSubtitleTiming?.holdMilliseconds?.()||250)/1000+
+   's. + Earlier · − Later.';
+ });
+ window.dispatchEvent(new Event('marmalade:subtitle-hold-setting'));
  const activeName=()=>!find.hidden?'find':!style.hidden?'style':'sync';
  function settle(which){
   timing.hidden=which!=='sync';
@@ -199,5 +326,5 @@
   if(which==='find')findTab.click();
   else if(which==='style')styleTab.click();
   else if(which==='sync')syncTab.click();
- },refreshCues:refreshCueOptions};
+ },refreshCues:()=>refreshCueOptions({force:true})};
 })();

@@ -276,7 +276,7 @@
     '<input id="subtitleTiming" type="text" inputmode="decimal" pattern="[+-]?[0-9]*[.,]?[0-9]*" value="0.0" autocomplete="off" spellcheck="false" aria-label="Subtitle timing in seconds, to tenths of a second">'+
     '<span class="timing-unit" aria-hidden="true">s</span>'+
     '<button type="button" id="subtitleTimingPlus" aria-label="Add 0.1 seconds; hold for 1 second steps">+</button></div></div>'+
-    '<small class="subtitle-settings-note">Tap + or − for 0.1s. Hold for 0.25s to change by 1s.</small>'+
+    '<small class="subtitle-settings-note" id="subtitleTimingHoldHint">Tap for 0.1s · Hold once for 1.0s (duration set in Settings). + Earlier · − Later.</small>'+
     '<small class="subtitle-settings-note">Font Size, Colors, Position, And Timing Are Saved On This Device. Scripts Such As Arabic Use Native Text Shaping.</small>';
   el.subtitlePanel.appendChild(subStyle);
   const fields=[...subStyle.querySelectorAll('[data-sub-key]')];
@@ -416,6 +416,8 @@
     state.subtitleOffsetSeconds=prefs.timing;
     writeTimingOffset();saveStyle();formatTiming();
     window.MarmaladeSubtitleRefresh?.();
+    window.dispatchEvent(new CustomEvent('marmalade:subtitle-timing-changed',
+      {detail:{seconds:prefs.timing,media:timingMedia,subtitle:timingSubtitle}}));
     return true;
   }
   function commitTiming(){
@@ -435,35 +437,51 @@
       timingText.value=Number(prefs.timing).toFixed(1);
     }
   });
+  // A hold is one deliberate action, NEVER a repeating interval.
+  // Pointer release must not dispatch the browser's synthetic click again.
+  const timingHoldKey='marmalade:subtitle-timing-hold-ms';
+  const holdMilliseconds=()=>{
+    try{
+      const value=Number(localStorage.getItem(timingHoldKey)||250);
+      return [150,200,250,350,500,750,1000].includes(value)?value:250;
+    }catch{return 250;}
+  };
   function timingButton(id,direction){
     const button=subStyle.querySelector(id);
-    let timer=null,interval=null,held=false;
-    const clear=()=>{clearTimeout(timer);clearInterval(interval);timer=null;interval=null;};
+    let timer=0,activePointer=null,held=false,suppressClick=false;
+    const cancel=()=>{clearTimeout(timer);timer=0;activePointer=null;};
     const change=step=>{
-      setTiming(Number(prefs.timing)+direction*step);
+      setTiming(Math.round((Number(prefs.timing)+direction*step)*10)/10);
       timingText.value=Number(prefs.timing).toFixed(1);
     };
     button.addEventListener('pointerdown',event=>{
-      if(event.button!==0)return;
-      clear();held=false;
-      try{button.setPointerCapture(event.pointerId);}catch{}
+      if(event.button!==0||event.isPrimary===false)return;
+      cancel();held=false;suppressClick=false;activePointer=event.pointerId;
       timer=setTimeout(()=>{
-        held=true;change(1);
-        interval=setInterval(()=>change(1),250);
-      },250);
+        timer=0;
+        if(activePointer!==event.pointerId)return;
+        held=true;suppressClick=true;
+        change(1); // Exactly once at threshold. No setInterval.
+      },holdMilliseconds());
     });
-    button.addEventListener('pointerup',clear);
-    button.addEventListener('pointercancel',()=>{clear();held=false;});
-    button.addEventListener('lostpointercapture',clear);
+    button.addEventListener('pointerup',cancel);
+    button.addEventListener('pointercancel',()=>{cancel();held=false;suppressClick=false;});
     button.addEventListener('pointerleave',event=>{
-      if(event.pointerType==='mouse'&&!event.buttons)clear();
+      if(event.pointerType==='mouse'&&event.buttons)cancel();
     });
-    button.addEventListener('click',()=>{
-      if(held){held=false;return;}
+    button.addEventListener('lostpointercapture',cancel);
+    button.addEventListener('click',event=>{
+      if(held||suppressClick){
+        held=false;suppressClick=false;event.preventDefault();return;
+      }
       change(.1);
     });
-    button.addEventListener('blur',clear);
-    window.addEventListener('pagehide',clear);
+    button.addEventListener('keydown',event=>{
+      // Holding Space/Enter should never auto-repeat the fine adjustment.
+      if(event.repeat&&(event.key===' '||event.key==='Enter'))event.preventDefault();
+    });
+    button.addEventListener('blur',cancel);
+    window.addEventListener('pagehide',cancel);
   }
   timingButton('#subtitleTimingMinus',-1);
   timingButton('#subtitleTimingPlus',1);
@@ -478,7 +496,9 @@
       timingText.value=prefs.timing.toFixed(1);
       window.MarmaladeSubtitleRefresh?.();
     },
-    get:()=>Number(prefs.timing)
+    get:()=>Number(prefs.timing),
+    set:setTiming,
+    holdMilliseconds
   };
   prefs.timing=0;
   timingText.value='0.0';
@@ -489,17 +509,19 @@
   for(const event of ['loadedmetadata','resize'])
     media.addEventListener(event,applySubtitleStyle);
   state.subtitleOffsetSeconds=Number(prefs.timing);
-  // Read existing local cues only. Never transmit subtitle bytes or settings.
-  window.MarmaladeSubtitleClock=(time)=>{
+  // The *same unshifted clock* is used by live captions and line alignment.
+  // Expose it separately: subtracting an offset from a clamped clock was
+  // incorrect near time zero, especially with negative timing adjustments.
+  window.MarmaladeSubtitleClockBase=(time)=>{
     const base=state.role==='host'&&state.hostSyncActive?
       (Number.isFinite(preview.currentTime)?preview.currentTime:time):time;
-    // Only live WebRTC requires presentation-delay correction. Local files
-    // and buffered streams use the actual decoded media.currentTime already.
     const fresh=performance.now()-(state.lastFrameLatencyReportAt||0)<5000;
     const remoteCorrection=state.role==='guest'&&state.source==='remote'&&fresh?
       clamp((state.guestPresentationMs||0)/1000,0,8):0;
-    return Math.max(0,base-remoteCorrection+Number(prefs.timing||0));
+    return (Number.isFinite(base)?base:0)-remoteCorrection;
   };
+  window.MarmaladeSubtitleClock=(time)=>
+    Math.max(0,window.MarmaladeSubtitleClockBase(time)+Number(prefs.timing||0));
   applySubtitleStyle();
 })();
 
