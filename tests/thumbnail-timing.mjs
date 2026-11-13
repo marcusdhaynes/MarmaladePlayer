@@ -111,5 +111,40 @@ try{
  assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.0','Tap changes one tenth');
  console.log('PASS configurable 0.25-second, nonrepeating long press');
 
+ // The host can provide an actual scene over the room's existing data channel.
+ const hostPacket=await page.evaluate(async()=>{
+  const conn={open:true};let packet=null;
+  await window.MarmaladeSeekPreview.handleRequest(
+   conn,{type:'seek-thumbnail-request',id:73,time:6},
+   (_conn,result)=>{packet=result;});
+  return packet;
+ });
+ assert.equal(hostPacket?.id,73);
+ assert.match(hostPacket?.frame||'',/^data:image\/jpeg;base64,/);
+ assert(hostPacket.frame.length<68000,'Peer thumbnail must be bandwidth bounded');
+ await page.evaluate(()=>{
+  const {state,el}=window.MarmaladeAddonBridge;
+  el.subtitlePanel.hidden=true;
+  state.role='guest';state.source='remote';state.localVerified=false;
+  state.bufferedMode=false;state.sharedDuration=8;state.code='ABCDEFGH';
+  state.guestConn={open:true,sent:[],send(packet){this.sent.push(packet);}};
+  el.seek.disabled=false;el.stage.classList.add('has-video','controls-visible');
+ });
+ await page.mouse.move(seek.x+seek.width*.75,seek.y+seek.height/2);
+ await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.guestConn.sent
+  .some(p=>p.type==='seek-thumbnail-request'),null,{timeout:4000});
+ const sent=await page.evaluate(packet=>{
+  const request=window.MarmaladeAddonBridge.state.guestConn.sent.findLast(p=>p.type==='seek-thumbnail-request');
+  window.MarmaladeSeekPreview.handleResponse({...packet,id:request.id,time:request.time});
+  return request;
+ },hostPacket);
+ assert(Math.abs(sent.time-6)<.3,'Guest request matches hovered timestamp '+sent.time);
+ await page.waitForFunction(()=>!document.querySelector('#seekPreviewCanvas').hidden,null,{timeout:4000});
+ const peerPixel=await page.locator('#seekPreviewCanvas').evaluate(c=>{
+  const p=c.getContext('2d').getImageData(96,54,1,1).data;return [p[0],p[1],p[2]];
+ });
+ assert(peerPixel[2]>95&&peerPixel[0]<85,'Guest sees host blue scene '+peerPixel);
+ console.log('PASS on-demand host/guest thumbnail requests and scene response over room data channel');
+
  assert.deepEqual(errors,[],'No uncaught JS errors');
 }finally{await browser.close();await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});}
