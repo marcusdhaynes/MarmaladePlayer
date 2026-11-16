@@ -295,8 +295,16 @@
    if(!last||state.role!=='host'||recentButton.disabled)return;
    recentButton.disabled=true;locateButton.hidden=true;missing.hidden=true;
    try{
-     // First ask Minternet to return the same OS-approved file as a new
-     // read-only WebView2 handle. It does not prompt or transmit disk paths.
+     // Reauthorize a retained file handle while the Resume click is active.
+     // Browsers cannot bypass permission revocation.
+     if(last.handle){
+       try{
+         let permission=await last.handle.queryPermission?.({mode:'read'});
+         if(permission==='prompt'&&last.handle.requestPermission)permission=await last.handle.requestPermission({mode:'read'});
+         if(permission==='granted'&&await verifyAndOpen(await last.handle.getFile(),last.handle))return;
+       }catch(error){console.debug('Saved file access unavailable',error);}
+     }
+     // Native hosts may reopen a previously verified, persistent file path.
      const native=await reopenNative(last.handle||null);
      if(native?.status==='ok'&&native.handle){
        try{
@@ -311,8 +319,8 @@
      }
      // Other browsers may require reauthorization after a restart.
      if(!last.handle){
-       missing.textContent='The last location is not accessible to this browser. Select the movie again to enable automatic resume where supported.';
-       missing.hidden=false;return;
+       missing.textContent='This browser did not preserve the local file grant. Restore access to the saved video to resume.';
+       missing.hidden=false;locateButton.hidden=false;locateButton.textContent='Restore File Access';return;
      }
      let file;
      try{file=await last.handle.getFile();}
@@ -325,8 +333,8 @@
        if(error?.name==='NotAllowedError'||error?.name==='SecurityError'){
          const granted=await last.handle.requestPermission?.({mode:'read'});
          if(granted!=='granted'){
-           missing.textContent='This browser revoked file permission; the movie has not been reported missing.';
-           missing.hidden=false;return;
+           missing.textContent='This browser revoked saved-file access; the movie was not reported missing. Restore access to resume.';
+           missing.hidden=false;locateButton.hidden=false;locateButton.textContent='Restore File Access';return;
          }
          file=await last.handle.getFile();
        }else throw error;
