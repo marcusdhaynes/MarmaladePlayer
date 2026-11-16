@@ -16,7 +16,7 @@ const ctx=canvas.getContext('2d',{willReadFrequently:true,alpha:false});
 let level=0,smoothed=1,lastSample=0,sampleTimer=0,unavailableSource=null;
 let activeSource='',lastGamma=1,visible=true,externalPlayback=false;
 const monitor=document.getElementById('hostMonitor');
-const displayedVideo=()=>document.getElementById('dropZone')?.classList.contains('host-monitor-active')?
+const displayedVideo=()=>video.parentElement?.classList.contains('host-monitor-active')?
   monitor||video:video;
 function sourceId(){return video.currentSrc||video.src||'';}
 function computeGamma(pixels,percent){

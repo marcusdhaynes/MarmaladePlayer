@@ -521,12 +521,26 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
  max-width:98%!important;max-height:calc(100% - 72px)!important}
 .stage.pip-interactive .adaptive-brightness-popover{z-index:28!important}
 .stage.pip-interactive .stage-poster-preview{display:none!important}
+body.native-pip-active.floating-overlay-active .stage.pip-interactive .theater-controls{
+ display:block!important;opacity:1!important;pointer-events:auto!important;
+ position:absolute!important;bottom:0!important;left:0!important;
+ width:var(--pip-controls-width,125%)!important;zoom:var(--pip-controls-zoom,.8)
+}
+body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-overlay{
+ display:block!important;left:4%!important;right:4%!important;top:auto!important;
+ bottom:25%!important;width:auto!important;max-width:none!important;
+ margin:0!important;transform:none!important;z-index:17!important;
+ font-size:clamp(8px,3.5cqw,23px)!important
+}
+body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-overlay[hidden]{
+ display:none!important
+}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
 
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
-<link rel="stylesheet" href="./rapid-controls.css?v=20261116-guest-share-v2">
+<link rel="stylesheet" href="./rapid-controls.css?v=20261116-pip-controls-v5">
 </head>
 <body>
   <div class="app-shell">
@@ -4981,8 +4995,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         },{once:true});
         pop.document.addEventListener('keydown',event=>{
           if(event.key==='Escape'){
-            if(!el.settingsPanel.hidden){el.closeSettingsPanel?.click();event.preventDefault();}
-            else if(!el.subtitlePanel.hidden){el.closeSubtitlePanel?.click();event.preventDefault();}
+            if(!el.settingsPanel.hidden){
+              pop.document.getElementById('closeSettingsPanel')?.click();
+              event.preventDefault();
+            }else if(!el.subtitlePanel.hidden){
+              pop.document.getElementById('closeSubtitlePanel')?.click();
+              event.preventDefault();
+            }
           }
           if(event.code==='Space'&&!event.repeat&&
              !event.target.closest?.('button,input,textarea,select,[contenteditable]')){
@@ -5716,9 +5735,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 <script src="./updates.js?v=20261113-updates-v1"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261112-subdl-fix-v2"></script>
-<script src="./rapid-controls.js?v=20261112-rapid-v1"></script>
+<script src="./rapid-controls.js?v=20261116-resume-rejoin-v5"></script>
 <script src="./subtitle-compact.js?v=20261113-line-search-v1"></script>
 <script src="./seek-preview.js?v=20261116-fast-seeking-v2"></script>
-<script src="./adaptive-brightness.js?v=20261116-adaptive-gamma-v1"></script>
+<script src="./adaptive-brightness.js?v=20261116-pip-controls-v5"></script>
 </body>
 </html>
