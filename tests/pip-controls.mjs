@@ -98,6 +98,31 @@ try{
     'PiP brightness survives return to the original window');
   assert.equal(await page.locator('#subtitleOverlay').textContent(),
     'CAPTIONS IN PICTURE-IN-PICTURE');
+  // Simulate the Android overlay lifecycle, where the same live WebView is
+  // floated by WindowManager rather than moved between HTML documents.
+  await page.evaluate(()=>{
+    window.dispatchEvent(new CustomEvent('marmalade:native-floating',{detail:{active:true}}));
+  });
+  const androidOverlay=await page.locator('#theaterControls').evaluate(node=>({
+    display:getComputedStyle(node).display,
+    visibility:getComputedStyle(node).visibility,
+    size:node.getBoundingClientRect().width
+  }));
+  assert.equal(androidOverlay.display,'block',
+    'Android interactive floating PiP must show the original theater controls');
+  assert.equal(androidOverlay.visibility,'visible');
+  assert(androidOverlay.size>0,'Android PiP controls require a drawable width');
+  assert.equal(await page.locator('#subtitleOverlay').isVisible(),true);
+  assert.equal(await page.evaluate(()=>
+    window.MarmaladeAdaptiveBrightness.isExternalPlayback()),true);
+  await page.evaluate(()=>{
+    window.dispatchEvent(new CustomEvent('marmalade:native-floating',{detail:{active:false}}));
+  });
+  assert.equal(await page.evaluate(()=>
+    window.MarmaladeAdaptiveBrightness.isExternalPlayback()),false);
+  const androidSource=readFileSync(resolve(root,'mobile/scripts/patch-native.mjs'),'utf8');
+  assert.match(androidSource,/int width=Math\.max\(1,startWidth\+dx\)/,
+    'Android mini-player must not enforce a 200dp minimum or screen-width maximum');
   await page.close();
   console.log('PASS interactive PiP preserves controls, gamma, captions, resize, and state');
 }finally{

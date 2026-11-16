@@ -517,8 +517,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
  text-align:center!important;pointer-events:none!important;background:transparent!important
 }
 .stage.pip-interactive .subtitle-overlay[hidden]{display:none!important}
-.stage.pip-interactive .theater-popover{z-index:24!important;right:1%!important;bottom:70px!important;
- max-width:98%!important;max-height:calc(100% - 72px)!important}
+.stage.pip-interactive .theater-popover{
+ z-index:24!important;right:1%!important;bottom:0!important;width:min(300px,98%)!important;
+ max-width:98%!important;max-height:100%!important;overflow:auto!important
+}
 .stage.pip-interactive .adaptive-brightness-popover{z-index:28!important}
 .stage.pip-interactive .stage-poster-preview{display:none!important}
 body.native-pip-active.floating-overlay-active .stage.pip-interactive .theater-controls{
@@ -4827,8 +4829,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(active){
       el.stage.classList.add('controls-visible');
       updatePipControlScale();
-      if(!pipResizeObserver&&typeof ResizeObserver!=='undefined'){
-        pipResizeObserver=new ResizeObserver(updatePipControlScale);
+      const Observer=el.stage.ownerDocument.defaultView?.ResizeObserver||window.ResizeObserver;
+      if(!pipResizeObserver&&Observer){
+        pipResizeObserver=new Observer(updatePipControlScale);
         pipResizeObserver.observe(el.stage);
       }
       window.MarmaladeSubtitleRefresh?.();
