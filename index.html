@@ -572,11 +572,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
                 <span class="vol-mark" id="volumeMark">100%</span>
                 <div class="adaptive-brightness" id="adaptiveBrightnessControl">
                   <button type="button" class="icon-btn adaptive-brightness-button" id="brightnessBtn" title="Adaptive Brightness" aria-label="Adaptive Brightness" aria-haspopup="true" aria-expanded="false" aria-controls="brightnessPopover">
-                    <svg class="glass-icon adaptive-brightness-icon" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M9.3 4.5 14.3 9.5 10.3 13.5 5.3 8.5Z"/>
-                      <path d="M11.3 12.5 18.5 19.7M17.2 13.6l1.5 1.5M19.5 11.5h1.4M17 8.6l1.4-1.4"/>
-                      <path d="m4 4-1.4-1.4"/>
-                    </svg>
+                    <svg class="glass-icon adaptive-brightness-icon" viewBox="0 0 447 447" width="21" height="21" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M162,310 167,318 178,326 158,346 154,348 147,347 141,341 140,334 142,330Z M186,288 195,290 200,298 198,306 192,311 183,310 177,303 178,294Z M194,195 251,253 215,289 204,276 194,272 179,273 169,279 131,317 124,330 124,342 129,353 141,363 75,429 69,429 17,377 17,371Z M310,147 306,150 305,157 309,162 315,163 321,158 321,152 316,147Z M217,137 219,136 310,228 266,243 203,180Z M446,129 441,123 433,123 393,134 388,138 387,144 392,150 399,150 440,139 445,135Z M266,104 262,109 263,116 291,144 298,145 303,140 302,132 274,104Z M270,76 370,175 327,219 227,120Z M274,56 270,55 264,58 208,114 187,177 3,362 0,370 0,378 4,387 59,442 68,446 76,446 87,441 269,259 332,238 390,179 391,175 388,169Z M399,47 395,45 387,47 354,81 355,89 359,92 365,92 399,59 401,55Z M317,0 311,1 307,6 296,47 296,54 302,59 308,58 312,53 323,13 323,5Z"/></svg>
                   </button>
                   <div id="brightnessPopover" class="adaptive-brightness-popover" role="group" aria-label="Adaptive Video Brightness" hidden>
                     <output id="brightnessValue" for="brightnessSlider">0%</output>
@@ -3593,6 +3589,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     state.role='guest';
     state.code=retryCode;el.joinInput.value=retryCode;
     state.joinFailure=true;
+    window.dispatchEvent(new CustomEvent('marmalade:room-join-unavailable',
+      {detail:{code:retryCode,reason:message}}));
     connection(fatal?'Room unavailable':'Unable to connect','error');
     if(!el.stage.classList.contains('has-video')){
       setStage('Host not reachable',message,'CONNECTION TROUBLE');
@@ -3635,6 +3633,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         document.getElementById('stageRetryJoin').hidden=true;
         el.joinActive.hidden = false;
         el.joinedCode.textContent = code;
+        // Remember confirmed guest rooms only, not failed attempts.
+        try{localStorage.setItem('marmalade:last-joined-room-code',code);}catch{}
+        window.dispatchEvent(new CustomEvent('marmalade:room-joined',{detail:{code}}));
         updateRoomPanel();
         el.joinRoom.disabled = true;
         connection('Watching with host','online');
@@ -5012,7 +5013,18 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   el.fileInput.addEventListener('change', (event) => { if (event.target.files[0]) selectHostFile(event.target.files[0]); event.target.value = ''; });
   el.stage.addEventListener('dragover', (event) => { event.preventDefault(); el.stage.classList.add('dragover'); });
   el.stage.addEventListener('dragleave', () => el.stage.classList.remove('dragover'));
-  el.stage.addEventListener('drop', (event) => { event.preventDefault(); el.stage.classList.remove('dragover'); if (event.dataTransfer.files?.[0]) selectHostFile(event.dataTransfer.files[0]); });
+  el.stage.addEventListener('drop',event=>{
+    event.preventDefault();el.stage.classList.remove('dragover');
+    const file=event.dataTransfer?.files?.[0];if(!file)return;
+    const item=[...(event.dataTransfer?.items||[])].find(entry=>entry.kind==='file');
+    if(item?.getAsFileSystemHandle){
+      // Retain browser-granted original file location on drag-and-drop.
+      void item.getAsFileSystemHandle().then(handle=>{
+        state.lastOpenedHandle=handle?.kind==='file'?handle:null;
+        selectHostFile(file);
+      }).catch(()=>selectHostFile(file));
+    }else selectHostFile(file);
+  });
   el.screenShare.addEventListener('click', shareScreen);
   el.hostedStart.addEventListener('click',beginHostedStream);
   // Click = choose/change video; hold = disable/enable local playback.
