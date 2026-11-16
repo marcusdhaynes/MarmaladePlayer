@@ -69,6 +69,61 @@ try{
   await page.locator('#closeSubtitlePanel').click();
   assert.equal(await page.locator('#dropZone').evaluate(node=>node.classList.contains('has-video')),false,
     'Opening toolbar options must not select a movie');
+  // Fullscreen is an in-place theater layout change, never a capture
+  // permission request. Test both directions with actual user double-clicks.
+  await page.evaluate(()=>{
+    const {state,el,media}=window.MarmaladeAddonBridge;
+    state.role='host';state.source='file';state.fileReady=true;
+    el.stage.classList.add('has-video','controls-visible');
+    el.empty.hidden=true;
+    window.__fullscreenCaptureCalls=0;
+    window.__fullscreenPlayCalls=0;
+    const devices=navigator.mediaDevices;
+    if(devices){
+      for(const name of ['getUserMedia','getDisplayMedia']){
+        try{
+          const original=devices[name]?.bind(devices);
+          Object.defineProperty(devices,name,{configurable:true,value:(...args)=>{
+            window.__fullscreenCaptureCalls++;
+            throw new Error('Fullscreen tried to request '+name);
+          }});
+          // No capture calls are expected; the test is a strict sentinel.
+        }catch{}
+      }
+    }
+    media.play=()=>{
+      window.__fullscreenPlayCalls++;
+      return Promise.resolve();
+    };
+  });
+  const stage=page.locator('#dropZone');
+  let area=await stage.boundingBox();
+  await page.mouse.dblclick(area.x+area.width/2,area.y+area.height/2,{delay:70});
+  await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.theaterMode);
+  assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('fullscreen-fallback')),true,
+    'Double-click expands the regular video to fullscreen');
+  area=await stage.boundingBox();
+  await page.mouse.dblclick(area.x+area.width/2,area.y+area.height/2,{delay:70});
+  await page.waitForFunction(()=>!window.MarmaladeAddonBridge.state.theaterMode);
+  assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('fullscreen-fallback')),false,
+    'Second double-click returns to regular video');
+  await page.waitForTimeout(500);
+  assert.equal(await page.evaluate(()=>window.__fullscreenPlayCalls),0,
+    'Double-click does not play or pause the movie');
+  assert.equal(await page.evaluate(()=>window.__fullscreenCaptureCalls),0,
+    'Entering/leaving fullscreen never requests microphone, camera or screen capture');
+  // Controls should remain independent: double-click on Settings is not
+  // interpreted as video fullscreen or a playback toggle.
+  await page.evaluate(()=>document.getElementById('settingsBtn').click());
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.theaterMode),false);
+  await page.evaluate(()=>document.getElementById('closeSettingsPanel').click());
+  await page.evaluate(()=>{
+    const {state,el}=window.MarmaladeAddonBridge;
+    state.fileReady=false;state.source=null;
+    el.stage.classList.remove('has-video','controls-visible');
+    el.empty.hidden=false;
+  });
+
 
   assert.equal(await page.locator('#settingsPageParty #rapidRoomCard').count(),1);
   assert.equal(await page.locator('#subFindView #loadSubtitle').count(),1);

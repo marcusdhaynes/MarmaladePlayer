@@ -4476,7 +4476,9 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       if(native)await (enter?native.enter():native.exit());
     }catch{}
   }
+  let browserFullscreenActive=false;
   function leaveTheater(){
+    browserFullscreenActive=false;
     if(document.fullscreenElement===el.stage)
       void document.exitFullscreen().catch(()=>{});
     if(media.webkitDisplayingFullscreen&&media.webkitExitFullscreen)
@@ -4508,6 +4510,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     try{
       if(el.stage.requestFullscreen){
         await el.stage.requestFullscreen();
+        browserFullscreenActive=true;
         await applyOrientationPreference();
         revealControls();
         return;
@@ -4524,6 +4527,10 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       el.stage.classList.add('fullscreen-fallback');
       document.body.classList.add('theater-open');
       revealControls();
+    }else if(browserFullscreenActive){
+      // Escape or native browser fullscreen exit must restore normal
+      // presentation instead of leaving a stale CSS fullscreen fallback.
+      leaveTheater();
     }else if(!state.theaterMode){
       releaseOrientation();
       void setNativeFullscreen(false);
@@ -4917,14 +4924,42 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if (state.role === 'host' && ['file','hosted'].includes(state.source) && state.fileReady)
       void togglePlay('stage');
   }
+  // A single video click remains Play/Pause. Defer it just long enough to
+  // distinguish a double-click, which MUST only toggle fullscreen and never
+  // briefly play/pause or issue a guest transport command.
+  let videoSingleClickTimer=0;
+  const cancelVideoSingleClick=()=>{
+    clearTimeout(videoSingleClickTimer);
+    videoSingleClickTimer=0;
+  };
   el.stage.addEventListener('click', event => {
     if(performance.now() < (state.stopPickerUntil||0))return;
     if(isVideoControlEvent(event))return;
     if(el.stage.classList.contains('mini-pip-visible')){showMiniControls();return;}
     if(el.stage.classList.contains('floating-player')){
+      cancelVideoSingleClick();
       el.stage.classList.remove('floating-player');revealControls();return;
     }
-    playPauseFromStage();
+    if(event.detail>=2){cancelVideoSingleClick();return;}
+    cancelVideoSingleClick();
+    if(!el.stage.classList.contains('has-video') && !state.theaterMode){
+      playPauseFromStage();return; // Keep the empty-stage file picker immediate.
+    }
+    // Programmatic .click() and keyboard activation are single gestures.
+    if(event.detail===0){playPauseFromStage();return;}
+    videoSingleClickTimer=setTimeout(()=>{
+      videoSingleClickTimer=0;
+      playPauseFromStage();
+    },440);
+  });
+  el.stage.addEventListener('dblclick',event=>{
+    if(isVideoControlEvent(event)||
+       el.stage.classList.contains('mini-pip-visible')||
+       el.stage.classList.contains('floating-player')||
+       (!el.stage.classList.contains('has-video')&&!state.theaterMode))return;
+    event.preventDefault();
+    cancelVideoSingleClick();
+    void toggleFullscreen();
   });
   el.stage.addEventListener('keydown', event => {
     if (event.target !== el.stage || event.key !== 'Enter') return;
