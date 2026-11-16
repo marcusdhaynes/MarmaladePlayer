@@ -29,6 +29,17 @@ try{
   }));
   await page.goto('http://127.0.0.1:'+server.address().port+'/',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeRapidControls&&window.MarmaladeSubtitleCompact),null,{timeout:12000});
+  // Role-specific header action and the supplied 3-node share icon.
+  assert.equal(await page.locator('#localCopyButton').isVisible(),false);
+  assert.equal(await page.locator('#copyLink svg circle').count(),3);
+  await page.evaluate(()=>document.getElementById('joinTab').click());
+  assert.equal(await page.locator('#localCopyButton').isVisible(),true,
+    'Guest sees local file selector');
+  assert.equal(await page.locator('#localCopyButton').isEnabled(),false,
+    'Disconnected guest cannot select until joined');
+  await page.evaluate(()=>document.getElementById('hostTab').click());
+  assert.equal(await page.locator('#localCopyButton').isVisible(),false);
+
   // The full toolbar must be visible and interactive on the empty landing
   // screen; only media transport and scrubbing require a movie.
   assert.equal(await page.locator('#dropZone').evaluate(node=>node.classList.contains('has-video')),false);

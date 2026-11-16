@@ -498,7 +498,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
 
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
-<link rel="stylesheet" href="./rapid-controls.css?v=20261116-empty-toolbar-v1">
+<link rel="stylesheet" href="./rapid-controls.css?v=20261116-guest-share-v2">
 </head>
 <body>
   <div class="app-shell">
@@ -509,11 +509,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       </a>
       <div class="top-actions"><div class="stage-quick-actions header-room-actions" aria-label="Room Actions">
   <button type="button" id="broadcastToggle" class="theater-pill quick-broadcast-btn" aria-pressed="false" title="Not Broadcasting" aria-label="Not Broadcasting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9m9-9a6.4 6.4 0 0 1 0 9M4.3 4.3a11 11 0 0 0 0 15.4m15.4-15.4a11 11 0 0 1 0 15.4"/></svg></button>
-   <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
+   <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" hidden disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 13.9a5 5 0 0 0 7.4.5l2.1-2.1a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M14.2 10.1a5 5 0 0 0-7.4-.5l-2.1 2.1a5 5 0 0 0 7.1 7.1l1.2-1.2"/></svg>
   </button>
   <button type="button" id="copyLink" class="theater-pill quick-share-btn" title="Share Room" aria-label="Share Room">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5"/><path d="M5 13v5.3A2.7 2.7 0 0 0 7.7 21h8.6a2.7 2.7 0 0 0 2.7-2.7V13"/></svg> 
+    <svg viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M72 89 127 61M72 111l55 28"/><circle cx="50" cy="100" r="24"/><circle cx="150" cy="50" r="24"/><circle cx="150" cy="150" r="24"/></svg> 
   </button>
 </div><span class="top-slogan">A little closer, wherever you are.</span><span class="connection-pill" id="connectionPill" hidden aria-hidden="true"><span class="connection-dot"></span><span id="connectionText">Not connected</span></span></div>
     </header>
@@ -2412,6 +2412,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     $('hostMatchRow').hidden=!hostSyncControls;
     $('hostMatchStatus').hidden=!hostSyncControls;
     const connected=state.role==='guest' && !!state.guestConn?.open;
+    // The local file selector is guest-only, not a disabled host action.
+    el.localCopyButton.hidden=state.role!=='guest';
     el.localCopyButton.disabled=!connected;
     el.localCopyButton.classList.toggle('local-suspended',!!state.localModeOff);
     el.localCopyButton.setAttribute('aria-pressed',String(!!state.localVerified && !state.localModeOff));
@@ -4077,8 +4079,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
        (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio unlock pending',error));
     if(state.role==='host' && state.source==='hosted') {
-      try {await media.play();state.broadcasting=false;syncState();}
-      catch {notify('Tap Play to begin the hosted movie.');}
+      // A broadcast toggle is never permission to start playing the movie.
+      syncState();updateBroadcastIndicator();
       return;
     }
     if (state.role !== 'host' || !state.peer?.open) { notify('Create your watch room first.'); return; }
@@ -4087,10 +4089,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     state.broadcastStarting = true;
     el.startBroadcast.disabled = true;
     try {
-      if (state.source === 'file') {
-        // Make sure captureStream sees the video track after playback starts.
-        await media.play();
-      }
+      // Keep playback paused (and preserve currentTime) when the host
+      // re-enables broadcast. The capture fallback handles paused sources.
       stopBroadcast(state.source === 'screen');
       if (state.source === 'screen') {
         if (!state.screenStream) { notify('Choose a window to share again.'); return; }
@@ -4107,8 +4107,11 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       state.qualityTimer = setInterval(() => { void tuneAllGuests(); }, 2500);
       void tuneAllGuests();
       syncState();
-      connection('Broadcasting live', 'online');
-      notify('Live! Guests can watch and hear your video.');
+      connection(state.source==='file' && media.paused?
+        'Broadcast ready · paused':'Broadcasting live','online');
+      notify(state.source==='file' && media.paused?
+        'Broadcast is on. Press Play when you are ready.':
+        'Live! Guests can watch and hear your video.');
     } catch (error) {
       console.error('Unable to start broadcast', error);
       notify(`Broadcast could not start: ${error.message || 'unsupported media'}`);

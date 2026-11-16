@@ -37,6 +37,28 @@ try{
  await page.evaluate(()=>document.querySelector('#dropZone').classList.add('controls-visible'));
  const seek=await page.locator('#seek').boundingBox();
  const before=await page.locator('#player').evaluate(e=>({paused:e.paused,t:e.currentTime}));
+ // Broadcasting the paused source must not call video.play() or move its clock.
+ const broadcast=await page.evaluate(async()=>{
+  const {state,media,el}=window.MarmaladeAddonBridge;
+  state.role='host';state.source='file';state.fileReady=true;
+  state.peer={open:true,disconnected:false,destroyed:false};
+  const pausedBefore=media.paused,timeBefore=media.currentTime;
+  const realPlay=media.play.bind(media);let unexpectedPlay=0;
+  media.play=()=>{unexpectedPlay++;return Promise.reject(Error('Broadcast must not play'));};
+  try{
+   el.broadcastToggle.disabled=false;el.broadcastToggle.click();
+   for(let i=0;i<80&&!state.broadcasting;i++)await new Promise(r=>setTimeout(r,25));
+   const started=state.broadcasting,pausedAfter=media.paused,timeAfter=media.currentTime;
+   if(started)el.broadcastToggle.click();
+   return {started,pausedBefore,pausedAfter,timeBefore,timeAfter,unexpectedPlay};
+  }finally{media.play=realPlay;}
+ });
+ assert.equal(broadcast.pausedBefore,true,'Video starts paused');
+ assert.equal(broadcast.started,true,'Paused file can be broadcast');
+ assert.equal(broadcast.pausedAfter,true,'Restart never plays the movie');
+ assert.equal(broadcast.unexpectedPlay,0,'Broadcast does not call play');
+ assert(Math.abs(broadcast.timeAfter-broadcast.timeBefore)<.1,'Broadcast preserves time');
+
  async function sample(frac){
   await page.mouse.move(seek.x+seek.width*frac,seek.y+seek.height/2);
   await page.waitForFunction(()=>!document.querySelector('#seekPreviewCanvas').hidden,null,{timeout:9000});

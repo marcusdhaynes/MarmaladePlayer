@@ -257,3 +257,6 @@
   .stage:not(.has-video) .empty-art{height:72px}
   .stage:not(.has-video) .play-disc{width:58px;height:58px}
 }
+/* Hide the guest-only file selection completely for hosts. */
+#localCopyButton[hidden]{display:none!important}
+.stage-quick-actions .quick-share-btn svg{width:21px;height:21px}
