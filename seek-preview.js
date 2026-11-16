@@ -1,5 +1,6 @@
 /* Marmalade timeline thumbnails. Never seeks or pauses the real player.
-   On-demand, low-resolution previews; no pre-encoding, uploading or autoplay. */
+   Warm the decoder early, cache nearby frames, and prioritize the latest
+   hovered timestamp without moving or playing the real movie. */
 (()=>{
  'use strict';
  const bridge=window.MarmaladeAddonBridge;
@@ -24,17 +25,18 @@
  const scratchContext=scratch.getContext('2d',{alpha:false,willReadFrequently:false});
  const preview=document.createElement('video');
  preview.id='seekPreviewDecoder';preview.muted=true;preview.playsInline=true;
- preview.preload='metadata';preview.controls=false;
+ preview.preload='auto';preview.controls=false;
  preview.setAttribute('aria-hidden','true');
  preview.tabIndex=-1;
  preview.style.cssText='position:absolute;left:-10000px;top:-10000px;width:1px;height:1px;visibility:hidden;pointer-events:none';
  // Keep the decoder independent of stage and main media to preserve all
  // playback, transport, host capture and audio state.
  document.body.appendChild(preview);
- let decoderUrl='',decoderEpoch=0,hoverEpoch=0,debounce=0,active=false,
-     captured=Promise.resolve(),requestSerial=0,latestRemote=0,lastGuestAt=0;
- const cache=new Map(),hostThrottle=new WeakMap();
- const MAX_CACHED=20;
+ let decoderUrl='',decoderEpoch=0,decoderLoading=null,hoverEpoch=0,debounce=0,
+     active=false,requestSerial=0,latestRemote=0,lastGuestAt=0,
+     remoteOutstanding=0,remoteWanted=null,remoteTimeout=0,captureBusy=false;
+ const cache=new Map(),hostThrottle=new WeakMap(),captureQueue=[];
+ const MAX_CACHED=96,BUCKET_SECONDS=.125;
  const limit=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
  const duration=()=>state.role==='guest'?Number(state.sharedDuration)||0:Number(media.duration)||0;
  const format=seconds=>{
@@ -62,14 +64,19 @@
  function clearCard(){
   active=false;card.hidden=true;canvas.hidden=true;
   clearTimeout(debounce);debounce=0;hoverEpoch++;
-  latestRemote=0;
+  latestRemote=0;remoteOutstanding=0;remoteWanted=null;
+  clearTimeout(remoteTimeout);remoteTimeout=0;
  }
  function clearDecoder(){
-  decoderEpoch++;decoderUrl='';cache.clear();
+  decoderEpoch++;decoderUrl='';decoderLoading=null;cache.clear();
+  while(captureQueue.length)captureQueue.shift().reject(Error('Movie changed'));
   preview.pause();preview.removeAttribute('src');preview.load();
  }
  function onMediaChange(){
   clearCard();clearDecoder();
+  // Load metadata before the first hover to avoid the cold-decoder delay.
+  const url=availableUrl();
+  if(url)void prepare(url).catch(()=>{});
  }
  window.addEventListener('marmalade:video-selected',onMediaChange);
  window.addEventListener('marmalade:media-cleared',onMediaChange);
@@ -85,7 +92,10 @@
   timer=setTimeout(bad,ms);
  });
  async function prepare(url){
-  if(url===decoderUrl&&preview.readyState>=1)return decoderEpoch;
+  if(url===decoderUrl){
+   if(preview.readyState>=1)return decoderEpoch;
+   if(decoderLoading)return decoderLoading;
+  }
   clearDecoder();
   decoderUrl=url;
   const epoch=decoderEpoch;
@@ -93,11 +103,16 @@
   else preview.removeAttribute('crossorigin');
   const loading=waitFor(preview,'loadedmetadata',4000);
   preview.src=url;preview.load();
-  await loading;
-  if(epoch!==decoderEpoch)throw Error('Movie changed');
-  if(!Number.isFinite(preview.duration)||preview.duration<=0)
-   throw Error('Preview requires seekable media');
-  return epoch;
+  const pending=(async()=>{
+   await loading;
+   if(epoch!==decoderEpoch)throw Error('Movie changed');
+   if(!Number.isFinite(preview.duration)||preview.duration<=0)
+    throw Error('Preview requires seekable media');
+   return epoch;
+  })();
+  decoderLoading=pending;
+  try{return await pending;}
+  finally{if(decoderLoading===pending)decoderLoading=null;}
  }
  async function actualCapture(time){
   const url=availableUrl();
@@ -106,19 +121,14 @@
   if(epoch!==decoderEpoch)throw Error('Movie changed');
   const point=limit(time,0,Math.max(0,preview.duration-.06));
   if(Math.abs(preview.currentTime-point)>.045){
-   const seeking=waitFor(preview,'seeked',4400);
+   const seeking=waitFor(preview,'seeked',2800);
    preview.currentTime=point;
    await seeking;
   }
   if(epoch!==decoderEpoch)throw Error('Movie changed');
   if(preview.readyState<2)await waitFor(preview,'loadeddata',3000);
-  if(preview.requestVideoFrameCallback){
-   // seeked may fire just before the newly decoded frame can be drawn.
-   await Promise.race([
-    new Promise(resolve=>preview.requestVideoFrameCallback(()=>resolve())),
-    new Promise(resolve=>setTimeout(resolve,140))
-   ]);
-  }
+  // seeked + HAVE_CURRENT_DATA already indicate a drawable frame. Do not
+  // add a 140ms artificial stall on every seek while this video is paused.
   if(epoch!==decoderEpoch)throw Error('Movie changed');
   if(preview.videoWidth<1||preview.videoHeight<1)throw Error('No decoded frame');
   const w=preview.videoWidth,h=preview.videoHeight,ratio=Math.min(192/w,108/h);
@@ -132,17 +142,44 @@
    throw Error('Frame too large');
   return frame;
  }
- function getFrame(time){
-  const key=sourceSignature()+':'+time.toFixed(3);
-  if(cache.has(key))return Promise.resolve(cache.get(key));
-  // Serialize isolated decoder seeks; concurrent seeks would race and
-  // return a frame from the wrong video time.
-  const next=captured.catch(()=>{}).then(()=>actualCapture(time));
-  captured=next.catch(()=>{});
-  return next.then(frame=>{
-   cache.set(key,frame);
-   if(cache.size>MAX_CACHED)cache.delete(cache.keys().next().value);
-   return frame;
+ // At most one seek at a time, with the newest interactive hover ahead of
+ // old remote requests. Replaced pending hovers are explicitly rejected.
+ async function drainCaptureQueue(){
+  if(captureBusy)return;
+  captureBusy=true;
+  try{
+   while(captureQueue.length){
+    const job=captureQueue.shift();
+    if(job.source!==sourceSignature()){job.reject(Error('Movie changed'));continue;}
+    if(cache.has(job.key)){job.resolve(cache.get(job.key));continue;}
+    try{
+     const frame=await actualCapture(job.time);
+     if(job.source!==sourceSignature())throw Error('Movie changed');
+     cache.set(job.key,frame);
+     if(cache.size>MAX_CACHED)cache.delete(cache.keys().next().value);
+     job.resolve(frame);
+    }catch(error){job.reject(error);}
+   }
+  }finally{captureBusy=false;}
+ }
+ function getFrame(time,interactive=false){
+  const point=Math.round(time/BUCKET_SECONDS)*BUCKET_SECONDS;
+  const source=sourceSignature(),key=source+':'+point.toFixed(3);
+  if(cache.has(key)){
+   const frame=cache.get(key);
+   cache.delete(key);cache.set(key,frame); // LRU preserves recently hovered frames.
+   return Promise.resolve(frame);
+  }
+  return new Promise((resolve,reject)=>{
+   if(interactive){
+    for(let i=captureQueue.length-1;i>=0;i--){
+     if(captureQueue[i].interactive)
+      captureQueue.splice(i,1)[0].reject(Error('Superseded'));
+    }
+   }
+   const job={time:point,source,key,interactive,resolve,reject};
+   if(interactive)captureQueue.unshift(job);else captureQueue.push(job);
+   void drainCaptureQueue();
   });
  }
  function displayImage(frame,at,epoch){
@@ -158,32 +195,49 @@
   image.src=frame;
  }
  async function displayLocal(time,epoch){
-  try{displayImage(await getFrame(time),time,epoch);}
+  try{displayImage(await getFrame(time,true),time,epoch);}
   catch(error){
-   if(epoch!==hoverEpoch||!active)return;
+   if(epoch!==hoverEpoch||!active||/Superseded|Movie changed/i.test(String(error)))return;
    setStatus(/cors|cross-origin/i.test(String(error))?
      'Preview blocked by video source':'Preview unavailable for this video');
   }
  }
+ // Only one in-flight guest request. Hover movement replaces the desired
+ // timestamp; the next request is issued as soon as the host responds.
+ function sendGuestRequest(){
+  if(!active||remoteOutstanding||!remoteWanted||!state.guestConn?.open)return;
+  const remaining=80-(performance.now()-lastGuestAt);
+  if(remaining>0){
+   clearTimeout(debounce);debounce=setTimeout(sendGuestRequest,remaining);return;
+  }
+  const wanted=remoteWanted;remoteWanted=null;
+  if(wanted.epoch!==hoverEpoch)return;
+  const id=++requestSerial;
+  remoteOutstanding=id;latestRemote=id;lastGuestAt=performance.now();
+  try{state.guestConn.send({type:'seek-thumbnail-request',id,time:wanted.time});}
+  catch{remoteOutstanding=0;setStatus('Preview unavailable');return;}
+  clearTimeout(remoteTimeout);
+  remoteTimeout=setTimeout(()=>{
+   if(remoteOutstanding!==id)return;
+   remoteOutstanding=0;
+   if(active&&!card.hidden){
+    remoteWanted={time:Number(card.dataset.time),epoch:hoverEpoch};
+    sendGuestRequest();
+   }
+  },1250);
+ }
  function guestPreview(time,epoch){
-  const now=performance.now();
-  const sendRequest=()=>{
-   if(!active||epoch!==hoverEpoch||!state.guestConn?.open)return;
-   const id=++requestSerial;latestRemote=id;
-   try{state.guestConn.send({type:'seek-thumbnail-request',id,time});}
-   catch{if(epoch===hoverEpoch)setStatus('Preview unavailable');}
-  };
-  if(now-lastGuestAt<280){
-   debounce=setTimeout(()=>{lastGuestAt=performance.now();sendRequest();},280-(now-lastGuestAt));
-  }else{lastGuestAt=now;sendRequest();}
+  remoteWanted={time,epoch};
+  sendGuestRequest();
  }
  function schedule(time){
   const epoch=++hoverEpoch;
   setStatus('Loading scene…');
   clearTimeout(debounce);
-  if(canRequestRemote()){debounce=setTimeout(()=>guestPreview(time,epoch),100);return;}
+  if(canRequestRemote()){guestPreview(time,epoch);return;}
   if(!availableUrl()){setStatus('Preview unavailable for this stream');return;}
-  debounce=setTimeout(()=>displayLocal(time,epoch),100);
+  // No hardcoded 100ms hover delay; the queue discards superseded seeks.
+  void displayLocal(time,epoch);
  }
  function position(clientX){
   const d=duration();
@@ -229,7 +283,7 @@
   const time=Number(data.time),d=duration();
   if(!Number.isFinite(time)||time<0||!(d>0)||time>d)return;
   const now=performance.now(),last=hostThrottle.get(conn)||0;
-  if(last&&now-last<280)return;
+  if(last&&now-last<80)return;
   hostThrottle.set(conn,now);
   if(!availableUrl())return;
   try{
@@ -241,11 +295,18 @@
   }
  }
  function handleResponse(data){
-  if(!active||card.hidden||state.role!=='guest'||!data||
-      data.type!=='seek-thumbnail-response'||data.id!==latestRemote)return;
-  if(data.unavailable){setStatus('Host preview unavailable');return;}
-  if(typeof data.frame!=='string'||data.frame.length>=68000)return;
-  displayImage(data.frame,data.time,hoverEpoch);
+  if(!data||data.type!=='seek-thumbnail-response'||data.id!==remoteOutstanding)return;
+  clearTimeout(remoteTimeout);remoteTimeout=0;remoteOutstanding=0;
+  if(!active||card.hidden||state.role!=='guest')return;
+  const desired=Number(card.dataset.time);
+  const match=Number.isFinite(desired)&&
+    Math.abs(Number(data.time)-desired)<=BUCKET_SECONDS;
+  if(match){
+   if(data.unavailable)setStatus('Host preview unavailable');
+   else if(typeof data.frame==='string'&&data.frame.length<68000)
+    displayImage(data.frame,data.time,hoverEpoch);
+  }else if(!remoteWanted)remoteWanted={time:desired,epoch:hoverEpoch};
+  if(remoteWanted)sendGuestRequest();
  }
  window.MarmaladeSeekPreview={
   handleRequest,handleResponse,refresh:()=>{if(active&&!card.hidden)position(seek.getBoundingClientRect().left+

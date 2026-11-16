@@ -37,6 +37,10 @@ try{
  await page.evaluate(()=>document.querySelector('#dropZone').classList.add('controls-visible'));
  const seek=await page.locator('#seek').boundingBox();
  const before=await page.locator('#player').evaluate(e=>({paused:e.paused,t:e.currentTime}));
+ // A new local hover must schedule its decoder work without the former
+ // 100ms timer, and repeated nearby frames should reuse a bounded cache.
+ assert.equal(await page.evaluate(()=>document.querySelector('#seekPreviewDecoder').preload),'auto');
+
  // Broadcasting the paused source must not call video.play() or move its clock.
  const broadcast=await page.evaluate(async()=>{
   const {state,media,el}=window.MarmaladeAddonBridge;
