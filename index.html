@@ -4943,10 +4943,61 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
       }
     }
-    // Prefer the browser's real SYSTEM video PiP, outside the browser
-    // content window; it keeps the authoritative video decoder and timeline.
-    // A detached Document PiP window is only a fallback where system PiP
-    // is unavailable.
+    // Document PiP creates a REAL floating browser-managed OS window and can
+    // render our own subtitles, adaptive brightness and full original toolbar.
+    // The browser owns external window min/max sizing; no app-level clamps.
+    if(window.documentPictureInPicture?.requestWindow){
+      try{
+        const pop=await window.documentPictureInPicture.requestWindow({width:520,height:340});
+        pipWindow=pop;
+        stagePlaceholder=document.createComment('Marmalade video pop-out position');
+        el.stage.replaceWith(stagePlaceholder);
+        // Document PiP uses its own CSS scope. Reuse all existing styles,
+        // including the video SVG filter and native subtitle appearance.
+        const base=pop.document.createElement('base');
+        base.href=document.baseURI;pop.document.head.appendChild(base);
+        for(const original of document.querySelectorAll('style,link[rel="stylesheet"]'))
+          pop.document.head.appendChild(original.cloneNode(true));
+        const style=pop.document.createElement('style');
+        style.textContent=
+          'html,body{margin:0!important;padding:0!important;background:#050509!important;width:100%!important;height:100%!important;overflow:hidden!important}'+
+          '.stage{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;aspect-ratio:auto!important;border-radius:0!important;border:0!important}'+
+          '.stage.pip-interactive .mini-player-overlay{display:none!important}';
+        pop.document.head.appendChild(style);
+        // This is the same original <video>, subtitle overlay, slider and
+        // SVG gamma filter. No copied playback state or duplicate decoder.
+        pop.document.body.appendChild(el.stage);
+        setInteractivePip(true);
+        window.MarmaladeSubtitleRefresh?.();
+        // A visible PiP window owns this timer: when the source tab goes
+        // background, captions and adaptive brightness must still advance.
+        const pipTick=pop.setInterval(()=>{
+          window.MarmaladeSubtitleRefresh?.();
+          window.MarmaladeAdaptiveBrightness?.tick?.();
+        },180);
+        pop.addEventListener('pagehide',()=>{
+          pop.clearInterval(pipTick);
+          restoreDocumentPip();
+        },{once:true});
+        pop.document.addEventListener('keydown',event=>{
+          if(event.key==='Escape'){
+            if(!el.settingsPanel.hidden){el.closeSettingsPanel?.click();event.preventDefault();}
+            else if(!el.subtitlePanel.hidden){el.closeSubtitlePanel?.click();event.preventDefault();}
+          }
+          if(event.code==='Space'&&!event.repeat&&
+             !event.target.closest?.('button,input,textarea,select,[contenteditable]')){
+            event.preventDefault();el.play.click();
+          }
+        });
+        return;
+      }catch(error){
+        console.debug('Interactive external PiP unavailable',error);
+        try{pipWindow?.close();}catch{}
+        restoreDocumentPip();
+      }
+    }
+    // Last-resort browser native video PiP uses system transport buttons.
+    // Browser APIs cannot host arbitrary custom DOM controls in this mode.
     if(document.pictureInPictureEnabled&&media.requestPictureInPicture){
       try{await media.requestPictureInPicture();return;}
       catch(error){console.debug('Native system PiP unavailable',error);}
@@ -4954,34 +5005,6 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if(media.webkitSetPresentationMode){
       try{media.webkitSetPresentationMode('picture-in-picture');return;}
       catch(error){console.debug('Native video PiP unavailable',error);}
-    }
-    if(window.documentPictureInPicture?.requestWindow){
-      try{
-        const pop=await window.documentPictureInPicture.requestWindow({width:520,height:340});
-        pipWindow=pop;
-        stagePlaceholder=document.createComment('Marmalade video pop-out position');
-        el.stage.replaceWith(stagePlaceholder);
-        const style=pop.document.createElement('style');
-        style.textContent=[...document.querySelectorAll('style')].map(s=>s.textContent).join('\n')+
-          '\nhtml,body{margin:0!important;background:#060509!important;width:100%!important;height:100%!important;overflow:hidden!important}'+
-          '\n.stage{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;aspect-ratio:auto!important;border-radius:0!important;border:0!important}'+
-          '\n.stage .theater-controls{opacity:1!important;pointer-events:auto!important;transform:none!important}'+
-          '\n.stage .subtitle-overlay{z-index:12!important}'+
-          '\n.stage .theater-controls,.stage .theater-top{display:none!important}'+
-          '\n.stage .mini-player-overlay{display:block!important}';
-        pop.document.head.appendChild(style);
-        pop.document.body.appendChild(el.stage);
-        setMiniOverlay(true);
-        el.stage.classList.add('controls-visible');
-
-        pop.addEventListener('pagehide',restoreDocumentPip,{once:true});
-        pop.document.addEventListener('pointerdown',showMiniControls,{passive:true});
-        pop.document.addEventListener('pointermove',showMiniControls,{passive:true});
-        return;
-      }catch(error){
-        try{pipWindow?.close();}catch{}
-        restoreDocumentPip();
-      }
     }
     notify('A separate system Picture-in-Picture window is not supported by this browser.');
   });
