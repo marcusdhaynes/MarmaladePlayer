@@ -1,4 +1,5 @@
 import {readFileSync,existsSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {resolve} from 'node:path';
 const root=resolve(import.meta.dirname,'../..');
 const cfg=JSON.parse(readFileSync(resolve(root,'mobile/capacitor.config.json'),'utf8'));
@@ -13,4 +14,5 @@ if(!script.includes('setMediaPlaybackRequiresUserGesture(false)'))
   throw Error('Android watch-party WebView must permit automatic sound playback');
 const assets=['index.html','movie-info.js','public-movie-info.js','watch-sync-subtitles.js'];
 for(const a of assets)if(!existsSync(resolve(root,a)))throw Error('Missing shared asset '+a);
+execFileSync(process.execPath,[resolve(root,'tests/standalone-pip.test.mjs')],{stdio:'inherit'});
 console.log('PASS: Android/iOS use the same source, player controls and media permission setup.');
