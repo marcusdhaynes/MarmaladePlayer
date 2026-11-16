@@ -288,29 +288,39 @@
  recentButton.addEventListener('click',async event=>{
    event.stopPropagation();event.preventDefault();
    if(!last||state.role!=='host'||recentButton.disabled)return;
-   if(!last.handle){
-     // Ordinary file-input selections do not disclose their original path.
-     // A missing handle is NOT proof that the file moved or was deleted.
-     missing.textContent='This browser did not preserve the previous file location. Select the video again using Choose Video to enable automatic resume where supported.';
-     missing.hidden=false;return;
-   }
-   recentButton.disabled=true;locateButton.hidden=true;
+   recentButton.disabled=true;locateButton.hidden=true;missing.hidden=true;
    try{
+     // First ask Minternet to return the same OS-approved file as a new
+     // read-only WebView2 handle. It does not prompt or transmit disk paths.
+     const native=await reopenNative(last.handle||null);
+     if(native?.status==='ok'&&native.handle){
+       try{
+         if(await verifyAndOpen(await native.handle.getFile(),native.handle))return;
+       }catch(error){console.debug('Native file access fallback',error);}
+     }
+     if(native?.status==='missing'){
+       missing.textContent='The saved video is missing from its previous location: '+last.name+'.';
+       missing.hidden=false;locateButton.hidden=false;
+       bridge.notify('Last video was not found. Locate it to continue.');
+       await locateMissingFile();return;
+     }
+     // Other browsers may require reauthorization after a restart.
+     if(!last.handle){
+       missing.textContent='The last location is not accessible to this browser. Select the movie again to enable automatic resume where supported.';
+       missing.hidden=false;return;
+     }
      let file;
      try{file=await last.handle.getFile();}
      catch(error){
        if(error?.name==='NotFoundError'){
-         missing.textContent='Video not found at its saved location: '+last.name+'.';
+         missing.textContent='Saved video not found: '+last.name+'.';
          missing.hidden=false;locateButton.hidden=false;
-         bridge.notify('Last video not found. Locate it to continue.');
          await locateMissingFile();return;
        }
        if(error?.name==='NotAllowedError'||error?.name==='SecurityError'){
-         // The browser may revoke permissions after restart. Permission denial
-         // cannot be mistaken for a missing file, so retain the saved handle.
          const granted=await last.handle.requestPermission?.({mode:'read'});
          if(granted!=='granted'){
-           missing.textContent='The browser needs access to the saved file. Its location has not been reported missing.';
+           missing.textContent='This browser revoked file permission; the movie has not been reported missing.';
            missing.hidden=false;return;
          }
          file=await last.handle.getFile();
@@ -318,16 +328,10 @@
      }
      await verifyAndOpen(file,last.handle);
    }catch(error){
-     if(error?.name==='NotFoundError'){
-       missing.textContent='Video not found at its saved location: '+last.name+'.';
-       missing.hidden=false;locateButton.hidden=false;
-       bridge.notify('Last video not found. Locate it to continue.');
-       await locateMissingFile();
-     }else{
-       missing.textContent='Cannot reopen saved file: '+String(error?.message||'access unavailable')+'.';
-       missing.hidden=false;
-     }
-   }finally{recentButton.disabled=false;}
+     missing.textContent='Unable to resume saved video: '+
+       String(error?.message||'access unavailable')+'.';
+     missing.hidden=false;
+   }finally{recentButton.disabled=false;choosingLast=false;}
  });
  el.fileInput.addEventListener('change',event=>{
    if(!choosingLast)return;
