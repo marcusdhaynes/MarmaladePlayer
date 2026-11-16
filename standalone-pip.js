@@ -197,14 +197,17 @@ async function enter(){
  if(!prepare()||!stream)throw new Error('The video could not be rendered for the mini-player.');
  if(pip.readyState<2)throw new Error('Preparing the video feed. Press Pop-Out again if it does not open.');
  starting=true;
+ // Register before opening PiP so Chromium knows which native controls to show.
+ installControls();
  try{
    draw(); // Movie, subtitles and adaptive gamma composited BEFORE native PiP.
    await pip.requestPictureInPicture();
    active=true;window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(true);
-   installControls();
+   positionState();
    startLoop();
    return true;
- }finally{starting=false;}
+ }catch(error){clean();throw error;}
+ finally{starting=false;}
 }
 window.MarmaladeStandalonePiP={enter,isActive:()=>active,draw,getFrames:()=>frame,
   hasVideoOnlySurface:()=>!!pip.srcObject,stop:clean,
