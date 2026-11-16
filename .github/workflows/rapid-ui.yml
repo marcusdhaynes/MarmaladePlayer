@@ -5,6 +5,7 @@ on:
       - index.html
       - seek-preview.js
       - rapid-controls.js
+      - adaptive-brightness.js
       - rapid-controls.css
       - subtitle-compact.js
       - watch-sync-subtitles.js
@@ -30,6 +31,7 @@ jobs:
       - name: Validate shared scripts
         run: |
           node --check rapid-controls.js
+          node --check adaptive-brightness.js
           node --check seek-preview.js
           node --check subtitle-compact.js
           node --check movie-info.js

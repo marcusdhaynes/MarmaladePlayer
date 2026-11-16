@@ -260,3 +260,23 @@
 /* Hide the guest-only file selection completely for hosts. */
 #localCopyButton[hidden]{display:none!important}
 .stage-quick-actions .quick-share-btn svg{width:21px;height:21px}
+
+/* Adaptive brightness sits immediately to the right of Volume, inside the
+   playback toolbar's existing no-video-toggle control surface. */
+.adaptive-gamma-definitions{position:absolute;pointer-events:none;visibility:hidden;width:0;height:0;overflow:hidden}
+.adaptive-brightness{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.adaptive-brightness-button{display:grid!important;place-items:center!important;padding:0!important;line-height:0!important;position:relative}
+.adaptive-brightness-icon{display:block!important;width:21px!important;height:21px!important;margin:0!important;transform:none!important;flex:none}
+.adaptive-brightness-button[aria-pressed="true"]{color:#ffd69c!important}
+.adaptive-brightness-popover{position:absolute;z-index:1500;bottom:calc(100% + 10px);left:50%;transform:translateX(-50%);width:64px;
+  min-height:180px;display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 8px 9px;
+  border:1px solid #b28b6e8c;border-radius:12px;background:#231d29f7;box-shadow:0 14px 38px #000a;
+  color:#f4ddc1;pointer-events:auto}
+.adaptive-brightness-popover[hidden]{display:none!important}
+.adaptive-brightness-popover output{font:700 11px ui-monospace,Consolas,monospace;white-space:nowrap}
+.adaptive-brightness-popover input[type="range"]{appearance:slider-vertical;-webkit-appearance:slider-vertical;
+  display:block;width:24px;min-width:24px;height:119px;min-height:119px;max-height:119px;
+  writing-mode:vertical-lr;direction:rtl;accent-color:#f4b573;cursor:pointer}
+.adaptive-brightness-label{font-size:9px;line-height:1;color:#c9abb5}
+@media(max-width:470px){.adaptive-brightness-popover{bottom:calc(100% + 7px);padding:8px 5px;width:55px}
+ .adaptive-brightness-popover input[type="range"]{height:105px;min-height:105px;max-height:105px}}

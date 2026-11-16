@@ -40,6 +40,37 @@ try{
   await page.evaluate(()=>document.getElementById('hostTab').click());
   assert.equal(await page.locator('#localCopyButton').isVisible(),false);
 
+  // Adaptive brightness lives to the right of the volume readout and
+  // controls video gamma rather than putting a white overlay over the stage.
+  await page.waitForFunction(()=>Boolean(window.MarmaladeAdaptiveBrightness));
+  assert.equal(await page.locator('#volumeMark + #adaptiveBrightnessControl').count(),1,
+    'Brightness control must be immediately after volume');
+  assert.equal(await page.locator('#brightnessBtn svg').count(),1);
+  assert.equal(await page.locator('#brightnessBtn').getAttribute('aria-expanded'),'false');
+  await page.locator('#brightnessBtn').click();
+  assert.equal(await page.locator('#brightnessPopover').isVisible(),true,
+    'Brightness opens a vertical slider');
+  assert.equal(await page.locator('#brightnessSlider').getAttribute('aria-orientation'),'vertical');
+  await page.locator('#brightnessSlider').evaluate(el=>{
+    el.value='74';el.dispatchEvent(new Event('input',{bubbles:true}));
+  });
+  assert.equal(await page.locator('#brightnessValue').textContent(),'74%');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:adaptive-video-brightness:v1')),'74');
+  assert.equal(await page.locator('#player').evaluate(el=>el.style.filter.includes('adaptiveBrightnessGamma')),true);
+  assert.equal(await page.evaluate(()=>window.MarmaladeAdaptiveBrightness.computeGamma(
+    new Uint8ClampedArray(Array.from({length:640},(_,i)=>i%4===3?255:30)),80)<1),true,
+    'Adaptive gamma must selectively lift dark frames');
+  assert.equal(await page.evaluate(()=>window.MarmaladeAdaptiveBrightness.computeGamma(
+    new Uint8ClampedArray(Array.from({length:640},(_,i)=>i%4===3?255:245)),80)),1,
+    'Bright scenes should not be washed out');
+  await page.locator('#brightnessSlider').evaluate(el=>{
+    el.value='0';el.dispatchEvent(new Event('input',{bubbles:true}));
+  });
+  assert.equal(await page.locator('#player').evaluate(el=>el.style.filter),'',
+    'Brightness 0% must restore untouched video');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#brightnessPopover').isVisible(),false);
+
   // The full toolbar must be visible and interactive on the empty landing
   // screen; only media transport and scrubbing require a movie.
   assert.equal(await page.locator('#dropZone').evaluate(node=>node.classList.contains('has-video')),false);
