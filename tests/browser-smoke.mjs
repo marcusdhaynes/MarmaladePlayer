@@ -131,7 +131,7 @@ try {
     assert.equal(await page.locator('#mediaInfoToggle').count(),1,'Information available via movie title');
     assert.equal(await page.locator('#broadcastToggle').getAttribute('aria-pressed'),'false');
     const order = await page.locator('.theater-bottom button').evaluateAll(buttons=>buttons.map(b=>b.id));
-    assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn']);
+    assert.deepEqual(order,['skipBack','playPause','skipForward','muteBtn','brightnessBtn','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn']);
     await page.waitForFunction(() => typeof window.MarmaladeInfoShare === 'function');
     assert.equal(await page.locator('#mediaInfoPanel').isVisible(),true,
       'Movie information opens by default');
