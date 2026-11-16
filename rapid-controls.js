@@ -148,7 +148,55 @@
  missing.id='rapidLastMissing';missing.hidden=true;missing.className='rapid-last-missing';
  $('stageSubtitle')?.after(recentButton,missing);
  const LAST_DB='marmalade-recent-video';
- let last=null,choosingLast=false;
+ let last=null,choosingLast=false,positionWriteAt=0;
+ const media=bridge.media, webview=window.chrome?.webview;
+ // The browser will only remember an opaque File or FileSystemFileHandle
+ // explicitly selected by the user. JavaScript never supplies a disk path.
+ const rememberNative=(file,handle)=>{
+   if(typeof webview?.postMessageWithAdditionalObjects!=='function')return;
+   try{webview.postMessageWithAdditionalObjects(
+     {minternetMarmalade:'remember'},[handle||file]);}
+   catch(error){console.debug('Native media bookmarking unavailable',error);}
+ };
+ const reopenNative=handle=>{
+   if(typeof webview?.postMessage!=='function'||!webview.addEventListener)
+     return Promise.resolve(null);
+   return new Promise(resolve=>{
+     let complete=false,timeout;
+     const finish=value=>{
+       if(complete)return;
+       complete=true;clearTimeout(timeout);
+       webview.removeEventListener('message',listener);resolve(value);
+     };
+     const listener=event=>{
+       if(event.data?.minternetMarmalade==='resume-result')
+         finish({status:event.data.status,handle:event.additionalObjects?.[0]||null});
+     };
+     webview.addEventListener('message',listener);
+     timeout=setTimeout(()=>finish(null),3500);
+     try{
+       if(handle&&typeof webview.postMessageWithAdditionalObjects==='function')
+         webview.postMessageWithAdditionalObjects({minternetMarmalade:'recover'},[handle]);
+       else webview.postMessage({minternetMarmalade:'resume'});
+     }catch{finish(null);}
+   });
+ };
+ const savePosition=()=>{
+   if(!last||state.role!=='host'||state.source!=='file')return;
+   const time=Number(media.currentTime);
+   if(!Number.isFinite(time)||time<0)return;
+   last.positionSeconds=time;
+   if(Date.now()-positionWriteAt>4000){
+     positionWriteAt=Date.now();void store('write',last).catch(()=>{});
+   }
+ };
+ media.addEventListener('timeupdate',savePosition,{passive:true});
+ media.addEventListener('pause',()=>{
+   savePosition();if(last)void store('write',last).catch(()=>{});
+ });
+ window.addEventListener('pagehide',()=>{
+   savePosition();if(last)void store('write',last).catch(()=>{});
+ });
  const database=()=>new Promise((resolve,reject)=>{
    const request=indexedDB.open(LAST_DB,1);
    request.onupgradeneeded=()=>request.result.createObjectStore('recents');
