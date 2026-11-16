@@ -14,7 +14,7 @@ let html=readFileSync(join(dest,'index.html'),'utf8');
 html=html.replace(/if \('serviceWorker' in navigator && location\.protocol === 'https:'\)/,
   "if (!window.__TAURI_INTERNALS__ && 'serviceWorker' in navigator && location.protocol === 'https:')");
 // This trusted bridge exists only in the packaged desktop app.
-html=html.replace('</head>', '<script src="./desktop-native-window.js" defer></script>\\n</head>');
+html=html.replace('</head>', '<script src="./desktop-native-window.js" defer></script></head>');
 writeFileSync(join(dest,'index.html'),html);
 copyFileSync(join(root,'desktop/desktop-native-window.js'),join(dest,'desktop-native-window.js'));
 console.log('Bundled',assets.length,'shared MarmaladePlayer files for Windows/macOS/Linux.');

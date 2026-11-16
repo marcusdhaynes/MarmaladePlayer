@@ -98,12 +98,12 @@ try{
   });
   const stage=page.locator('#dropZone');
   let area=await stage.boundingBox();
-  await page.mouse.dblclick(area.x+area.width/2,area.y+area.height/2,{delay:70});
+  await page.mouse.dblclick(area.x+area.width/2,area.y+area.height*.31,{delay:70});
   await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.theaterMode);
   assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('fullscreen-fallback')),true,
     'Double-click expands the regular video to fullscreen');
   area=await stage.boundingBox();
-  await page.mouse.dblclick(area.x+area.width/2,area.y+area.height/2,{delay:70});
+  await page.mouse.dblclick(area.x+area.width/2,area.y+area.height*.31,{delay:70});
   await page.waitForFunction(()=>!window.MarmaladeAddonBridge.state.theaterMode);
   assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('fullscreen-fallback')),false,
     'Second double-click returns to regular video');
