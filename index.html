@@ -4542,6 +4542,26 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       return false;
     }
   }
+  function fullscreenHostProof(){
+    if(window.MarmaladeNativeFullscreen||!window.chrome?.webview?.addEventListener)return null;
+    const host=window.chrome.webview;
+    return new Promise(resolve=>{
+      let finished=false;
+      const finish=ok=>{
+        if(finished)return;
+        finished=true;
+        clearTimeout(timeout);
+        host.removeEventListener('message',listener);
+        resolve(ok);
+      };
+      const listener=event=>{
+        const verified=event.data?.minternetFullscreen;
+        if(verified?.native===true)finish(verified.active===true);
+      };
+      host.addEventListener('message',listener);
+      const timeout=setTimeout(()=>finish(false),2500);
+    });
+  }
   let browserFullscreenActive=false;
   function leaveTheater(){
     browserFullscreenActive=false;
@@ -4576,7 +4596,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     try{
       if(el.stage.requestFullscreen){
+        const proof=fullscreenHostProof();
         await el.stage.requestFullscreen();
+        if(proof&&!await proof){
+          if(document.fullscreenElement===el.stage)
+            await document.exitFullscreen().catch(()=>{});
+          leaveTheater();
+          notify('True system fullscreen was not confirmed. Update Minternet to its latest Windows build.');
+          return;
+        }
         browserFullscreenActive=true;
         state.theaterMode=true;
         el.stage.classList.add('fullscreen-fallback');
