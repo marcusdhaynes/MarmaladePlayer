@@ -155,7 +155,7 @@
  const rememberNative=(file,handle)=>{
    if(typeof webview?.postMessageWithAdditionalObjects!=='function')return;
    try{webview.postMessageWithAdditionalObjects(
-     {minternetMarmalade:'remember'},[handle||file]);}
+     {minternetMarmalade:'remember'},[file]);}
    catch(error){console.debug('Native media bookmarking unavailable',error);}
  };
  const reopenNative=handle=>{
