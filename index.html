@@ -619,7 +619,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <span class="vol-mark" id="volumeMark">100%</span>
                 <div class="adaptive-brightness" id="adaptiveBrightnessControl">
                   <button type="button" class="icon-btn adaptive-brightness-button" id="brightnessBtn" title="Adaptive Brightness" aria-label="Adaptive Brightness" aria-haspopup="true" aria-expanded="false" aria-controls="brightnessPopover">
-                    <svg class="glass-icon adaptive-brightness-icon" viewBox="0 0 24 24" width="21" height="21" fill="none" aria-hidden="true"><defs><clipPath id="adaptiveFlashlightClip"><path d="M7 3h10l-1.5 5-2.5 3v6h-1v4h-2v-4H9v-6L8.5 8Z"/></clipPath></defs><g clip-path="url(#adaptiveFlashlightClip)"><rect id="adaptiveFlashlightFill" x="0" y="21" width="24" height="0" fill="#fff"/></g><path d="M7 3h10l-1.5 5H8.5L7 3ZM8.5 8h7L13 11v6h-1v4h-2v-4H9v-6L8.5 8Z" stroke="white" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/></svg>
+                    <svg class="glass-icon adaptive-brightness-icon" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><clipPath id="adaptiveFlashlightClip"><path d="M7 2H17A1 1 0 0 1 18 3V7A3 3 0 0 1 17.4 8.8L16.8 9.6A4 4 0 0 0 16 12V20A2 2 0 0 1 14 22H10A2 2 0 0 1 8 20V12A4 4 0 0 0 7.2 9.6L6.6 8.8A3 3 0 0 1 6 7V3A1 1 0 0 1 7 2Z"/></clipPath></defs><g clip-path="url(#adaptiveFlashlightClip)"><rect id="adaptiveFlashlightFill" x="0" y="22" width="24" height="0" fill="#fff" stroke="none"/></g><path d="M12 13v1M17 2a1 1 0 0 1 1 1v4a3 3 0 0 1-.6 1.8l-.6.8A4 4 0 0 0 16 12v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a4 4 0 0 0-.8-2.4l-.6-.8A3 3 0 0 1 6 7V3a1 1 0 0 1 1-1zM6 6h12"/></svg>
                   </button>
                   <div id="brightnessPopover" class="adaptive-brightness-popover" role="group" aria-label="Adaptive Video Brightness" hidden>
                     <output id="brightnessValue" for="brightnessSlider">0%</output>
@@ -4814,6 +4814,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return loadSelectedSubtitle(file,null,{kind:'search',url:item.url,
       name:item.name,filename:item.filename,fps:item.fps||0,mediaKey,restoreToken:ticket});
   };
+  const nativeVideoOnlyStyle=document.createElement('style');
+  nativeVideoOnlyStyle.textContent='body.native-pip-active:not(.floating-overlay-active){margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important}'+
+    'body.native-pip-active:not(.floating-overlay-active) .stage{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;aspect-ratio:auto!important;border:0!important;border-radius:0!important;z-index:2147483647!important;background:#000!important}'+
+    'body.native-pip-active:not(.floating-overlay-active) .stage .theater-top,body.native-pip-active:not(.floating-overlay-active) .stage .theater-controls,body.native-pip-active:not(.floating-overlay-active) .stage .mini-player-overlay,body.native-pip-active:not(.floating-overlay-active) .stage .stage-quick-actions,body.native-pip-active:not(.floating-overlay-active) .stage .exit-theater,body.native-pip-active:not(.floating-overlay-active) .stage .stage-empty{display:none!important}'+
+    'body.native-pip-active:not(.floating-overlay-active) .stage .subtitle-overlay{bottom:9%!important;z-index:10!important}';
+  document.head.appendChild(nativeVideoOnlyStyle);
   const purePipStyle='.stage.pip-interactive{background:#050509!important;box-shadow:none!important;outline:0!important;border:0!important;border-radius:0!important}'+'.stage.pip-interactive .stage-quick-actions,.stage.pip-interactive #rapidResumeLast,.stage.pip-interactive #rapidQuickJoin,.stage.pip-interactive .mini-player-overlay{display:none!important}';
   const pureStyle=document.createElement('style');pureStyle.textContent=purePipStyle;document.head.appendChild(pureStyle);
   const miniOverlay=document.getElementById('miniPlayerOverlay');
@@ -4992,7 +4998,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Prefer our own Android overlay window: real WebView touch controls,
     // draggable/resizable mini-player and no Android PiP control panel.
     // The OS requires "Display over other apps" permission once.
-    if(window.MarmaladeNativeFloatingPlayer?.enter){
+    if(false && window.MarmaladeNativeFloatingPlayer?.enter){
       document.body.classList.add('native-pip-active','floating-overlay-active');
       setInteractivePip(true);
       window.MarmaladeSubtitleRefresh?.();
@@ -5021,14 +5027,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
       }
     }
-    // Prefer chrome-free native PiP when neither overlays nor adaptive lighting are needed.
-    const enhancedPipNeeded=!!state.subtitlesEnabled || (window.MarmaladeAdaptiveBrightness?.getLevel?.()||0)>0;
-    if(!enhancedPipNeeded && document.pictureInPictureEnabled && media.requestPictureInPicture){
-      try{await media.requestPictureInPicture();return;}catch(error){console.debug('Native PiP unavailable',error);}
+    // Standalone browser OS PiP uses a dedicated composed video surface:
+    // never open a second browser/document window containing Marmalade chrome.
+    if(window.MarmaladeStandalonePiP){
+      try{await window.MarmaladeStandalonePiP.enter();return;}
+      catch(error){notify(String(error?.message||error));return;}
     }
     // Document PiP carries the actual video, subtitles and adaptive lighting in a separate floating surface.
     // The browser owns external window min/max sizing; no app-level clamps.
-    if(window.documentPictureInPicture?.requestWindow){
+    if(false && window.documentPictureInPicture?.requestWindow){
       try{
         const pop=await window.documentPictureInPicture.requestWindow({width:520,height:340});
         pipWindow=pop;
@@ -5085,7 +5092,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     // Last-resort browser native video PiP uses system transport buttons.
     // Browser APIs cannot host arbitrary custom DOM controls in this mode.
-    if(document.pictureInPictureEnabled&&media.requestPictureInPicture){
+    if(document.pictureInPictureEnabled&&media.requestPictureInPicture &&
+       !state.subtitlesEnabled && !(window.MarmaladeAdaptiveBrightness?.getLevel?.()>0)){
       try{await media.requestPictureInPicture();return;}
       catch(error){console.debug('Native system PiP unavailable',error);}
     }
@@ -5805,6 +5813,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./rapid-controls.js?v=20261116-resume-rejoin-v5"></script>
 <script src="./subtitle-compact.js?v=20261113-line-search-v1"></script>
 <script src="./seek-preview.js?v=20261116-fast-seeking-v2"></script>
-<script src="./adaptive-brightness.js?v=20261116-pip-controls-v5"></script>
+<script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>
+<script src="./standalone-pip.js?v=20261116-video-only-v1"></script>
 </body>
 </html>
