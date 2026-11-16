@@ -4916,6 +4916,26 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(false);
     revealControls();
   };
+  // Fullscreen from an interactive mini-window returns the actual player
+  // to its primary window before requesting OS/browser fullscreen. An
+  // external PiP window cannot fullscreen the original application's chrome.
+  el.fullscreen.addEventListener('click',event=>{
+    if(!el.stage.classList.contains('pip-interactive'))return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if(pipWindow){
+      pipWindow.close();
+      restoreDocumentPip();
+      void toggleFullscreen();
+      return;
+    }
+    if(document.body.classList.contains('floating-overlay-active') &&
+       window.MarmaladeNativeFloatingPlayer?.returnToApp){
+      void window.MarmaladeNativeFloatingPlayer.returnToApp()
+        .then(()=>toggleFullscreen())
+        .catch(error=>notify('Cannot enter fullscreen: '+String(error?.message||error)));
+    }
+  },true);
   el.popoutBtn.addEventListener('click',async ()=>{
     // The same PiP button must toggle the native overlay off again.
     // Otherwise hiding the old mini-return button strands the WebView.
