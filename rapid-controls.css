@@ -223,3 +223,37 @@
  .seek-stack .seek-preview{width:132px;padding:4px}
  .seek-stack .seek-preview canvas{width:122px;height:69px}
 }
+
+/* Keep the normal playback toolbar accessible from the movie-picker screen.
+   Only the left transport depends on media; audio, subtitle, fullscreen and
+   settings controls on the right work before a file is selected. */
+.stage:not(.has-video):not(.floating-player) .theater-controls{
+  display:block!important;
+  opacity:1!important;
+  transform:translateY(0)!important;
+  pointer-events:auto!important;
+}
+.stage:not(.has-video) .theater-actions:not(.theater-right) .icon-btn:disabled{
+  opacity:.32!important;
+  color:#9c98a2!important;
+  background:#343039!important;
+  pointer-events:none;
+}
+.stage:not(.has-video) .theater-seek input:disabled{
+  opacity:.3;
+  filter:grayscale(1);
+  pointer-events:none;
+}
+.stage:not(.has-video) .stage-empty{
+  padding-bottom:105px;
+}
+/* On narrow landing screens reserve room for both the picker and toolbar;
+   never change a loaded video's natural 16:9 presentation. */
+@media(max-width:600px){
+  .stage:not(.has-video):not(.fullscreen-fallback):not(:fullscreen){
+    min-height:365px;
+  }
+  .stage:not(.has-video) .stage-empty{padding:8px 12px 98px}
+  .stage:not(.has-video) .empty-art{height:72px}
+  .stage:not(.has-video) .play-disc{width:58px;height:58px}
+}

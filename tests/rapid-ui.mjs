@@ -29,6 +29,36 @@ try{
   }));
   await page.goto('http://127.0.0.1:'+server.address().port+'/',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeRapidControls&&window.MarmaladeSubtitleCompact),null,{timeout:12000});
+  // The full toolbar must be visible and interactive on the empty landing
+  // screen; only media transport and scrubbing require a movie.
+  assert.equal(await page.locator('#dropZone').evaluate(node=>node.classList.contains('has-video')),false);
+  assert.equal(await page.locator('#theaterControls').isVisible(),true,
+    'Empty stage must expose the player toolbar');
+  const emptyToolbar=await page.locator('#theaterControls').evaluate(node=>{
+    const css=getComputedStyle(node);
+    return {opacity:css.opacity,pointerEvents:css.pointerEvents};
+  });
+  assert.equal(emptyToolbar.opacity,'1','Empty-stage toolbar must not be transparent');
+  assert.equal(emptyToolbar.pointerEvents,'auto','Empty-stage toolbar must accept input');
+  for(const id of ['playPause','skipBack','skipForward','seek'])
+    assert.equal(await page.locator('#'+id).isEnabled(),false,id+' should require media');
+  for(const id of ['muteBtn','volume','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn'])
+    assert.equal(await page.locator('#'+id).isEnabled(),true,id+' should work without media');
+  await page.locator('#muteBtn').click();
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.soundMuted),true,
+    'Mute must work before selecting a movie');
+  await page.locator('#muteBtn').click();
+  await page.locator('#settingsBtn').click();
+  assert.equal(await page.locator('#settingsPanel').isVisible(),true,
+    'Settings must open on an empty stage');
+  await page.locator('#closeSettingsPanel').click();
+  await page.locator('#subtitlesBtn').click();
+  assert.equal(await page.locator('#subtitlePanel').isVisible(),true,
+    'Subtitles must open on an empty stage');
+  await page.locator('#closeSubtitlePanel').click();
+  assert.equal(await page.locator('#dropZone').evaluate(node=>node.classList.contains('has-video')),false,
+    'Opening toolbar options must not select a movie');
+
   assert.equal(await page.locator('#settingsPageParty #rapidRoomCard').count(),1);
   assert.equal(await page.locator('#subFindView #loadSubtitle').count(),1);
   assert.equal(await page.locator('#subFindView #subMoreFilters').count(),1);
