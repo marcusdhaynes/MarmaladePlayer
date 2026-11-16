@@ -100,7 +100,7 @@ function schedule(){
 function setLevel(next){
   level=clamp(Number(next)||0,0,100);
   slider.value=String(level);value.textContent=level+'%';
-  if(flashlightFill){flashlightFill.setAttribute('y',String(21-18*level/100));flashlightFill.setAttribute('height',String(18*level/100));}
+  if(flashlightFill){flashlightFill.setAttribute('y',String(22-20*level/100));flashlightFill.setAttribute('height',String(20*level/100));}
   button.setAttribute('aria-pressed',String(level>0));
   button.title='Adaptive Brightness · '+level+'%';
   if(level===0){
