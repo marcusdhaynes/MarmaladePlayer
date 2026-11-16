@@ -493,6 +493,34 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 .stage.guest-waiting .stage-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:230px;padding:20px 15px;gap:10px}
 .stage.guest-waiting .stage-empty h1{font-size:clamp(20px,4vw,27px)!important;margin:0!important}
 .stage.guest-waiting .stage-empty p{font-size:13px!important;line-height:1.4!important;max-width:320px;margin:0!important}
+
+/* Interactive PiP renders the very same toolbar, subtitles and image filters
+   at the bottom of the OS-floating video. App code never clamps window size. */
+.stage.pip-interactive{container-type:inline-size;overflow:hidden}
+.stage.pip-interactive .mini-player-overlay{display:none!important}
+.stage.pip-interactive .theater-top{display:none!important}
+.stage.pip-interactive .theater-controls{
+ display:block!important;position:absolute!important;bottom:0!important;left:0!important;right:auto!important;
+ width:var(--pip-controls-width,125%)!important;zoom:var(--pip-controls-zoom,.8);
+ margin:0!important;padding:38px 14px 8px!important;transform:none!important;z-index:18!important
+}
+.stage.pip-interactive.controls-visible .theater-controls{opacity:1!important;pointer-events:auto!important}
+.stage.pip-interactive:not(.controls-visible) .theater-controls{opacity:0!important;pointer-events:none!important}
+.stage.pip-interactive .theater-bottom{display:flex!important;flex-wrap:nowrap!important;justify-content:space-between!important}
+.stage.pip-interactive .theater-actions,.stage.pip-interactive .theater-right{display:flex!important;flex-wrap:nowrap!important}
+.stage.pip-interactive .theater-controls .icon-btn{flex:0 0 auto!important}
+.stage.pip-interactive .subtitle-overlay{
+ display:block!important;left:4%!important;right:4%!important;bottom:25%!important;
+ width:auto!important;max-width:none!important;margin:0!important;
+ transform:none!important;padding:0 3px!important;z-index:17!important;
+ font-size:clamp(8px,3.5cqw,23px)!important;line-height:1.2!important;
+ text-align:center!important;pointer-events:none!important;background:transparent!important
+}
+.stage.pip-interactive .subtitle-overlay[hidden]{display:none!important}
+.stage.pip-interactive .theater-popover{z-index:24!important;right:1%!important;bottom:70px!important;
+ max-width:98%!important;max-height:calc(100% - 72px)!important}
+.stage.pip-interactive .adaptive-brightness-popover{z-index:28!important}
+.stage.pip-interactive .stage-poster-preview{display:none!important}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
@@ -4764,6 +4792,36 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
 
   let miniFadeTimer=null;
   let nativePipActive=false;
+  let pipResizeObserver=null;
+  const updatePipControlScale=()=>{
+    if(!el.stage.classList.contains('pip-interactive'))return;
+    const width=Math.max(1,el.stage.clientWidth||1);
+    const height=Math.max(1,el.stage.clientHeight||1);
+    // Scale only the player's original controls. Do not clamp PiP size.
+    const zoom=Math.max(.01,Math.min(.88,width/620,height/225));
+    el.stage.style.setProperty('--pip-controls-zoom',zoom.toFixed(5));
+    el.stage.style.setProperty('--pip-controls-width',(100/zoom).toFixed(3)+'%');
+  };
+  const setInteractivePip=active=>{
+    el.stage.classList.toggle('pip-interactive',active);
+    // All real controls, not a simplified fake transport.
+    setMiniOverlay(false);
+    window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(active);
+    if(active){
+      el.stage.classList.add('controls-visible');
+      updatePipControlScale();
+      if(!pipResizeObserver&&typeof ResizeObserver!=='undefined'){
+        pipResizeObserver=new ResizeObserver(updatePipControlScale);
+        pipResizeObserver.observe(el.stage);
+      }
+      window.MarmaladeSubtitleRefresh?.();
+    }else{
+      pipResizeObserver?.disconnect();pipResizeObserver=null;
+      el.stage.style.removeProperty('--pip-controls-zoom');
+      el.stage.style.removeProperty('--pip-controls-width');
+      window.MarmaladeSubtitleReposition?.();
+    }
+  };
   const showMiniControls=()=>{
     if(!el.stage.classList.contains('mini-pip-visible'))return;
     el.stage.classList.add('mini-controls-awake');
@@ -4784,7 +4842,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     nativePipActive=false;
     document.body.classList.toggle('native-pip-active',active);
     document.body.classList.toggle('floating-overlay-active',active);
-    setMiniOverlay(active);
+    setInteractivePip(active);
     window.MarmaladeSubtitleRefresh?.();
     if(!active)revealControls();
   });
@@ -4794,7 +4852,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     document.body.classList.toggle('native-pip-active',active);
     // Android intercepts taps on a system PiP activity. Showing web buttons
     // there creates dead controls; Android's own 10-second actions remain live.
-    setMiniOverlay(false);
+    setInteractivePip(false);
+    window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(active);
     if(active)window.MarmaladeSubtitleRefresh?.();
     else{document.body.classList.remove('native-pip-active');revealControls();}
   });
@@ -4821,7 +4880,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       pipWindow.close();
     }
     document.body.classList.remove('native-pip-active','floating-overlay-active');
-    setMiniOverlay(false);
+    setInteractivePip(false);
   });
 
   // Document Picture-in-Picture keeps the actual video, timed subtitles,
@@ -4833,7 +4892,8 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     if(stagePlaceholder.parentNode)stagePlaceholder.replaceWith(el.stage);
     else document.querySelector('.screen-column')?.prepend(el.stage);
     stagePlaceholder=null;pipWindow=null;restoringPip=false;
-    setMiniOverlay(false);
+    setInteractivePip(false);
+    window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(false);
     revealControls();
   };
   el.popoutBtn.addEventListener('click',async ()=>{
@@ -4856,12 +4916,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     // The OS requires "Display over other apps" permission once.
     if(window.MarmaladeNativeFloatingPlayer?.enter){
       document.body.classList.add('native-pip-active','floating-overlay-active');
-      setMiniOverlay(true);
+      setInteractivePip(true);
       window.MarmaladeSubtitleRefresh?.();
       try{await window.MarmaladeNativeFloatingPlayer.enter();return;}
       catch(error){
         document.body.classList.remove('native-pip-active','floating-overlay-active');
-        setMiniOverlay(false);
+        setInteractivePip(false);
         notify(error?.message||'Enable Display over other apps to use the interactive mini-player.');
         return;
       }
@@ -4874,10 +4934,12 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       // Android OS PiP remains above other apps, supports pinch-resize and
       // retains the WebView subtitle overlay with its own system controls.
       document.body.classList.add('native-pip-active');
-      setMiniOverlay(false);
+      setInteractivePip(false);
+      window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(true);
       window.MarmaladeSubtitleRefresh?.();
       try{await window.MarmaladeNativePictureInPicture.enter();return;}
-      catch(error){document.body.classList.remove('native-pip-active');setMiniOverlay(false);
+      catch(error){document.body.classList.remove('native-pip-active');
+        window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(false);
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
       }
     }
