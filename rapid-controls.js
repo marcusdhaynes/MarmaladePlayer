@@ -107,14 +107,37 @@
      'Relay configured for the next room/guest connection. Reconnect if already online.':
      'Custom relay cleared. Public STUN only; restrictive VPNs may still block streaming.';
  });
+ const LAST_ROOM_KEY='marmalade:last-joined-room-code';
+ const lastJoinedRoom=()=>{
+   try{
+     const code=localStorage.getItem(LAST_ROOM_KEY)||'';
+     return /^(?:[A-Z2-9]{8}|[A-Z2-9]{12})$/.test(code)?code:'';
+   }catch{return '';}
+ };
  const quickJoin=document.createElement('button');
  quickJoin.id='rapidQuickJoin';quickJoin.type='button';quickJoin.className='rapid-join-entry';
- quickJoin.textContent='Have a code? Join a room';quickJoin.setAttribute('data-no-video-toggle','true');
+ quickJoin.textContent='Rejoin Last Room';quickJoin.setAttribute('data-no-video-toggle','true');
+ quickJoin.title='Rejoin the most recently connected room';
  quickJoin.addEventListener('click',event=>{
    event.stopPropagation();event.preventDefault();
+   const code=lastJoinedRoom();
+   if(!code){bridge.notify('No previous joined room was found.');return;}
+   if(state.role==='guest'&&state.guestConn?.open){
+     bridge.notify('Already connected to room '+state.code+'.');return;
+   }
+   if(state.connecting){bridge.notify('A room connection is already in progress.');return;}
    if(state.role!=='guest')el.joinTab.click();
-   if(el.settingsPanel.hidden)el.settingsBtn.click();
-   layout.activate('party');update();requestAnimationFrame(()=>joinEntry.focus());
+   el.joinInput.value=code;joinEntry.value=code;
+   el.joinRoom.click();
+   bridge.notify('Rejoining last room '+code+'…');
+ });
+ window.addEventListener('marmalade:room-joined',event=>{
+   if(event.detail?.code)quickJoin.title='Rejoin room '+event.detail.code;
+ });
+ window.addEventListener('marmalade:room-join-unavailable',event=>{
+   if(event.detail?.code!==lastJoinedRoom())return;
+   quickJoin.title='Last room is not currently available';
+   bridge.notify('The last room is not available right now.');
  });
  $('stageEmpty')?.appendChild(quickJoin);
  const recentButton=document.createElement('button');
@@ -146,7 +169,7 @@
    recentButton.hidden=!last||state.role!=='host';
    if(!last)return;
    recentButton.querySelector('span').textContent='Resume '+last.name.slice(0,37)+(last.name.length>37?'…':'');
-   recentButton.title=last.handle?'Reopen and resume the last video':'Re-select the last video to resume';
+   recentButton.title=last.handle?'Reopen the saved video without file selection':'Previous browser selection did not preserve the original path';
  }
  window.addEventListener('marmalade:video-selected',async event=>{
    const file=event.detail?.file;
@@ -163,42 +186,87 @@
    missing.hidden=true;
  });
  async function verifyAndOpen(file,handle=null){
-   if(!last||!file)return;
+   if(!last||!file)return false;
    if(file.name!==last.name||file.size!==last.size){
-     missing.textContent='That is not the last video ('+last.name+'). Choose the matching file.';
-     missing.hidden=false;bridge.notify('Last video mismatch. Select the original file.');
-     return;
+     missing.textContent='The file at the saved location differs from '+last.name+'.';
+     missing.hidden=false;bridge.notify('Saved video mismatch; original file required.');
+     return false;
    }
    missing.hidden=true;
+   locateButton.hidden=true;
    state.lastOpenedHandle=handle||null;
-   bridge.chooseVideo(file);
+   bridge.chooseVideo(file);return true;
  }
- recentButton.addEventListener('click',async event=>{
-   event.stopPropagation();event.preventDefault();
-   if(!last||state.role!=='host')return;
-   if(last.handle){
-     try{
-       let perm=await last.handle.queryPermission({mode:'read'});
-       if(perm!=='granted')perm=await last.handle.requestPermission({mode:'read'});
-       if(perm!=='granted')throw Error('File permission is not granted');
-       await verifyAndOpen(await last.handle.getFile(),last.handle);
-       return;
-     }catch(error){
-       last.handle=null;
-       missing.textContent='Last video is no longer accessible. Re-select '+last.name+'.';
-       missing.hidden=false;
-       try{await store('write',last);}catch{}
-     }
-   }
+ const locateButton=document.createElement('button');
+ locateButton.id='rapidLocateMissing';locateButton.type='button';
+ locateButton.className='rapid-join-entry';locateButton.textContent='Locate Missing Video';
+ locateButton.hidden=true;locateButton.setAttribute('data-no-video-toggle','true');
+ missing.after(locateButton);
+ async function locateMissingFile(){
    choosingLast=true;
    if(typeof window.showOpenFilePicker==='function'){
      try{
        const [handle]=await window.showOpenFilePicker({multiple:false});
        if(handle)await verifyAndOpen(await handle.getFile(),handle);
-       choosingLast=false;return;
-     }catch(error){if(error?.name==='AbortError'){choosingLast=false;return;}}
+     }catch(error){
+       if(error?.name!=='AbortError'){
+         // The picker may require a fresh user gesture after async missing-file
+         // verification. Keep an explicit Locate button visible for retry.
+         locateButton.hidden=false;
+       }
+     }finally{choosingLast=false;}
+   }else{
+     // Keep choosingLast until the legacy input actually fires a change event.
+     el.fileInput.click();
    }
-   el.fileInput.click();
+ }
+ locateButton.addEventListener('click',event=>{
+   event.stopPropagation();event.preventDefault();
+   void locateMissingFile();
+ });
+ recentButton.addEventListener('click',async event=>{
+   event.stopPropagation();event.preventDefault();
+   if(!last||state.role!=='host'||recentButton.disabled)return;
+   if(!last.handle){
+     // Ordinary file-input selections do not disclose their original path.
+     // A missing handle is NOT proof that the file moved or was deleted.
+     missing.textContent='This browser did not preserve the previous file location. Select the video again using Choose Video to enable automatic resume where supported.';
+     missing.hidden=false;return;
+   }
+   recentButton.disabled=true;locateButton.hidden=true;
+   try{
+     let file;
+     try{file=await last.handle.getFile();}
+     catch(error){
+       if(error?.name==='NotFoundError'){
+         missing.textContent='Video not found at its saved location: '+last.name+'.';
+         missing.hidden=false;locateButton.hidden=false;
+         bridge.notify('Last video not found. Locate it to continue.');
+         await locateMissingFile();return;
+       }
+       if(error?.name==='NotAllowedError'||error?.name==='SecurityError'){
+         // The browser may revoke permissions after restart. Permission denial
+         // cannot be mistaken for a missing file, so retain the saved handle.
+         const granted=await last.handle.requestPermission?.({mode:'read'});
+         if(granted!=='granted'){
+           missing.textContent='The browser needs access to the saved file. Its location has not been reported missing.';
+           missing.hidden=false;return;
+         }
+         file=await last.handle.getFile();
+       }else throw error;
+     }
+     await verifyAndOpen(file,last.handle);
+   }catch(error){
+     if(error?.name==='NotFoundError'){
+       missing.textContent='Video not found at its saved location: '+last.name+'.';
+       missing.hidden=false;locateButton.hidden=false;
+       bridge.notify('Last video not found. Locate it to continue.');
+       await locateMissingFile();
+     }else{
+       missing.textContent='Cannot reopen saved file: '+String(error?.message||'access unavailable')+'.';
+       missing.hidden=false;
+     }
+   }finally{recentButton.disabled=false;}
  });
  el.fileInput.addEventListener('change',event=>{
    if(!choosingLast)return;
