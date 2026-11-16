@@ -104,7 +104,7 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
         @Override public void run(){
             if(floatingFrame!=null&&floatedWeb instanceof android.webkit.WebView){
                 ((android.webkit.WebView)floatedWeb).evaluateJavascript(
-                    "window.MarmaladeSubtitleRefresh?.();",null);
+                    "window.MarmaladeSubtitleRefresh?.();window.MarmaladeAdaptiveBrightness?.tick?.();",null);
                 floatingHeartbeat.postDelayed(this,200);
             }
         }
@@ -138,8 +138,9 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
                 final int dy=Math.round(e.getRawY()-downY);
                 DisplayMetrics display=getResources().getDisplayMetrics();
                 if(resizing){
-                    int width=Math.max(dp(originalActivity,200),
-                        Math.min(display.widthPixels-dp(originalActivity,12),startWidth+dx));
+                    // No arbitrary 200dp minimum or display-width maximum.
+                    // The OS WindowManager still enforces physical limits.
+                    int width=Math.max(1,startWidth+dx);
                     floatingParams.width=width;
                     floatingParams.height=Math.round(width*9f/16f);
                     floatingParams.y=Math.max(0,Math.min(startY+dy,

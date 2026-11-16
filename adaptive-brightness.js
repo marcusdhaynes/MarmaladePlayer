@@ -14,7 +14,10 @@ const canvas=document.createElement('canvas');
 canvas.width=64;canvas.height=36;
 const ctx=canvas.getContext('2d',{willReadFrequently:true,alpha:false});
 let level=0,smoothed=1,lastSample=0,sampleTimer=0,unavailableSource=null;
-let activeSource='', lastGamma=1,visible=true;
+let activeSource='',lastGamma=1,visible=true,externalPlayback=false;
+const monitor=document.getElementById('hostMonitor');
+const displayedVideo=()=>document.getElementById('dropZone')?.classList.contains('host-monitor-active')?
+  monitor||video:video;
 function sourceId(){return video.currentSrc||video.src||'';}
 function computeGamma(pixels,percent){
   if(percent<=0)return 1;
@@ -47,10 +50,13 @@ function apply(exponent){
   const next=clamp(exponent,.43,1);
   if(level===0){
     video.style.removeProperty('filter');
+    monitor?.style.removeProperty('filter');
     lastGamma=1;return;
   }
   for(const node of funcs)node.setAttribute('exponent',next.toFixed(4));
+  // The gamma SVG is in the stage, and moves to the PiP document with it.
   video.style.filter='url("#adaptiveBrightnessGamma")';
+  if(monitor)monitor.style.filter='url("#adaptiveBrightnessGamma")';
   lastGamma=next;
 }
 function resetSampling(){
@@ -60,12 +66,14 @@ function resetSampling(){
   apply(level===0?1:1-.24*level/100);
 }
 function sample(){
-  if(!level||!visible||video.readyState<2||video.videoWidth<1||video.videoHeight<1)return;
+  const displayed=displayedVideo();
+  if(!level||!visible||displayed.readyState<2||
+     displayed.videoWidth<1||displayed.videoHeight<1)return;
   const source=sourceId();
   if(source!==activeSource)resetSampling();
   if(!ctx||unavailableSource===source)return;
   try{
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    ctx.drawImage(displayed,0,0,canvas.width,canvas.height);
     const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
     const target=computeGamma(pixels,level);
     // Ease brightness changes to prevent visible flicker during scene cuts.
@@ -85,7 +93,8 @@ function schedule(){
   if(now-lastSample>=350){
     lastSample=now;sample();
   }
-  if(!video.paused && !video.ended)sampleTimer=setTimeout(schedule,350);
+  if(!displayedVideo().paused && !displayedVideo().ended)
+    sampleTimer=setTimeout(schedule,350);
 }
 function setLevel(next){
   level=clamp(Number(next)||0,0,100);
@@ -124,13 +133,20 @@ video.addEventListener('emptied',resetSampling);
 video.addEventListener('seeked',()=>{lastSample=0;schedule();});
 video.addEventListener('play',schedule);
 video.addEventListener('pause',()=>{clearTimeout(sampleTimer);sampleTimer=0;sample();});
+function setExternalPlayback(active){
+  externalPlayback=Boolean(active);
+  visible=externalPlayback||!document.hidden;
+  if(visible)schedule();
+  else{clearTimeout(sampleTimer);sampleTimer=0;}
+}
 document.addEventListener('visibilitychange',()=>{
-  visible=!document.hidden;
+  visible=externalPlayback||!document.hidden;
   if(visible)schedule();
   else{clearTimeout(sampleTimer);sampleTimer=0;}
 });
 try{setLevel(Number(localStorage.getItem(KEY))||0);}
 catch{setLevel(0);}
 window.MarmaladeAdaptiveBrightness={setLevel,getLevel:()=>level,getGamma:()=>lastGamma,
-  getSampleState:()=>({source:activeSource,unavailableSource}),computeGamma};
+  setExternalPlayback,isExternalPlayback:()=>externalPlayback,
+  tick:schedule,getSampleState:()=>({source:activeSource,unavailableSource}),computeGamma};
 })();
