@@ -222,8 +222,12 @@
  window.addEventListener('marmalade:video-selected',async event=>{
    const file=event.detail?.file;
    if(!file||state.role!=='host')return;
+   const previous=last;
    last={name:file.name,size:file.size,lastModified:file.lastModified||0,
-     handle:event.detail.handle||null,updated:Date.now()};
+     handle:event.detail.handle||null,updated:Date.now(),
+     positionSeconds:previous?.name===file.name&&previous?.size===file.size?
+       Math.max(0,Number(previous.positionSeconds)||0):0};
+   rememberNative(file,event.detail.handle||null);
    reflectRecent();
    try{await store('write',last);}
    catch{
@@ -242,7 +246,16 @@
    }
    missing.hidden=true;
    locateButton.hidden=true;
+   const resumeAt=Math.max(0,Number(last.positionSeconds)||0);
    state.lastOpenedHandle=handle||null;
+   media.addEventListener('loadedmetadata',()=>{
+     if(resumeAt>.2&&Number.isFinite(media.duration)&&media.duration>0){
+       try{media.currentTime=Math.min(resumeAt,Math.max(0,media.duration-.25));}
+       catch(error){console.debug('Saved position unavailable',error);}
+     }
+     // Resume is an explicit request to play; broadcast toggling is not.
+     void media.play().catch(()=>bridge.notify('Video loaded. Press Play to resume.'));
+   },{once:true});
    bridge.chooseVideo(file);return true;
  }
  const locateButton=document.createElement('button');
