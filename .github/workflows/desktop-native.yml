@@ -5,6 +5,9 @@ on:
     paths:
       - 'desktop/**'
       - 'index.html'
+      - 'standalone-pip.js'
+      - 'adaptive-brightness.js'
+      - 'tests/standalone-pip.test.mjs'
       - 'movie-info.js'
       - 'movie-info.css'
       - 'public-movie-info.js'
@@ -64,6 +67,8 @@ jobs:
           python -m pip install --quiet pillow
           python scripts/export-icon.py
           npx tauri icon ../assets/marmalade-desktop-icon.png
+      - name: Test standalone Picture-in-Picture regression cases
+        run: node tests/standalone-pip.test.mjs
       - name: Package native app
         working-directory: desktop
         run: npx tauri build --bundles ${{ matrix.bundle }}
