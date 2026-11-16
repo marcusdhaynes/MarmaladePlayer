@@ -4471,10 +4471,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
     try{window.MarmaladeNativeOrientation?.set?.('restore');}catch{}
   }
   async function setNativeFullscreen(enter){
-    try{
-      const native=window.MarmaladeNativeFullscreen;
-      if(native)await (enter?native.enter():native.exit());
-    }catch{}
+    const native=window.MarmaladeNativeFullscreen;
+    if(!native)return false;
+    try{await (enter?native.enter():native.exit());return true;}
+    catch(error){
+      if(enter)notify('System fullscreen unavailable: '+(error?.message||String(error)));
+      return false;
+    }
   }
   let browserFullscreenActive=false;
   function leaveTheater(){
@@ -4496,12 +4499,13 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       leaveTheater();return;
     }
     if(el.stage.classList.contains('floating-player'))el.stage.classList.remove('floating-player');
-    // Mark the theater as active BEFORE native orientation changes.
-    state.theaterMode=true;
-    el.stage.classList.add('fullscreen-fallback');
-    document.body.classList.add('theater-open');
+    // Do not pretend the viewport is system fullscreen until the actual
+    // window/fullscreen request has succeeded.
     if(window.MarmaladeNativeFullscreen){
-      await setNativeFullscreen(true);
+      if(!await setNativeFullscreen(true))return;
+      state.theaterMode=true;
+      el.stage.classList.add('fullscreen-fallback');
+      document.body.classList.add('theater-open');
       await applyOrientationPreference();
       window.MarmaladeSubtitleReposition?.();
       revealControls();
@@ -4511,15 +4515,17 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
       if(el.stage.requestFullscreen){
         await el.stage.requestFullscreen();
         browserFullscreenActive=true;
+        state.theaterMode=true;
+        el.stage.classList.add('fullscreen-fallback');
+        document.body.classList.add('theater-open');
         await applyOrientationPreference();
         revealControls();
         return;
       }
     }catch(error){console.debug('Fullscreen API unavailable',error);}
-    // CSS viewport fallback keeps the app's subtitle and playback controls.
-    await applyOrientationPreference();
-    window.MarmaladeSubtitleReposition?.();
-    revealControls();
+    // No fake CSS-only fullscreen: it would still leave the browser chrome
+    // and desktop taskbar visible in embedded webviews.
+    notify('True fullscreen is unavailable in this browser. Use a supported browser or the native app.');
   }
   document.addEventListener('fullscreenchange',()=>{
     if(document.fullscreenElement===el.stage){
@@ -4859,6 +4865,18 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
       }
     }
+    // Prefer the browser's real SYSTEM video PiP, outside the browser
+    // content window; it keeps the authoritative video decoder and timeline.
+    // A detached Document PiP window is only a fallback where system PiP
+    // is unavailable.
+    if(document.pictureInPictureEnabled&&media.requestPictureInPicture){
+      try{await media.requestPictureInPicture();return;}
+      catch(error){console.debug('Native system PiP unavailable',error);}
+    }
+    if(media.webkitSetPresentationMode){
+      try{media.webkitSetPresentationMode('picture-in-picture');return;}
+      catch(error){console.debug('Native video PiP unavailable',error);}
+    }
     if(window.documentPictureInPicture?.requestWindow){
       try{
         const pop=await window.documentPictureInPicture.requestWindow({width:520,height:340});
@@ -4887,15 +4905,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
         restoreDocumentPip();
       }
     }
-    // System video PiP provides playback/resizing where Document PiP is absent.
-    // Web overlays are not retained in legacy video PiP; never pretend otherwise.
-    if(document.pictureInPictureEnabled&&media.requestPictureInPicture){
-      try{await media.requestPictureInPicture();return;}catch{}
-    }
-    if(media.webkitSetPresentationMode){
-      try{media.webkitSetPresentationMode('picture-in-picture');return;}catch{}
-    }
-    notify('External Picture-in-Picture is not exposed by this app environment.');
+    notify('A separate system Picture-in-Picture window is not supported by this browser.');
   });
   window.setInterval(()=>{updateBufferDisplay();updateSubtitles();updateStatusDisplay();},500);
 
