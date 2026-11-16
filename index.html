@@ -526,6 +526,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .theater-c
  position:absolute!important;bottom:0!important;left:0!important;
  width:var(--pip-controls-width,125%)!important;zoom:var(--pip-controls-zoom,.8)
 }
+body.native-pip-active.floating-overlay-active .stage.pip-interactive:not(.controls-visible) .theater-controls{
+ opacity:0!important;pointer-events:none!important
+}
 body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-overlay{
  display:block!important;left:4%!important;right:4%!important;top:auto!important;
  bottom:25%!important;width:auto!important;max-width:none!important;
@@ -4911,6 +4914,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     revealControls();
   };
   el.popoutBtn.addEventListener('click',async ()=>{
+    // The same PiP button must toggle the native overlay off again.
+    // Otherwise hiding the old mini-return button strands the WebView.
+    if(document.body.classList.contains('floating-overlay-active') &&
+       window.MarmaladeNativeFloatingPlayer?.returnToApp){
+      try{await window.MarmaladeNativeFloatingPlayer.returnToApp();}
+      catch(error){notify('Cannot restore player: '+String(error?.message||error));}
+      return;
+    }
     if(pipWindow){pipWindow.close();restoreDocumentPip();return;}
     if(document.pictureInPictureElement){
       try{await document.exitPictureInPicture();}catch{}return;
