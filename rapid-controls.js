@@ -175,9 +175,14 @@
      webview.addEventListener('message',listener);
      timeout=setTimeout(()=>finish(null),3500);
      try{
-       if(handle&&typeof webview.postMessageWithAdditionalObjects==='function')
-         webview.postMessageWithAdditionalObjects({minternetMarmalade:'recover'},[handle]);
-       else webview.postMessage({minternetMarmalade:'resume'});
+       if(handle&&typeof webview.postMessageWithAdditionalObjects==='function'){
+         try{webview.postMessageWithAdditionalObjects({minternetMarmalade:'recover'},[handle]);}
+         catch{
+           // WebView2 accepts File additionalObjects on older runtimes, but
+           // not always FileSystemFileHandle. Fall back to the native saved path.
+           webview.postMessage({minternetMarmalade:'resume'});
+         }
+       }else webview.postMessage({minternetMarmalade:'resume'});
      }catch{finish(null);}
    });
  };
