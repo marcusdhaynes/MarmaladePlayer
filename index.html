@@ -619,7 +619,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <span class="vol-mark" id="volumeMark">100%</span>
                 <div class="adaptive-brightness" id="adaptiveBrightnessControl">
                   <button type="button" class="icon-btn adaptive-brightness-button" id="brightnessBtn" title="Adaptive Brightness" aria-label="Adaptive Brightness" aria-haspopup="true" aria-expanded="false" aria-controls="brightnessPopover">
-                    <svg class="glass-icon adaptive-brightness-icon" viewBox="0 0 447 447" width="21" height="21" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M162,310 167,318 178,326 158,346 154,348 147,347 141,341 140,334 142,330Z M186,288 195,290 200,298 198,306 192,311 183,310 177,303 178,294Z M194,195 251,253 215,289 204,276 194,272 179,273 169,279 131,317 124,330 124,342 129,353 141,363 75,429 69,429 17,377 17,371Z M310,147 306,150 305,157 309,162 315,163 321,158 321,152 316,147Z M217,137 219,136 310,228 266,243 203,180Z M446,129 441,123 433,123 393,134 388,138 387,144 392,150 399,150 440,139 445,135Z M266,104 262,109 263,116 291,144 298,145 303,140 302,132 274,104Z M270,76 370,175 327,219 227,120Z M274,56 270,55 264,58 208,114 187,177 3,362 0,370 0,378 4,387 59,442 68,446 76,446 87,441 269,259 332,238 390,179 391,175 388,169Z M399,47 395,45 387,47 354,81 355,89 359,92 365,92 399,59 401,55Z M317,0 311,1 307,6 296,47 296,54 302,59 308,58 312,53 323,13 323,5Z"/></svg>
+                    <svg class="glass-icon adaptive-brightness-icon" viewBox="0 0 24 24" width="21" height="21" fill="none" aria-hidden="true"><defs><clipPath id="adaptiveFlashlightClip"><path d="M7 3h10l-1.5 5-2.5 3v6h-1v4h-2v-4H9v-6L8.5 8Z"/></clipPath></defs><g clip-path="url(#adaptiveFlashlightClip)"><rect id="adaptiveFlashlightFill" x="0" y="21" width="24" height="0" fill="#fff"/></g><path d="M7 3h10l-1.5 5H8.5L7 3ZM8.5 8h7L13 11v6h-1v4h-2v-4H9v-6L8.5 8Z" stroke="white" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/></svg>
                   </button>
                   <div id="brightnessPopover" class="adaptive-brightness-popover" role="group" aria-label="Adaptive Video Brightness" hidden>
                     <output id="brightnessValue" for="brightnessSlider">0%</output>
@@ -4814,6 +4814,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return loadSelectedSubtitle(file,null,{kind:'search',url:item.url,
       name:item.name,filename:item.filename,fps:item.fps||0,mediaKey,restoreToken:ticket});
   };
+  const purePipStyle='.stage.pip-interactive{background:#050509!important;box-shadow:none!important;outline:0!important;border:0!important;border-radius:0!important}'+'.stage.pip-interactive .stage-quick-actions,.stage.pip-interactive #rapidResumeLast,.stage.pip-interactive #rapidQuickJoin,.stage.pip-interactive .mini-player-overlay{display:none!important}';
+  const pureStyle=document.createElement('style');pureStyle.textContent=purePipStyle;document.head.appendChild(pureStyle);
   const miniOverlay=document.getElementById('miniPlayerOverlay');
   const miniBack=document.getElementById('miniSkipBack');
   const miniPlay=document.getElementById('miniPlayPause');
@@ -5019,8 +5021,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
       }
     }
-    // Document PiP creates a REAL floating browser-managed OS window and can
-    // render our own subtitles, adaptive brightness and full original toolbar.
+    // Prefer chrome-free native PiP when neither overlays nor adaptive lighting are needed.
+    const enhancedPipNeeded=!!state.subtitlesEnabled || (window.MarmaladeAdaptiveBrightness?.getLevel?.()||0)>0;
+    if(!enhancedPipNeeded && document.pictureInPictureEnabled && media.requestPictureInPicture){
+      try{await media.requestPictureInPicture();return;}catch(error){console.debug('Native PiP unavailable',error);}
+    }
+    // Document PiP carries the actual video, subtitles and adaptive lighting in a separate floating surface.
     // The browser owns external window min/max sizing; no app-level clamps.
     if(window.documentPictureInPicture?.requestWindow){
       try{
@@ -5038,7 +5044,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         style.textContent=
           'html,body{margin:0!important;padding:0!important;background:#050509!important;width:100%!important;height:100%!important;overflow:hidden!important}'+
           '.stage{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;aspect-ratio:auto!important;border-radius:0!important;border:0!important}'+
-          '.stage.pip-interactive .mini-player-overlay{display:none!important}';
+          '.stage.pip-interactive .mini-player-overlay{display:none!important}'+purePipStyle;
         pop.document.head.appendChild(style);
         // This is the same original <video>, subtitle overlay, slider and
         // SVG gamma filter. No copied playback state or duplicate decoder.
@@ -5517,8 +5523,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         notify('Open your video in a browser-supported MP4/WebM format; window sharing is unavailable.');
         return;
       }
-      notify('Open the movie in a desktop player such as VLC, then select its window to share.');
-      void shareScreen();
+      notify('Try a supported codec. To share a window, explicitly choose that option in Settings; recovery never requests screen, camera or microphone access.');
     }else if(state.role==='guest' && state.source==='remote' && state.guestConn?.open){
       if(!state.pictureRepairAsked){
         state.pictureRepairAsked=true;
