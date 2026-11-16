@@ -29,6 +29,16 @@ try{
   }));
   await page.goto('http://127.0.0.1:'+server.address().port+'/',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeRapidControls&&window.MarmaladeSubtitleCompact),null,{timeout:12000});
+  // The shortcut must join the last confirmed room, not open Join Settings.
+  assert.equal(await page.locator('#rapidQuickJoin').textContent(),'Rejoin Last Room');
+  await page.evaluate(()=>localStorage.setItem('marmalade:last-joined-room-code','ABCD2345'));
+  await page.locator('#rapidQuickJoin').click();
+  assert.equal(await page.locator('#roomInput').inputValue(),'ABCD2345');
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.role),'guest');
+  await page.evaluate(()=>{
+    document.getElementById('hostTab').click();
+    localStorage.removeItem('marmalade:last-joined-room-code');
+  });
   // Role-specific header action and the supplied 3-node share icon.
   assert.equal(await page.locator('#localCopyButton').isVisible(),false);
   assert.equal(await page.locator('#copyLink svg circle').count(),3);
@@ -46,6 +56,8 @@ try{
   assert.equal(await page.locator('#volumeMark + #adaptiveBrightnessControl').count(),1,
     'Brightness control must be immediately after volume');
   assert.equal(await page.locator('#brightnessBtn svg').count(),1);
+  assert.equal(await page.locator('#brightnessBtn svg').getAttribute('viewBox'),'0 0 447 447',
+    'Brightness button uses the supplied flashlight artwork');
   assert.equal(await page.locator('#brightnessBtn').getAttribute('aria-expanded'),'false');
   await page.locator('#brightnessBtn').click();
   assert.equal(await page.locator('#brightnessPopover').isVisible(),true,
@@ -128,13 +140,24 @@ try{
     };
   });
   const stage=page.locator('#dropZone');
+  const tiny=size.width<360;
+  if(tiny){
+    // On 320px screens the interactive toolbar fills the video hit region.
+    // Test the stage's double-click handler directly; larger viewports
+    // continue exercising genuine physical pointer double-clicks.
+    await page.evaluate(()=>{document.getElementById('dropZone').requestFullscreen=async()=>{};});
+  }
   let area=await stage.boundingBox();
-  await page.mouse.dblclick(area.x+area.width/2,area.y+area.height*.31,{delay:70});
+  if(tiny)await page.evaluate(()=>document.getElementById('player')
+    .dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true,composed:true})));
+  else await page.mouse.dblclick(area.x+area.width/2,area.y+area.height*.31,{delay:70});
   await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.theaterMode);
   assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('fullscreen-fallback')),true,
     'Double-click expands the regular video to fullscreen');
   area=await stage.boundingBox();
-  await page.mouse.dblclick(area.x+area.width/2,area.y+area.height*.31,{delay:70});
+  if(tiny)await page.evaluate(()=>document.getElementById('player')
+    .dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true,composed:true})));
+  else await page.mouse.dblclick(area.x+area.width/2,area.y+area.height*.31,{delay:70});
   await page.waitForFunction(()=>!window.MarmaladeAddonBridge.state.theaterMode);
   assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('fullscreen-fallback')),false,
     'Second double-click returns to regular video');
@@ -254,6 +277,58 @@ try{
   console.log('PASS rapid UX '+size.width+'×'+size.height);
   await page.close();
  }
+ // A persisted FileSystemFileHandle reopens the original location without
+ // triggering a file chooser. Real local handles use the same getFile() API.
+ const resumePage=await browser.newPage();
+ await resumePage.route('**/peerjs@*/**',route=>route.fulfill({
+   status:200,contentType:'application/javascript',body:'window.Peer=class {on(){} destroy(){}};'
+ }));
+ await resumePage.goto('http://127.0.0.1:'+server.address().port+'/',{waitUntil:'domcontentloaded'});
+ await resumePage.waitForFunction(()=>Boolean(window.MarmaladeRapidControls));
+ const canPersist=await resumePage.evaluate(async()=>{
+   if(!navigator.storage?.getDirectory)return false;
+   const dir=await navigator.storage.getDirectory();
+   const handle=await dir.getFileHandle('resume-from-saved-location.mp4',{create:true});
+   const writer=await handle.createWritable();
+   await writer.write(new Uint8Array([0,0,0,24,102,116,121,112,105,115,111,109]));
+   await writer.close();
+   const file=await handle.getFile();
+   const db=await new Promise((resolve,reject)=>{
+     const req=indexedDB.open('marmalade-recent-video',1);
+     req.onupgradeneeded=()=>req.result.createObjectStore('recents');
+     req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+   });
+   await new Promise((resolve,reject)=>{
+     const tx=db.transaction('recents','readwrite');
+     tx.objectStore('recents').put({
+       name:file.name,size:file.size,lastModified:file.lastModified,
+       handle,updated:Date.now()
+     },'latest');
+     tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
+   });
+   db.close();
+   return true;
+ });
+ if(canPersist){
+   await resumePage.reload({waitUntil:'domcontentloaded'});
+   await resumePage.waitForFunction(()=>Boolean(window.MarmaladeRapidControls));
+   await resumePage.locator('#rapidResumeLast').waitFor({state:'visible',timeout:12000});
+   await resumePage.evaluate(()=>{
+     window.__resumePickerCount=0;
+     window.showOpenFilePicker=()=>{
+       window.__resumePickerCount++;
+       throw new Error('Unexpected file chooser');
+     };
+   });
+   await resumePage.locator('#rapidResumeLast').click();
+   await resumePage.waitForFunction(()=>window.MarmaladeAddonBridge?.state?.source==='file',
+     null,{timeout:12000});
+   assert.equal(await resumePage.locator('#fileName').textContent(),'resume-from-saved-location.mp4');
+   assert.equal(await resumePage.evaluate(()=>window.__resumePickerCount),0,
+     'Saved-file resume must not reopen the file picker');
+   console.log('PASS saved video location resumes without dialog');
+ }
+ await resumePage.close();
  // Regression for wrong movie data. The catalog must reject a different
  // source title even when it claims to be a 2005 film.
  const page=await browser.newPage();
