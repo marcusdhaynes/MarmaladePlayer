@@ -5,6 +5,9 @@ on:
     paths:
       - 'mobile/**'
       - 'index.html'
+      - 'standalone-pip.js'
+      - 'adaptive-brightness.js'
+      - 'tests/standalone-pip.test.mjs'
       - 'movie-info.js'
       - 'movie-info.css'
       - 'public-movie-info.js'
