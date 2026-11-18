@@ -1354,6 +1354,26 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, rest = s % 60;
     return (h ? `${h}:${String(m).padStart(2, '0')}` : String(m).padStart(2, '0')) + ':' + String(rest).padStart(2, '0');
   }
+  // Browser durationchange events may temporarily report a truncated timeline after seeking.
+  // Keep the largest finite runtime observed for the same media resource; reset on source changes.
+  let durationResourceKey = '';
+  let durationHighWater = 0;
+  function stableMovieDuration() {
+    const key = media.currentSrc || media.src || '';
+    if (key !== durationResourceKey) {
+      durationResourceKey = key;
+      durationHighWater = 0;
+    }
+    const reported = Number(media.duration);
+    if (Number.isFinite(reported) && reported > 0)
+      durationHighWater = Math.max(durationHighWater, reported);
+    return durationHighWater || reported;
+  }
+  media.addEventListener('durationchange', () => {
+    stableMovieDuration();
+    updateTransport();
+  });
+
   function updateTransport() {
     updateBroadcastIndicator();
     const chromePaused=isPlaybackPausedForControls();
@@ -1362,7 +1382,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(chromePaused)revealControls();
       else scheduleControlsFade();
     }
-    const duration = media.duration;
+    const duration = stableMovieDuration();
     const isFile = ['file','hosted'].includes(state.source) && state.fileReady && state.role === 'host';
     const guestConnected = state.role === 'guest' && Boolean(state.guestConn?.open);
     const guestHasTimeline = guestConnected && state.sharedDuration > 0;
@@ -1521,6 +1541,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       state.bufferedMode||state.source==='hosted-guest';
     const timeline=localPresentation?Number(media.currentTime)||0:
       expectedHostTime();
+    // Re-evaluate against the current presentation timestamp after every seek.
     const subtitleTime=window.MarmaladeSubtitleClock ?
       window.MarmaladeSubtitleClock(timeline):timeline;
     // Cues are ordered: logarithmic lookup instead of scanning thousands of cues
