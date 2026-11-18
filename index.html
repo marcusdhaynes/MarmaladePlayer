@@ -1179,7 +1179,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(!(duration>0))return;
       position=expectedHostTime();
     }else{
-      duration=media.duration;
+      duration=stableMovieDuration();
       position=media.currentTime;
     }
     if(!Number.isFinite(duration)||!(duration>0)||!Number.isFinite(position)||position<0)return;
@@ -1198,7 +1198,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   function restoreWatchPosition(){
     if(state.role!=='host'||!['file','hosted'].includes(state.source)||
-      state.resumeChecked||!Number.isFinite(media.duration)||media.duration<=0)return;
+      state.resumeChecked||!Number.isFinite(stableMovieDuration())||stableMovieDuration()<=0)return;
     if(media.currentTime>2||!media.paused){state.resumeChecked=true;return;}
     const record=progressKeys().map(key=>watchProgress[key])
       .filter(value=>value&&Number.isFinite(value.time)&&Number.isFinite(value.updated))
@@ -1206,11 +1206,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!record && state.source==='file'&&!state.localFingerprint)return;
     state.resumeChecked=true;
     if(!record)return;
-    if(Math.abs(record.duration-media.duration)>Math.max(3,media.duration*.005))return;
+    const duration=stableMovieDuration();
+    if(Math.abs(record.duration-duration)>Math.max(3,duration*.005))return;
     const point=record.time;
-    if(point<5||point>=Math.max(media.duration-30,media.duration*.98))return;
+    if(point<5||point>=Math.max(duration-30,duration*.98))return;
     try{
-      media.currentTime=Math.min(point,media.duration-3);
+      media.currentTime=Math.min(point,duration-3);
       notify('Resumed '+el.fileName.textContent+' at '+timeString(point)+'.');
       void restoreSavedSubtitle();
     }catch{}
@@ -1354,21 +1355,31 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, rest = s % 60;
     return (h ? `${h}:${String(m).padStart(2, '0')}` : String(m).padStart(2, '0')) + ':' + String(rest).padStart(2, '0');
   }
-  // Browser durationchange events may temporarily report a truncated timeline after seeking.
-  // Keep the largest finite runtime observed for the same media resource; reset on source changes.
+  // The original FILE is the timeline identity, not the current <video> src.
+  // MKV audio conversion replaces src with an MSE blob without changing the
+  // movie; a durationchange there must never shorten its seekable timeline.
+  // Hosted streams, by contrast, may legitimately change their live duration.
   let durationResourceKey = '';
   let durationHighWater = 0;
   function stableMovieDuration() {
-    const key = media.currentSrc || media.src || '';
+    const localFile = state.role === 'host' && state.source === 'file' &&
+      Boolean(state.fileUrl);
+    const key = localFile ? 'file:' + state.fileUrl :
+      (state.source || '') + ':' + (media.currentSrc || media.src || '');
     if (key !== durationResourceKey) {
       durationResourceKey = key;
       durationHighWater = 0;
     }
     const reported = Number(media.duration);
+    if (!localFile) return reported;
+    const remuxed = Number(window.MarmaladeMkvAudio?.getDuration?.());
+    if (Number.isFinite(remuxed) && remuxed > 0)
+      durationHighWater = Math.max(durationHighWater, remuxed);
     if (Number.isFinite(reported) && reported > 0)
       durationHighWater = Math.max(durationHighWater, reported);
     return durationHighWater || reported;
   }
+  window.MarmaladeStableDuration = stableMovieDuration;
   media.addEventListener('durationchange', () => {
     stableMovieDuration();
     updateTransport();
@@ -1462,7 +1473,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const seekable = state.localVerified || state.bufferedMode ||
       state.source === 'file' || state.source === 'hosted' ||
       state.source === 'hosted-guest';
-    const duration = media.duration;
+    const duration = state.role === 'host' && state.source === 'file' ?
+      stableMovieDuration() : media.duration;
     const track = el.bufferedFill;
     const ranges = [];
     if (seekable && Number.isFinite(duration) && duration > 0 && media.buffered) {
@@ -1572,7 +1584,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
   }
   window.MarmaladeSubtitleRefresh=updateSubtitles;
-  for(const eventName of ['timeupdate','seeking','seeked','play','pause','ratechange','loadedmetadata'])
+  for(const eventName of ['timeupdate','seeking','seeked','play','pause','ratechange','loadedmetadata','durationchange'])
     media.addEventListener(eventName,updateSubtitles,{passive:true});
   function showStage(show) {
     el.stage.classList.toggle('has-video', show);
@@ -1610,7 +1622,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function hostStatus() {
     return { type: 'state', name: state.file ? state.file.name : state.source === 'screen' ? 'Shared player window' : 'Waiting for video',
       playing: !media.paused, time: ['file','hosted'].includes(state.source) ? media.currentTime : 0,
-      duration: ['file','hosted'].includes(state.source) && Number.isFinite(media.duration) ? media.duration : 0,
+      duration: ['file','hosted'].includes(state.source) && Number.isFinite(stableMovieDuration()) ? stableMovieDuration() : 0,
       live: state.broadcasting || state.source === 'hosted', sourceHeight: sourceHeight(), sourceWidth: media.videoWidth || 0,
       revision: state.transportRevision, fingerprint: state.localFingerprint,
       sentAt: performance.now(), seq: ++state.localSnapshotSequence,
@@ -1647,7 +1659,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       // congested. The next accepted packet has its own absolute timestamp.
       if(!urgent && (entry.conn.dataChannel?.bufferedAmount||0)>2048)continue;
       const snapshot=full?hostStatus():{
-        type:'local-clock',time:media.currentTime,duration:media.duration,
+        type:'local-clock',time:media.currentTime,duration:stableMovieDuration(),
         playing,revision,sentAt:performance.now(),seq:++state.localSnapshotSequence,
         ackId,ackPeer
       };
@@ -1676,11 +1688,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if (action === 'play') void media.play().catch(() => notify('Playback blocked. Tap play again.'));
     if (action === 'pause') media.pause();
     if (action === 'seek' && Number.isFinite(Number(value))) {
-      media.currentTime = Math.min(media.duration || 0, Math.max(0, Number(value)));
+      media.currentTime = Math.min(stableMovieDuration() || 0, Math.max(0, Number(value)));
       issueKeyframe();
     }
     if (action === 'skip' && Number.isFinite(Number(value))) {
-      media.currentTime = Math.min(media.duration || 0, Math.max(0, media.currentTime + Math.max(-60, Math.min(60, Number(value)))));
+      media.currentTime = Math.min(stableMovieDuration() || 0, Math.max(0, media.currentTime + Math.max(-60, Math.min(60, Number(value)))));
       issueKeyframe();
     }
     state.transportRevision++;
@@ -1721,6 +1733,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.pendingTransport = { id, expires: now + ackWindow,
       action, value, attempts: 0, retryAt: now + retryDelay, retryDelay };
     updateTransport();
+    updateSubtitles();
     // For seekable sources this is an immediate local preview; P2P cannot
     // display future frames until the host's stream reaches the requested position.
     // For live WebRTC the host still owns the shared play/pause clock; keep
@@ -3611,6 +3624,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       }
     }
     updateTransport();
+    updateSubtitles(); // Host seeks can change the movie clock without a media seek event.
     if (!data.live && state.source !== 'remote' && !state.localVerified && !state.bufferedMode) {
       if (data.playing && state.guestConn?.open)
         requestMissingMedia('host-playing-without-media');
@@ -4810,7 +4824,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         console.warn('Could not save subtitle selection',error);
       }
     }
-    const duration=state.role==='guest'?state.sharedDuration:media.duration;
+    const duration=state.role==='guest'?state.sharedDuration:stableMovieDuration();
     const ending=decoded.cues[decoded.cues.length-1].end;
     if(Number.isFinite(duration)&&duration>120&&ending>duration+Math.max(60,duration*.03))
       notify('Subtitle Timing Does Not Match This Video. Try Another Release Or Adjust Timing.');
@@ -5422,13 +5436,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   });
   el.back.addEventListener('click', () => { const seconds=skipSeconds(); if (state.role === 'guest') guestCommand('skip', -seconds); else applyTransport('skip', -seconds); });
   el.forward.addEventListener('click', () => { const seconds=skipSeconds(); if (state.role === 'guest') guestCommand('skip', seconds); else applyTransport('skip', seconds); });
-  const seekTime = () => (state.role === 'guest' ? state.sharedDuration : media.duration) * Number(el.seek.value) / 1000;
+  const seekTime = () => (state.role === 'guest' ? state.sharedDuration : stableMovieDuration()) * Number(el.seek.value) / 1000;
   el.seek.addEventListener('pointerdown', () => { state.seeking = true; });
   el.seek.addEventListener('input', () => { state.seeking = true; el.current.textContent = timeString(seekTime()); });
   let previousSeek={at:0,time:-1};
   const commitSeek=(time)=>{
     if(!Number.isFinite(time))return;
-    const duration=state.role==='guest'?state.sharedDuration:media.duration;
+    const duration=state.role==='guest'?state.sharedDuration:stableMovieDuration();
     if(!Number.isFinite(duration)||duration<=0)return;
     time=Math.max(0,Math.min(duration,time));
     if(performance.now()-previousSeek.at<180&&Math.abs(previousSeek.time-time)<.2)return;
