@@ -61,6 +61,7 @@
   // audio. The local monitor is a second playback head, never a sender.
   let previewNode=null,previewAudioActive=false,previewBusy=false;
   let previewSource='',lastPreviewSeek=0,lastAutoDelay=0;
+  let monitorDelaySeconds=0;
   let manualSeconds=2;
   // Default to the original decoded picture. Delayed monitoring is opt-in.
   let syncMode='off';
@@ -105,6 +106,8 @@
     preview.playbackRate=1;
     if(previewSource){preview.removeAttribute('src');preview.load();previewSource='';}
     lastAutoDelay=0;
+    monitorDelaySeconds=0;
+    window.MarmaladeSubtitleRefresh?.();
   }
   window.MarmaladeHostSyncCleanup=stopMonitor;
   function measuredDelay(){
@@ -170,6 +173,7 @@
       return;
     }
     const delay=clamp(seconds,0,8);
+    monitorDelaySeconds=delay;
     info.textContent=(syncMode==='manual'?'Manual':'Guest-measured')+
       ' host video + sound delay: '+delay.toFixed(2)+'s';
     if(delay<0.05){
@@ -217,6 +221,29 @@
     manualSeconds=Number(delayInput.value);
     delayOutput.textContent=manualSeconds.toFixed(2)+'s';
     if(syncMode==='manual')updateMonitor();
+  });
+  // Unlike routine buffer drift, a user-initiated seek jumps the media
+  // timeline. The delayed host monitor must jump with it, even when paused.
+  // Otherwise it tries to 'play through' a 20-minute seek at normal speed
+  // and captions follow the OLD preview position instead of the new frame.
+  function followExplicitSeek(){
+    if (!state.hostSyncActive || previewSource !== state.fileUrl) return;
+    const target=clamp(media.currentTime-monitorDelaySeconds,0,
+      Number.isFinite(preview.duration)?preview.duration:media.currentTime);
+    if (!Number.isFinite(target)) return;
+    if (Math.abs(preview.currentTime-target)>.035) {
+      try { preview.currentTime=target; lastPreviewSeek=performance.now(); }
+      catch (error) { console.debug('Monitor seek correction unavailable',error); }
+    }
+    window.MarmaladeSubtitleRefresh?.();
+  }
+  media.addEventListener('seeking',followExplicitSeek);
+  media.addEventListener('seeked',followExplicitSeek);
+  // Captions must refresh on the actually displayed delayed frame, including
+  // paused seeks; the main media timeupdate clock is not that frame.
+  preview.addEventListener('seeked',()=>window.MarmaladeSubtitleRefresh?.());
+  preview.addEventListener('timeupdate',()=>{
+    if (state.hostSyncActive) window.MarmaladeSubtitleRefresh?.();
   });
   window.setInterval(updateMonitor,300);
   window.addEventListener('pagehide',stopMonitor);
