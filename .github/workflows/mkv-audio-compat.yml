@@ -8,6 +8,15 @@ on:
       - 'scripts/install-mkv-decoder.mjs'
       - 'tests/mkv-audio-compat.mjs'
       - '.github/workflows/mkv-audio-compat.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'auto-mkv-audio.js'
+      - 'watch-sync-subtitles.js'
+      - 'seek-preview.js'
+      - 'tests/mkv-audio-compat.mjs'
+      - '.github/workflows/mkv-audio-compat.yml'
   workflow_dispatch:
 
 permissions:
