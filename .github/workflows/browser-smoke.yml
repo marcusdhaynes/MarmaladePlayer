@@ -20,6 +20,8 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox
       - name: Prepare local-video verification fixture encoder
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Verify fixed duration and caption seek regressions
+        run: node tests/media-timeline-regression.mjs
       - run: node tests/browser-smoke.mjs
       - name: Verify non-black WebRTC frames in Chromium and Firefox
         if: ${{ !cancelled() }}

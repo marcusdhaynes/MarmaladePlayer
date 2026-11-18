@@ -86,6 +86,38 @@ try{
   assert(playback.audioTracks>0,'Remuxed video must include a real audio track');
   assert(playback.energy>.001,'Decoded E-AC-3 test tone must not be silent');
 
+  // An actual remuxed E-AC-3/MSE file: seeking backward and forward must
+  // never make the movie's reported or seekable length collapse. Subtitles
+  // must follow the newly presented timeline while paused.
+  await page.locator('#playPause').click({force:true});
+  await page.waitForFunction(()=>document.querySelector('#player').paused);
+  const fullDuration=await page.evaluate(()=>document.querySelector('#player').duration);
+  assert(fullDuration>=11.5&&fullDuration<=12.5,
+    'The original 12s MKV duration must be preserved through audio remux');
+  await page.locator('#subtitleFile').setInputFiles({
+    name:'seek-regression.vtt',mimeType:'text/vtt',
+    buffer:Buffer.from('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nEARLY CUE\n\n00:00:07.000 --> 00:00:10.000\nLATE CUE\n')
+  });
+  await page.waitForFunction(()=>document.querySelector('#subtitleName').textContent.includes('2 Cues'));
+  for(const [time,caption] of [[8.1,'LATE CUE'],[1.6,'EARLY CUE'],
+      [8.6,'LATE CUE'],[2.1,'EARLY CUE']]){
+    await page.evaluate(target=>{document.querySelector('#player').currentTime=target;},time);
+    await page.waitForFunction(({at,cue})=>{
+      const video=document.querySelector('#player'),sub=document.querySelector('#subtitleOverlay');
+      return !video.seeking && Math.abs(video.currentTime-at)<.55 &&
+        !sub.hidden && sub.textContent.includes(cue);
+    },{at:time,cue:caption},{timeout:12000});
+    const duration=await page.evaluate(()=>({
+      media:document.querySelector('#player').duration,
+      stable:window.MarmaladeStableDuration?.()
+    }));
+    assert(Math.abs(duration.media-fullDuration)<1,
+      'MSE must not reduce the real media duration after a skip or rewind');
+    assert(Math.abs(duration.stable-fullDuration)<1,
+      'The player timeline must match the actual full runtime');
+  }
+  console.log('PASS real remuxed MKV seeking and paused caption synchrony');
+
   // Verify pointer gesture can fully stop, without a delayed picker click.
   let chooserCount=0;
   page.on('filechooser',()=>chooserCount++);

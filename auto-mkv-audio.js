@@ -84,9 +84,10 @@
   }
 
   async function nextChunk(session) {
-    if (!isCurrent(session) || session.running || session.finished ||
+    if (!isCurrent(session) || session.running ||
+        (session.finished && session.seekTo === null) ||
         !session.buffer || session.buffer.updating ||
-        bufferedAhead(session) > 30) return;
+        (session.seekTo === null && bufferedAhead(session) > 30)) return;
     session.running = true;
     try {
       if (session.seekTo !== null) {
@@ -101,10 +102,31 @@
         session.finished = !!chunk?.finished || !chunk?.data?.byteLength;
       }
       if (!isCurrent(session)) return;
-      if (session.finished && session.mediaSource.readyState === 'open' &&
-          !session.buffer.updating) {
-        try { session.mediaSource.endOfStream(); } catch {}
-      } else {
+      // MediaSource.endOfStream() can RESET duration to the last buffered
+      // timestamp. A seek/remux pass can report 'finished' when only the first
+      // half of a movie has been appended. Never finalize such a partial range.
+      // This must be fixed at the media source; a UI high-water mark alone
+      // cannot restore the missing seekable half of a truncated movie.
+      const source = session.mediaSource;
+      const duration = session.declaredDuration;
+      if (source.readyState === 'open' && Number.isFinite(duration) && duration > 0 &&
+          Number.isFinite(source.duration) && source.duration < duration - .05) {
+        try { source.duration = duration; } catch (error) {
+          console.warn('Could not preserve MKV media duration', error);
+        }
+      }
+      let lastBufferedEnd = 0;
+      const ranges = session.buffer.buffered;
+      for (let i = 0; i < ranges.length; i++)
+        lastBufferedEnd = Math.max(lastBufferedEnd, ranges.end(i));
+      const atActualEnd = Number.isFinite(duration) && duration > 0 &&
+        lastBufferedEnd >= duration - Math.max(1, Math.min(3, duration * .001));
+      if (session.finished && session.seekTo === null && atActualEnd &&
+          source.readyState === 'open' && !session.buffer.updating) {
+        try { source.endOfStream(); } catch (error) {
+          console.warn('MKV end-of-stream finalization failed', error);
+        }
+      } else if (!session.finished) {
         await discardOld(session);
       }
     } catch (error) {
@@ -115,6 +137,10 @@
       }
     } finally {
       session.running = false;
+      // An intervening rapid seek must not wait for the next 300 ms poll or
+      // be lost merely because the previous read reached its own EOF.
+      if (isCurrent(session) && session.seekTo !== null)
+        void nextChunk(session);
     }
   }
 
@@ -126,7 +152,7 @@
 
     const session = { file, video: app.media, closed: false, url: '',
       remuxer: null, mediaSource: null, buffer: null, interval: 0,
-      running: false, finished: false, seekTo: null,
+      running: false, finished: false, seekTo: null, declaredDuration: 0,
       onSeeking: null, onTimeUpdate: null };
     current = session;
 
@@ -174,8 +200,10 @@
       session.buffer.mode = 'segments';
       session.buffer.timestampOffset = header.timestampOffset || 0;
       const duration = Number(header.info?.input?.duration);
-      if (Number.isFinite(duration) && duration > 0)
+      if (Number.isFinite(duration) && duration > 0) {
+        session.declaredDuration = duration;
         source.duration = duration;
+      }
 
       await append(session, header.data);
       if (!isCurrent(session)) return false;
@@ -212,6 +240,11 @@
     }
   }
 
-  window.MarmaladeMkvAudio = { handle, cleanup };
+  window.MarmaladeMkvAudio = {
+    handle, cleanup,
+    getDuration: () => current && isCurrent(current) &&
+      Number.isFinite(current.declaredDuration) && current.declaredDuration > 0 ?
+      current.declaredDuration : 0
+  };
   window.addEventListener('marmalade:media-cleared', cleanup);
 })();

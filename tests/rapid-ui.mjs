@@ -56,8 +56,10 @@ try{
   assert.equal(await page.locator('#volumeMark + #adaptiveBrightnessControl').count(),1,
     'Brightness control must be immediately after volume');
   assert.equal(await page.locator('#brightnessBtn svg').count(),1);
-  assert.equal(await page.locator('#brightnessBtn svg').getAttribute('viewBox'),'0 0 447 447',
-    'Brightness button uses the supplied flashlight artwork');
+  assert.equal(await page.locator('#brightnessBtn svg').getAttribute('viewBox'),'0 0 24 24',
+    'Brightness button uses the current compact flashlight artwork');
+  assert.equal(await page.locator('#adaptiveFlashlightFill').count(),1,
+    'Flashlight icon fill must remain driven by the brightness setting');
   assert.equal(await page.locator('#brightnessBtn').getAttribute('aria-expanded'),'false');
   await page.locator('#brightnessBtn').click();
   assert.equal(await page.locator('#brightnessPopover').isVisible(),true,
