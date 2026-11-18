@@ -38,7 +38,8 @@
  const cache=new Map(),hostThrottle=new WeakMap(),captureQueue=[];
  const MAX_CACHED=96,BUCKET_SECONDS=.125;
  const limit=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
- const duration=()=>state.role==='guest'?Number(state.sharedDuration)||0:Number(media.duration)||0;
+ const duration=()=>state.role==='guest'?Number(state.sharedDuration)||0:
+   (Number(window.MarmaladeStableDuration?.() ?? media.duration)||0);
  const format=seconds=>{
   const t=Math.max(0,Math.floor(Number(seconds)||0)),h=Math.floor(t/3600),
     m=Math.floor(t%3600/60),s=t%60;
