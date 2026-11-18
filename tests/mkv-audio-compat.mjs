@@ -96,7 +96,7 @@ try{
     'The original 12s MKV duration must be preserved through audio remux');
   await page.locator('#subtitleFile').setInputFiles({
     name:'seek-regression.vtt',mimeType:'text/vtt',
-    buffer:Buffer.from('WEBVTT\\n\\n00:00:01.000 --> 00:00:03.000\\nEARLY CUE\\n\\n00:00:07.000 --> 00:00:10.000\\nLATE CUE\\n')
+    buffer:Buffer.from('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nEARLY CUE\n\n00:00:07.000 --> 00:00:10.000\nLATE CUE\n')
   });
   await page.waitForFunction(()=>document.querySelector('#subtitleName').textContent.includes('2 Cues'));
   for(const [time,caption] of [[8.1,'LATE CUE'],[1.6,'EARLY CUE'],
