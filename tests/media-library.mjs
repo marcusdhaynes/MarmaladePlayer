@@ -262,6 +262,75 @@ try{
   assert((await page.locator('#mlCards').textContent()).includes('File access needed'),
     'A deferred metadata read is clearly labeled');
 
+
+  // Regression for the reported real-world screenshot: "Test" already exists
+  // with zero media folders and displays a + Choose Folder empty-state action.
+  // A single click, plus the OS folder selection, MUST index and persist the
+  // library automatically without requiring the user to find a second Save.
+  await page.locator('#mlNewLibrary').click();
+  await page.locator('#mlLibraryName').fill('Test');
+  await page.locator('#mlDialogSave').click();
+  await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
+    l.name==='Test'&&l.count===0&&l.folders.length===0));
+  assert(await page.locator('#mlCards').getByText('Add a Media Folder').isVisible(),
+    'Empty library reproduces the screenshot before importing');
+  await page.evaluate(()=>{
+    const file=name=>({kind:'file',getFile:async()=>new File(['fixture'],name)});
+    const dir=(name,entries)=>({
+      kind:'directory',name,
+      queryPermission:async()=> 'granted',
+      requestPermission:async()=> 'granted',
+      async *entries(){
+        for(const [n,child] of Object.entries(entries))
+          yield [n,child.kind?child:dir(n,child)];
+      },
+      getDirectoryHandle:async n=>dir(n,entries[n]),
+      getFileHandle:async n=>entries[n]
+    });
+    window.showDirectoryPicker=async()=>dir('Test Media',{
+      Movies:{'Blade Runner (1982).mkv':file('Blade Runner (1982).mkv')},
+      'TV Shows':{'Season 01':{
+        'Some.Show.S01E01.mp4':file('Some.Show.S01E01.mp4'),
+        'Some.Show.S01E02.mp4':file('Some.Show.S01E02.mp4')
+      }}
+    });
+  });
+  await page.locator('#mlCards').getByRole('button',{name:'+ Choose Folder'}).click();
+  await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
+    l.name==='Test'&&l.count===3&&l.folders.length===1));
+  await page.waitForFunction(()=>document.querySelector('#mlDialog')?.hidden===true);
+  assert.equal(await page.locator('#mlCards .ml-card').count(),2,
+    'The import automatically shows one movie card and one grouped series');
+  assert.equal(await page.locator('#mlCards .ml-media-divider').count(),2,
+    'Imported movies and TV shows display in separate sections');
+  assert.equal(await page.locator('#mlCards').getByText('Blade Runner',{exact:false}).count(),1);
+  assert.equal(await page.locator('#mlCards').getByText('Some Show',{exact:false}).count(),1);
+  await page.waitForFunction(()=>/indexed in Test/.test(
+    document.getElementById('mlStatus')?.textContent||''));
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
+  await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
+  assert(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
+    l.name==='Test'&&l.count===3&&l.folders.length===1)),
+    'One-click import must be saved to IndexedDB and survive reload');
+
+  // The toolbar folder action must also attach directly to an existing shelf,
+  // including the Safari/Firefox-compatible directory input fallback.
+  await page.locator('#mlQuickAdd').click();
+  await page.locator('#mlDirectoryInput').setInputFiles(fallbackRoot);
+  await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
+    l.name==='Test'&&l.count===4&&l.folders.length===2));
+  assert.equal(await page.locator('#mlDialog').isVisible(),false,
+    'Toolbar folder import does not require another Save click');
+  await page.waitForFunction(()=>/indexed in Test/.test(
+    document.querySelector('#mlStatus')?.textContent||''));
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
+  await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
+  assert(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
+    l.name==='Test'&&l.count===4&&l.folders.length===2)),
+    'Both folder-picker modes durably save the attached folder catalog');
+
   assert.deepEqual(errors,[],'Library and player must initialize without JavaScript errors');
   console.log('PASS Plex-style named libraries, recursive scan, search, TV grouping, player, persistence, rename, delete, split UI');
 }finally{
