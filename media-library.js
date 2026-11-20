@@ -1046,6 +1046,11 @@
       const media=bridge?.media;
       if(!media){notify('Player is not ready to open library videos.');return;}
       try{
+        // The source is supplied by Minternet's local media server rather than
+        // an in-page File. The player must be made visible just like the normal
+        // Choose Video flow; setting video.src alone left the theater blank.
+        if(bridge.el?.stage)bridge.el.stage.classList.add('has-video');
+        if(bridge.el?.empty)bridge.el.empty.hidden=true;
         media.src=url;media.preload='auto';media.load();
         if(bridge.el?.fileName)bridge.el.fileName.textContent=item.name||item.title||'';
         if(bridge.el?.fileInfo)bridge.el.fileInfo.textContent=(item.name||'')+' · via Minternet';
