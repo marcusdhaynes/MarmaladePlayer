@@ -180,7 +180,7 @@ try{
     'Manually edited titles must survive folder rescans');
   await page.locator('#mlCards .ml-card').filter({hasText:'Arrival Custom Title'}).locator('.ml-card-more').click();
   await page.locator('#mlContextMenu').getByText('Get Info').click();
-  assert.equal(await page.locator('#mlItemDialogTitle').textContent(),'Media File Info');
+  assert.equal(await page.locator('#mlItemDialogTitle').textContent(),'Get Info');
   assert((await page.locator('#mlItemDialogBody').textContent()).includes('Arrival (2016).mp4'));
   await page.locator('#mlItemDialogCancel').click();
   await page.locator('#mlSearch').fill('Moon');
