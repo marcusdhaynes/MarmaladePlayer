@@ -380,7 +380,7 @@
   function nativeItemChanges(entry){
     const fields=['title','year','type','show','season','episode','poster',
       'overview','favorite','watched','watchlist','playlists','collections',
-      'runtimeSec','metadataSource','customized','analyzedAt'];
+      'runtimeSec','metadataSource','customized','analyzedAt','posterCustomized'];
     return Object.fromEntries(fields.filter(key=>entry[key]!==undefined).map(key=>[key,entry[key]]));
   }
   async function persistNativeItem(lib,entry,extra={}){
@@ -477,7 +477,13 @@
     itemField(ui.itemBody,'Series Name (TV)',entry.show||'','mlEditShow');
     itemField(ui.itemBody,'Season',entry.season??'','mlEditSeason','number');
     itemField(ui.itemBody,'Episode',entry.episode??'','mlEditEpisode','number');
-    itemField(ui.itemBody,'Poster URL (HTTPS)',entry.poster||'','mlEditPoster','url');
+    itemField(ui.itemBody,'Poster URL (HTTPS)',/^https:\/\//i.test(entry.poster||'')?entry.poster:'','mlEditPoster','url');
+    const posterOptions=append(ui.itemBody,'div','ml-poster-editor');
+    const posterButton=append(posterOptions,'button','ml-primary','Edit Poster');
+    posterButton.type='button';
+    posterButton.addEventListener('click',()=>choosePoster(item));
+    if(/^data:image\//i.test(entry.poster||''))append(posterOptions,'small','',
+      'Custom poster stored locally. Use Edit Poster to replace it.');
     itemField(ui.itemBody,'Summary',entry.overview||'','mlEditOverview','textarea');
     const help=append(ui.itemBody,'p','ml-help',
       'These changes update only your local catalog, never your original media files. They survive a folder rescan.');
@@ -500,7 +506,8 @@
     item.show=$('mlEditShow').value.trim().slice(0,180);
     item.season=$('mlEditSeason').value?Number($('mlEditSeason').value):null;
     item.episode=$('mlEditEpisode').value?Number($('mlEditEpisode').value):null;
-    item.poster=poster;
+    item.poster=poster||(/^data:image\//i.test(item.poster||'')?item.poster:'');
+    if(poster)item.posterCustomized=true;
     item.overview=$('mlEditOverview').value.trim().slice(0,3000);
     item.customized=true;
     try{
@@ -508,6 +515,87 @@
       await persist(lib);closeItemDialog();render();
       notify('Updated '+item.title+' in '+lib.name+' and saved to the extension.');
     }catch(error){notify('Media edit not saved to Minternet: '+(error?.message||error));}
+  }
+  // Get Info incorporates on-demand file analysis; the user no longer has
+  // to hunt for a separate Analyze action in the three-dot menu.
+  function openInfo(item){
+    showDetails(item,'info');
+    const {entry}=storedItem(item);
+    if(entry&&!entry.analyzedAt)void analyze(item);
+  }
+  // Store a small, aspect-correct, compressed image in the same native
+  // extension catalog as the metadata. Never upload or modify the movie.
+  async function encodePoster(file){
+    if(!/^image\/(jpeg|png|webp|avif)$/.test(file.type||''))
+      throw Error('Choose a JPEG, PNG, WebP, or AVIF image.');
+    if(file.size>20*1024*1024)
+      throw Error('Poster file is too large. Choose an image smaller than 20 MB.');
+    const objectUrl=URL.createObjectURL(file);
+    try{
+      const image=new Image();
+      image.src=objectUrl;
+      if(typeof image.decode==='function')await image.decode();
+      else await new Promise((resolve,reject)=>{
+        image.onload=resolve;image.onerror=()=>reject(Error('Unable to decode poster image.'));
+      });
+      if(!image.naturalWidth||!image.naturalHeight)
+        throw Error('The selected image could not be decoded.');
+      const ratio=image.naturalWidth/image.naturalHeight;
+      if(!Number.isFinite(ratio)||ratio<=0)throw Error('Invalid poster dimensions.');
+      const widths=[420,360,300,240];
+      for(const width of widths){
+        const canvas=document.createElement('canvas');
+        canvas.width=width;canvas.height=Math.round(width*1.5);
+        const context=canvas.getContext('2d',{alpha:false});
+        if(!context)throw Error('Poster image processing is unavailable in this browser.');
+        context.fillStyle='#16121c';context.fillRect(0,0,canvas.width,canvas.height);
+        // "Cover" crop, not stretch: retain correct 2:3 poster proportions.
+        const scale=Math.max(canvas.width/image.naturalWidth,canvas.height/image.naturalHeight);
+        const drawW=image.naturalWidth*scale,drawH=image.naturalHeight*scale;
+        context.drawImage(image,(canvas.width-drawW)/2,(canvas.height-drawH)/2,drawW,drawH);
+        for(const quality of [.82,.7,.55]){
+          let data=canvas.toDataURL('image/webp',quality);
+          if(!data.startsWith('data:image/webp;'))
+            data=canvas.toDataURL('image/jpeg',quality);
+          if(data.length<=240*1024)return data;
+        }
+      }
+      throw Error('Poster could not be compressed sufficiently. Try another image.');
+    }finally{URL.revokeObjectURL(objectUrl);}
+  }
+  function choosePoster(item){
+    const {entry,lib}=storedItem(item);
+    if(!entry||!lib){notify('This media item is unavailable.');return;}
+    const input=document.createElement('input');
+    input.type='file';input.accept='image/jpeg,image/png,image/webp,image/avif';
+    input.hidden=true;document.body.append(input);
+    const cleanup=()=>{input.remove();};
+    input.addEventListener('cancel',cleanup,{once:true});
+    input.addEventListener('change',()=>{
+      const file=input.files?.[0];cleanup();
+      if(!file)return;
+      void (async()=>{
+        try{
+          const poster=await encodePoster(file);
+          const previousPoster=entry.poster,previousFlag=entry.posterCustomized;
+          entry.poster=poster;entry.posterCustomized=true;
+          try{
+            await persistNativeItem(lib,entry);
+            await persist(lib);
+          }catch(error){
+            entry.poster=previousPoster;entry.posterCustomized=previousFlag;
+            throw error;
+          }
+          render();
+          notify('Custom glossy poster saved for '+entry.title+'.');
+          if(state.itemEditing?.id===entry.id)showDetails(item,state.itemEditing.mode);
+        }catch(error){
+          notify('Could not save poster: '+String(error?.message||error));
+        }
+      })();
+    },{once:true});
+    // Keep the OS picker tied to the actual user click.
+    input.click();
   }
   async function analyze(item){
     const {entry,lib}=storedItem(item);
@@ -547,7 +635,8 @@
     entry.analyzedAt=now();
     try{await persistNativeItem(lib,entry);await persist(lib);}
     catch(error){notify('Could not save analysis to extension: '+(error?.message||error));return;}
-    showDetails(item,'info');
+    if(state.itemEditing?.id===entry.id&&state.itemEditing?.mode==='info')
+      showDetails(item,'info');
     notify(duration?'Duration analyzed: '+Math.round(duration)+' seconds.':
       'File analyzed. This browser cannot decode duration for this container.');
   }
@@ -579,7 +668,7 @@
         if(!fix&&year&&rec.year&&Number(rec.year)!==Number(year))continue;
         if(fix&&!window.confirm('Use metadata for "'+rec.title+'"'+
           (rec.year?' ('+rec.year+')':'')+'?'))continue;
-        if(rec.poster&&/^https:\/\//i.test(rec.poster))entry.poster=rec.poster;
+        if(!entry.posterCustomized&&rec.poster&&/^https:\/\//i.test(rec.poster))entry.poster=rec.poster;
         if(rec.overview)entry.overview=String(rec.overview).slice(0,3000);
         if(rec.year)entry.year=Number(rec.year)||entry.year;
         if(fix){
@@ -677,7 +766,8 @@
       action('⌕  Match',()=>void refreshMetadata([target.item],{fix:true}));
       if(entry.metadataSource||entry.poster||entry.overview)
         action('✕  Unmatch Metadata',()=>void mutateItems([target.item],item=>{
-          item.poster='';item.overview='';item.metadataSource='';
+          if(!item.posterCustomized)item.poster='';
+          item.overview='';item.metadataSource='';
         },'External metadata cleared. Manually edited title and original file are unchanged.'));
       action('ℹ  Get Info',()=>void openInfo(target.item));
       action('▣  Browse Containing Folder',()=>{
