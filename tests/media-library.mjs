@@ -308,6 +308,16 @@ try{
   // Actual browser directory-input path, not a mocked showDirectoryPicker.
   // The user selected this folder containing a .mp4 and nested video files.
   await page.locator('#mlDirectoryInput').setInputFiles(importRoot);
+  await page.waitForTimeout(500);
+  console.log('REAL FOLDER IMPORT TRACE',JSON.stringify(await page.evaluate(()=>({
+    activeLibraries:window.MarmaladeMediaLibrary.getLibraries(),
+    preview:document.querySelector('#mlScanPreview')?.textContent,
+    status:document.querySelector('#mlStatus')?.textContent,
+    folderRows:[...document.querySelectorAll('#mlFolderList .ml-folder-entry')].map(n=>n.textContent),
+    editorOpen:!document.querySelector('#mlDialog')?.hidden,
+    selectedSource:document.querySelector('#mlDirectoryInput')?.files?.length,
+    cards:document.querySelectorAll('#mlCards .ml-card').length
+  }))));
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
     l.name==='Test'&&l.count===4&&l.folders.length===1));
   await page.waitForFunction(()=>document.querySelector('#mlDialog')?.hidden===true);
