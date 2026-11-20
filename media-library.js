@@ -185,7 +185,17 @@
           try{
             const file=await entry.getFile();
             items.push(makeItem(folder,path,file,kind));
-          }catch{/* A disappeared or inaccessible file cannot be indexed. */}
+          }catch(error){
+            // The directory listing itself is authoritative for discovery.
+            // Some browsers can enumerate a media file before getFile() becomes
+            // available (large files, permissions, transient disk failures).
+            // Keep its title visible and resolve the real file lazily on Play.
+            const placeholder=makeItem(folder,path,
+              {name,size:0,lastModified:0},kind);
+            placeholder.metadataPending=true;
+            items.push(placeholder);
+            console.debug('Media file indexed by name; metadata access deferred:',path,error);
+          }
         }
         if(items.length>0&&items.length%80===0){
           ui.status.textContent='Scanning '+folder.name+' · '+countLabel(items.length);
@@ -230,8 +240,13 @@
             name:item.name,size:item.size,lastModified:item.lastModified});
         }
         draft.items=(draft.items||[]).filter(i=>i.folderId!==folder.id).concat(found);
-        scanPreview(found.length+' video'+(found.length===1?'':'s')+
-          ' found in '+folder.name+'. Save Library to display them.');
+        const deferred=found.filter(item=>item.metadataPending).length;
+        scanPreview(found.length?(found.length+' video'+(found.length===1?'':'s')+
+          ' found in '+folder.name+
+          (deferred?' · '+deferred+' need file access when played.':'')+
+          '. Save Library to display them.'):
+          '0 videos found in '+folder.name+
+          '. If this folder contains videos, use Other Picker to select it and its subfolders.');
       }catch(error){
         console.warn('Library folder indexing failed',error);
         scanPreview('Cannot scan '+folder.name+': '+(error?.message||'folder unavailable')+
@@ -268,6 +283,7 @@
             if(previous){
               Object.assign(item,{...previous,id:item.id,path:item.path,folderId:item.folderId,
                 name:item.name,size:item.size,lastModified:item.lastModified,
+                metadataPending:!!item.metadataPending,
                 addedAt:previous.addedAt||item.addedAt});
             }
           }
@@ -286,7 +302,15 @@
       if(folderIssues)notify('Some folders failed to scan. Edit Library to reconnect; previously indexed titles are kept.');
       else if(accessIssues)notify(accessIssues+' folder'+(accessIssues===1?' needs':'s need')+
         ' access. Click the pencil next to '+lib.name+' and reconnect. Indexed titles remain visible.');
-      else notify(countLabel(items.length)+' indexed in '+lib.name+'.');
+      else if(!items.length&&lib.folders.length)
+        notify('0 videos found in '+lib.name+
+          '. Confirm the folder contains supported videos, or reconnect it using Other Picker.');
+      else{
+        const deferred=items.filter(item=>item.metadataPending).length;
+        notify(countLabel(items.length)+' indexed in '+lib.name+
+          (deferred?' · '+deferred+' file'+(deferred===1?'':'s')+
+          ' may need access when played.':'.'));
+      }
     }finally{
       if(seq===state.scanSeq){state.scanning=false;ui.rescan.disabled=false;render();}
     }
@@ -830,6 +854,7 @@
     else more(roots.length);
   }
   function formatItemDetail(item){
+    if(item.metadataPending)return 'File access needed to verify · '+(item.libraryName||'Local');
     if(item.type==='tv'){
       if(item.season!==null&&item.episode!==null)
         return 'S'+String(item.season).padStart(2,'0')+' E'+String(item.episode).padStart(2,'0');

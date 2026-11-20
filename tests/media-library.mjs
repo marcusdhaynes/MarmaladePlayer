@@ -234,6 +234,34 @@ try{
     l.name==='Fallback Folder'&&l.count===1)),
     'Session-only source catalogs survive reopening without retaining raw video files');
 
+  // Some real directories enumerate names even while a file's metadata read
+  // fails. This must produce a visible library card rather than 0 videos.
+  await page.evaluate(()=>{
+    window.showDirectoryPicker=async()=>({
+      kind:'directory',name:'Slow Metadata Videos',
+      queryPermission:async()=> 'granted',
+      requestPermission:async()=> 'granted',
+      async *entries(){
+        yield ['Hard.To.Read.2026.mkv',{
+          kind:'file',
+          getFile:async()=>{throw new DOMException('Disk is busy','NotReadableError');}
+        }];
+      }
+    });
+  });
+  await page.locator('#mlNewLibrary').click();
+  await page.locator('#mlLibraryName').fill('Disk Media');
+  await page.locator('#mlPickFolder').click();
+  await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('1 video'));
+  await page.locator('#mlDialogSave').click();
+  await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.name==='Disk Media'&&l.count===1));
+  assert.equal(await page.locator('#mlCards .ml-card').count(),1,
+    'File must appear even when its initial metadata access fails');
+  assert((await page.locator('#mlCards').textContent()).includes('Hard To Read'),
+    'Filename metadata is enough to populate the library');
+  assert((await page.locator('#mlCards').textContent()).includes('File access needed'),
+    'A deferred metadata read is clearly labeled');
+
   assert.deepEqual(errors,[],'Library and player must initialize without JavaScript errors');
   console.log('PASS Plex-style named libraries, recursive scan, search, TV grouping, player, persistence, rename, delete, split UI');
 }finally{
