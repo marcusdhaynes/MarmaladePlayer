@@ -50,6 +50,10 @@ const server = createServer((req,res) => {
   } else if (req.url?.startsWith('/subtitle-match.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../subtitle-match.js', import.meta.url), 'utf8'));
+  } else if (req.url?.startsWith('/mkv-decoder-io.js') || req.url?.startsWith('/mkv-asyncify-worker.js')) {
+    const file=req.url.split('?')[0];
+    res.writeHead(200,{'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('..'+file,import.meta.url)));
   } else if (req.url?.startsWith('/auto-mkv-audio.js')) {
     res.writeHead(200, {'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../auto-mkv-audio.js', import.meta.url), 'utf8'));
