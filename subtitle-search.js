@@ -400,9 +400,11 @@
     }
   });
   defaultFromFile();
-  window.addEventListener('marmalade:video-selected',()=>{
+  const refreshForSelectedVideo=()=>{
     defaultFromFile();results.replaceChildren();progress.textContent='Based on your selected video.';
-  });
+  };
+  window.addEventListener('marmalade:video-selected',refreshForSelectedVideo);
+  window.addEventListener('marmalade:library-video-selected',refreshForSelectedVideo);
   window.setInterval(()=>{if(!panel.hidden){defaultFromFile();place();}},1200);
   window.MarmaladeSubtitleFinder={parseFilename,subdlResults,defaultFromFile,findSubdl,findOpenSubtitles,fromOpenSubtitles};
 })();
