@@ -1100,21 +1100,14 @@
       const url=item.url;
       if(!url){notify('Minternet did not provide a playable address for this video. Rescan in Minternet\u2019s Local Media Library add-on.');return;}
       const bridge=window.MarmaladeAddonBridge;
-      const media=bridge?.media;
-      if(!media){notify('Player is not ready to open library videos.');return;}
+      if(typeof bridge?.chooseNativeStream!=='function'){
+        notify('The Marmaladeum player needs an update to open Minternet library videos.');return;
+      }
       try{
-        // The source is supplied by Minternet's local media server rather than
-        // an in-page File. The player must be made visible just like the normal
-        // Choose Video flow; setting video.src alone left the theater blank.
-        if(bridge.el?.stage)bridge.el.stage.classList.add('has-video');
-        if(bridge.el?.empty)bridge.el.empty.hidden=true;
-        media.crossOrigin='anonymous';
-        media.src=url;media.preload='auto';media.load();
-        if(bridge.el?.fileName)bridge.el.fileName.textContent=item.name||item.title||'';
-        if(bridge.el?.fileInfo)bridge.el.fileInfo.textContent=(item.name||'')+' · via Minternet';
-        const started=media.play?.();
-        if(started&&typeof started.catch==='function')started.catch(()=>{});
-        notify('Playing '+(item.name||item.title)+' · Streamed locally by Minternet.');
+        const started=bridge.chooseNativeStream({
+          url,name:item.name||item.title||'Library Video',size:item.size
+        });
+        if(started)notify('Opening '+(item.name||item.title)+' · Streamed locally by the Minternet extension.');
       }catch(error){notify('This video cannot be played: '+(error?.message||'unknown error'));}
       return;
     }
