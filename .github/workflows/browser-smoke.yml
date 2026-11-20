@@ -29,6 +29,8 @@ jobs:
       - run: node tests/browser-smoke.mjs
       - name: Verify local media library scanning, persistence and playback
         run: node tests/media-library.mjs
+      - name: Verify Minternet-style native library video uses normal playback controls
+        run: node tests/native-media-player.mjs
       - name: Verify non-black WebRTC frames in Chromium and Firefox
         if: ${{ !cancelled() }}
         run: node tests/webrtc-video.mjs
