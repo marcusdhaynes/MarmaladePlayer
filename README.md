@@ -17,14 +17,23 @@ A small, zero-build watch-together app. The host plays a movie from their own de
 - Browser-based window/tab share fallback for files the browser can't decode (system-audio sharing depends on browser/OS).
 - WebRTC peer-to-peer streams; one data connection per guest. No build step, account, or application installation.
 
-## Deploy to the requested URL
+## Deploy the live app (MKV decoder requires GitHub Actions)
 
-Repository must be named **`marcusdhaynes/marmaladeplayer`** for the address **https://marcusdhaynes.github.io/marmaladeplayer/**.
+Use **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+Do **not** select "Deploy from a branch" for this repository: the checked-in
+source intentionally does not include the multi-megabyte FFmpeg/WASM binaries.
+The `.github/workflows/pages.yml` workflow downloads the pinned open-source
+decoder at build time, validates both WASM binaries and the worker JavaScript,
+runs MKV range and worker-fallback tests, and publishes the complete static
+app through GitHub Pages. Deploying raw `main` without that workflow results
+in a working picture but a broken/missing MKV audio decoder.
 
-1. In this repository, select **Settings → General → Repository name**, and rename it to **`marmaladeplayer`**.
-2. If GitHub Pages isn't available for this private repository on your plan, under **Settings → General → Danger Zone → Change repository visibility**, choose **Public**. Be aware that doing so makes the source publicly visible.
-3. Select **Settings → Pages → Build and deployment → Source: Deploy from a branch → main / (root) → Save**.
-4. Visit **https://marcusdhaynes.github.io/marmaladeplayer/** once GitHub finishes publishing.
+The live website is
+[https://marcusdhaynes.github.io/MarmaladePlayer/](https://marcusdhaynes.github.io/MarmaladePlayer/).
+To verify a publication, open **Actions → Publish Marmalade Player web** and
+confirm the latest main-branch job passes asset checks and deploys successfully.
+The Minternet extension version also needs a Minternet EXE containing the
+native media-range header fixes; the `.mext` alone cannot patch an older EXE.
 
 **Quick test:** Open the live website in two different browsers/devices. Create a room on one; pick a supported video, copy its link; join from the other; click **Start watching** on the host. If autoplay with sound is blocked on the guest, click Play in the theater controls to enable sound.
 
