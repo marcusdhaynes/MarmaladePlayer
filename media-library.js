@@ -482,7 +482,8 @@
     const posterButton=append(posterOptions,'button','ml-primary','Edit Poster');
     posterButton.type='button';
     posterButton.addEventListener('click',()=>choosePoster(item));
-    if(/^data:image\//i.test(entry.poster||''))append(posterOptions,'small','',
+    if(/^data:image\//i.test(entry.poster||'')||/^http:\/\/127\.0\.0\.1:18761\/poster\//.test(entry.poster||''))
+      append(posterOptions,'small','',
       'Custom poster stored locally. Use Edit Poster to replace it.');
     itemField(ui.itemBody,'Summary',entry.overview||'','mlEditOverview','textarea');
     const help=append(ui.itemBody,'p','ml-help',
@@ -506,7 +507,9 @@
     item.show=$('mlEditShow').value.trim().slice(0,180);
     item.season=$('mlEditSeason').value?Number($('mlEditSeason').value):null;
     item.episode=$('mlEditEpisode').value?Number($('mlEditEpisode').value):null;
-    item.poster=poster||(/^data:image\//i.test(item.poster||'')?item.poster:'');
+    item.poster=poster||(
+      /^(?:data:image\/|http:\/\/127\.0\.0\.1:18761\/poster\/)/i.test(item.poster||'')
+        ?item.poster:'');
     if(poster)item.posterCustomized=true;
     item.overview=$('mlEditOverview').value.trim().slice(0,3000);
     item.customized=true;
@@ -847,7 +850,9 @@
     const art=append(surface,'span','ml-card-art');
     art.style.setProperty('--ml-glow',cleanHash(data.title||data.name));
     const picture=String(data.poster||'');
-    if(/^https:\/\//i.test(picture)||/^data:image\/(?:webp|jpeg|png);base64,/i.test(picture)){
+    if(/^https:\/\//i.test(picture)||
+      /^data:image\/(?:webp|jpeg|png);base64,/i.test(picture)||
+      /^http:\/\/127\.0\.0\.1:18761\/poster\/[a-f0-9]{64}\.(?:webp|jpg)\?key=[a-f0-9]{64}$/.test(picture)){
       const image=append(art,'img','ml-art-poster');
       image.src=picture;image.loading='lazy';image.alt='';
       image.referrerPolicy='no-referrer';
