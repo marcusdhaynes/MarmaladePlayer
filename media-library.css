@@ -305,3 +305,11 @@
   .ml-panel .ml-card .ml-card-star{top:9px;right:9px}
   .ml-panel .ml-card .ml-card-more{bottom:8px;right:8px}
 }
+
+/* File-based poster chooser lives inside Edit Details; images remain local. */
+.ml-poster-editor{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:4px 0 9px}
+.ml-panel .ml-poster-editor button{min-height:30px;padding:6px 11px;
+ border:1px solid #e3a86e88;border-radius:7px;background:#362726;color:#ffe4c8;
+ font-size:11px;font-weight:700;cursor:pointer}
+.ml-panel .ml-poster-editor button:hover{background:#49312b;border-color:#f4c99a}
+.ml-poster-editor small{flex:1 1 120px;font-size:9px;line-height:1.4;color:#aa9da7}
