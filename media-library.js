@@ -27,7 +27,7 @@
   const state={
     db:null,libraries:[],selected:'all',query:'',kind:'all',collection:'all',sort:'title',
     list:false,folderMode:false,folder:null,series:null,showCount:120,
-    editing:null,pending:null,relink:null,scanning:false,scanSeq:0,
+    editing:null,pending:null,relink:null,autoAttachDraft:null,scanning:false,scanSeq:0,
     sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
     pendingScans:new Set(),scanProblems:new Map(),artworkBusy:false,storageAvailable:true,
     menuTarget:null,itemEditing:null,menuOpen:false,playingId:null
@@ -230,7 +230,7 @@
           state.scanProblems.set(folder.id,'Folder access not granted');
           scanPreview('No access to '+folder.name+'. Click Reconnect and allow folder access, or use Other Picker.');
           notify('Folder permission needed. Reconnect '+folder.name+' and allow read access.');
-          return;
+          return null;
         }
         state.scanProblems.delete(folder.id);
         const previous=new Map((draft.items||[]).map(i=>[i.id,i]));
@@ -241,24 +241,43 @@
         }
         draft.items=(draft.items||[]).filter(i=>i.folderId!==folder.id).concat(found);
         const deferred=found.filter(item=>item.metadataPending).length;
+        const direct=state.autoAttachDraft===draft;
         scanPreview(found.length?(found.length+' video'+(found.length===1?'':'s')+
           ' found in '+folder.name+
           (deferred?' · '+deferred+' need file access when played.':'')+
-          '. Save Library to display them.'):
+          (direct?'. Adding to your library automatically…':'. Save Library to display them.')):
           '0 videos found in '+folder.name+
           '. If this folder contains videos, use Other Picker to select it and its subfolders.');
+        return found.length;
       }catch(error){
         console.warn('Library folder indexing failed',error);
+        state.scanProblems.set(folder.id,error?.message||'Folder read failed');
         scanPreview('Cannot scan '+folder.name+': '+(error?.message||'folder unavailable')+
           '. Try Other Picker to import its videos.');
+        return null;
       }
     })();
     state.pendingScans.add(promise);
     ui.save.disabled=true;
-    promise.finally(()=>{
+    const settled=promise.finally(()=>{
       state.pendingScans.delete(promise);
       if(!state.pendingScans.size)ui.save.disabled=false;
     });
+    // Empty-library + Choose Folder and the toolbar + Folder are direct actions:
+    // the selected folder must be indexed AND saved without a second Save click.
+    // Keep the editor open on cancellation/permission failure/zero files.
+    if(state.autoAttachDraft===draft)void settled.then(count=>{
+      if(state.autoAttachDraft!==draft||state.pending!==draft)return;
+      if(count===null||count===undefined||count<1){
+        state.autoAttachDraft=null;
+        notify(count===0?'No video files were found. Try Other Picker or another folder.':
+          'Folder could not be indexed. Reconnect or use Other Picker.');
+        return;
+      }
+      state.autoAttachDraft=null;
+      void saveEditor();
+    });
+    return settled;
   }
   async function scanLibrary(lib,{ask=false}={}){
     if(!lib||state.scanning){notify('A library scan is already in progress.');return;}
@@ -955,8 +974,8 @@
         'Create a library, select a folder, and your movies and series appear automatically.',
         '+ Create Your First Library',()=>openEditor(null));
       else if(!items.length&&lib&&lib.folders.length===0)
-        empty('Add a Media Folder','Choose one or more folders to populate '+lib.name+'.',
-          '+ Choose Folder',()=>openEditor(lib));
+        empty('Add a Media Folder','Choose a folder to populate '+lib.name+'. Videos will be added automatically.',
+          '+ Choose Folder',()=>chooseAndAttachFolder(lib));
       else if(lib)empty('No Videos Indexed','Rescan your media folders or reconnect folder access.',
         'Manage Library',()=>openEditor(lib));
       else empty('No Videos Yet','Add folders to a library to build your collection.',
@@ -1077,7 +1096,7 @@
   }
   function openEditor(lib){
     if(state.scanning){notify('Wait for the current scan to finish before changing folders.');return;}
-    state.editing=lib?.id||null;state.relink=null;
+    state.editing=lib?.id||null;state.relink=null;state.autoAttachDraft=null;
     state.pending={
       id:lib?.id||id(),
       name:lib?.name||'',
@@ -1098,7 +1117,18 @@
   }
   function closeEditor(){
     ui.dialog.hidden=true;state.pending=null;state.editing=null;state.relink=null;
+    state.autoAttachDraft=null;
     scanPreview('');
+  }
+  function chooseAndAttachFolder(lib){
+    if(!lib)return;
+    openEditor(lib);
+    if(!state.pending)return;
+    state.autoAttachDraft=state.pending;
+    notify('Choose a folder. Its videos will be added to '+lib.name+' automatically.');
+    // This must run in the original click handler, preserving browser file-picker
+    // user activation. The editor is only a fallback if access fails.
+    void pickFolder();
   }
   function addFolder(folder){
     const pending=currentPending();
@@ -1262,9 +1292,7 @@
     });
     ui.quickAdd.addEventListener('click',()=>{
       const lib=selectedLibrary();
-      if(!lib)return;
-      openEditor(lib);
-      void pickFolder();
+      if(lib)chooseAndAttachFolder(lib);
     });
     ui.art.addEventListener('click',()=>void findArtwork());
     ui.manage.addEventListener('click',()=>openEditor(selectedLibrary()));
