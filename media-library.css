@@ -93,7 +93,9 @@
 .ml-folder-entry span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ml-folder-entry>div{display:flex;gap:3px;flex:none}
 .ml-panel .ml-folder-entry button{font-size:9px;min-height:24px;padding:3px 5px}
-.ml-panel .ml-pick-folder{width:100%;border:1px dashed #bd896f;background:#362934;color:#ffc58f;margin-top:7px}
+.ml-folder-pickers{display:flex;gap:6px;align-items:stretch;margin-top:7px}
+.ml-panel .ml-pick-folder{flex:1;min-width:0;border:1px dashed #bd896f;background:#362934;color:#ffc58f}
+.ml-panel .ml-compat-folder{flex:none;max-width:36%;font-size:9px;color:#c4b0ab;background:#231d29}
 .ml-help{font-size:10px;line-height:1.5;color:#b3a6b1;margin:11px 0}
 .ml-dialog-bottom{display:flex;align-items:center;gap:6px;border-top:1px solid #ffffff1b;padding-top:12px}
 .ml-dialog-spacer{flex:1}
