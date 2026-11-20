@@ -30,7 +30,7 @@
     editing:null,pending:null,relink:null,autoAttachDraft:null,scanning:false,scanSeq:0,
     sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
     pendingScans:new Set(),scanProblems:new Map(),artworkBusy:false,storageAvailable:true,
-    menuTarget:null,itemEditing:null,menuOpen:false,playingId:null
+    menuTarget:null,itemEditing:null,menuOpen:false,posterRenderPending:false,playingId:null
   };
   const now=()=>Date.now();
   const id=()=>('ml'+now().toString(36)+Math.random().toString(36).slice(2,9));
@@ -125,7 +125,11 @@
               }
             }
           }
-          if(updated)render();
+          // Background artwork must not dismiss or move an open context menu.
+          if(updated){
+            if(state.menuOpen)state.posterRenderPending=true;
+            else render();
+          }
         }catch(error){
           // Network and provider errors are not permanent negative matches.
           console.debug('Automatic library poster lookup unavailable',job.title,error);
@@ -524,6 +528,10 @@
     ui.menu.replaceChildren();
     state.menuTarget=null;
     state.menuOpen=false;
+    if(state.posterRenderPending){
+      state.posterRenderPending=false;
+      render();
+    }
   }
   function closeItemDialog(){
     ui.itemDialog.hidden=true;
