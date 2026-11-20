@@ -756,23 +756,35 @@
     surface.setAttribute('aria-label',String(data.title||data.name||'Video'));
     const art=append(surface,'span','ml-card-art');
     art.style.setProperty('--ml-glow',cleanHash(data.title||data.name));
-    if(/^https:\/\//i.test(data.poster||'')){
+    const picture=String(data.poster||'');
+    if(/^https:\/\//i.test(picture)||/^data:image\/(?:webp|jpeg|png);base64,/i.test(picture)){
       const image=append(art,'img','ml-art-poster');
-      image.src=data.poster;image.loading='lazy';image.alt='';
+      image.src=picture;image.loading='lazy';image.alt='';
       image.referrerPolicy='no-referrer';
       image.addEventListener('error',()=>image.remove(),{once:true});
     }
-    append(art,'span','ml-art-type',dir?(data.type==='tv'?'SERIES':'FOLDER'):data.type==='tv'?'EPISODE':'MOVIE');
     const mark=String(data.title||data.name||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase();
     append(art,'span','ml-art-mark',dir?'▤':mark);
     append(art,'span','ml-play-symbol',dir?'›':'▶');
-    const label=append(surface,'span','ml-card-label',data.title||data.name);
-    if(data.watched){append(label,'span','ml-watched-mark','✓').title='Watched';}
-    if(data.favorite){append(label,'span','ml-favorite-mark','★').title='Favorite';}
-    append(surface,'span','ml-card-detail',data.detail||'');
+    const copy=append(surface,'span','ml-card-copy');
+    const label=append(copy,'span','ml-card-label',data.title||data.name);
+    if(data.watched)append(label,'span','ml-watched-mark','✓').title='Watched';
+    const sub=String(data.year||data.detail||'').trim();
+    if(sub)append(copy,'span','ml-card-year',sub);
+    if(menuTarget?.kind==='item'){
+      const star=append(surface,'button','ml-card-star',data.favorite?'★':'☆');
+      star.type='button';
+      star.setAttribute('aria-pressed',String(!!data.favorite));
+      star.setAttribute('aria-label',(data.favorite?'Remove from':'Add to')+' Favorites: '+(data.title||data.name));
+      star.title=data.favorite?'Remove from Favorites':'Add to Favorites';
+      star.addEventListener('click',event=>{
+        event.preventDefault();event.stopPropagation();
+        void mutateItems([menuTarget.item],item=>{item.favorite=!item.favorite;},'Favorites updated.');
+      });
+    }
     surface.title=String(data.title||data.name);
     surface.addEventListener('click',event=>{
-      if(event.target.closest('.ml-card-more'))return;
+      if(event.target.closest('.ml-card-more, .ml-card-star'))return;
       action();
     });
     surface.addEventListener('keydown',event=>{
@@ -1002,6 +1014,7 @@
     const renderEntity=entity=>{
       if(entity.kind==='show'){
         const entry={title:entity.show,type:'tv',detail:entity.items.length+' Episodes',
+          year:entity.items.map(item=>Number(item.year)).find(year=>year>=1880&&year<=2100)||null,
           poster:entity.items.find(item=>item.poster)?.poster||'',
           favorite:entity.items.some(item=>item.favorite),
           watched:entity.items.every(item=>item.watched)};
