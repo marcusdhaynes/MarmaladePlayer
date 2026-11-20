@@ -139,6 +139,10 @@ try{
   assert.equal(await arrival().locator('.ml-art-type').count(),0,'Movie label is removed from artwork');
   assert.equal(await arrival().locator('.ml-card-star').getAttribute('aria-pressed'),'false');
   await arrival().locator('.ml-card-star').click();
+  // The favorite update awaits durable IndexedDB/native-extension storage
+  // before the card is re-rendered; don't assert against the old DOM node.
+  await page.waitForFunction(()=>document.querySelector('#mlCards .ml-card .ml-card-star')
+    ?.getAttribute('aria-pressed')==='true');
   assert.equal(await arrival().locator('.ml-card-star').getAttribute('aria-pressed'),'true',
     'The top-right star toggles favorites without opening playback');
   await arrival().locator('.ml-card-more').click();
