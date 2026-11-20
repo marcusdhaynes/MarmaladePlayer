@@ -50,9 +50,18 @@ jobs:
       - name: Stage on-demand MKV audio decoder
         run: node scripts/install-mkv-decoder.mjs
 
+      - name: Test decoder packaging and Minternet MKV audio compatibility
+        run: |
+          node scripts/validate-mkv-decoder-assets.mjs
+          node --test tests/mkv-compatibility.test.cjs tests/mkv-playback-pipeline.test.cjs
+          node --check auto-mkv-audio.js
+          node --check mkv-decoder-io.js
+          node --check mkv-asyncify-worker.js
       - name: Validate static web app
         run: |
           test -s index.html
+          test -s mkv-decoder-io.js
+          test -s mkv-asyncify-worker.js
           test -s auto-mkv-audio.js
           test -s vendor/libav-wasm/index.js
           test -s vendor/libav-wasm/worker.js
