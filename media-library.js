@@ -866,7 +866,7 @@
     };
     const sections=$('mlLibrarySections');
     const movies=visible.filter(entity=>entity.kind==='file'&&entity.item.type!=='tv');
-    const shows=visible.filter(entity=>entity.kind==='show'||
+    const tvEntries=visible.filter(entity=>entity.kind==='show'||
       (entity.kind==='file'&&entity.item.type==='tv'));
     sections.replaceChildren();
     const totalMovies=items.filter(item=>item.type!=='tv').length;
@@ -882,7 +882,7 @@
     const grouped=state.kind==='all'&&!state.collection.startsWith('playlist:')&&
       !state.collection.startsWith('collection:');
     if(grouped){
-      for(const [name,entries] of [['MOVIES',movies],['TV SHOWS',shows]]){
+      for(const [name,entries] of [['MOVIES',movies],['TV SHOWS',tvEntries]]){
         const heading=append(ui.cards,'div','ml-media-divider');
         append(heading,'strong','',name);
         append(heading,'small','',countLabel(entries.length));
