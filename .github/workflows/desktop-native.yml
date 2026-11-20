@@ -21,7 +21,7 @@ on:
       - '.github/workflows/desktop-native.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   desktop:
     strategy:
@@ -81,3 +81,28 @@ jobs:
             desktop/src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
           retention-days: 30
+      # Actions artifacts expire; the successful installer is also preserved
+      # permanently on the commit-specific GitHub Release for true rollback.
+      - name: Save native desktop installer to permanent GitHub version backup
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA:0:12}"
+          TAG="marmalade-backup-${SHORT}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" \
+              --title "Marmaladeum Version Backup ${SHORT}" \
+              --notes "Commit-pinned version backup. Successful platform packages are attached separately." \
+              --prerelease || gh release view "$TAG" >/dev/null
+          fi
+          case "${{ matrix.bundle }}" in
+            nsis) FILES=(desktop/src-tauri/target/release/bundle/nsis/*.exe); EXT="exe";;
+            dmg) FILES=(desktop/src-tauri/target/release/bundle/dmg/*.dmg); EXT="dmg";;
+            appimage) FILES=(desktop/src-tauri/target/release/bundle/appimage/*.AppImage); EXT="AppImage";;
+            *) exit 1;;
+          esac
+          test -s "${FILES[0]}"
+          cp "${FILES[0]}" "Marmaladeum-${{ matrix.label }}-${SHORT}.${EXT}"
+          gh release upload "$TAG" "Marmaladeum-${{ matrix.label }}-${SHORT}.${EXT}" --clobber
