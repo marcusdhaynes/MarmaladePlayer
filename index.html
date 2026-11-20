@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png?v=20261104-fullbleed-v1">
   <link rel="manifest" href="manifest.webmanifest?v=20261104-fullbleed-v1">
   <link rel="stylesheet" href="./movie-info.css?v=20261119-metacritic-card-v1">
-  <link rel="stylesheet" href="./media-library.css?v=20261120-library-filelist-v5">
+  <link rel="stylesheet" href="./media-library.css?v=20261120-library-natural-v6">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <style>
@@ -710,10 +710,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <div id="mlFolderList" class="ml-folder-list" aria-label="Folders belonging to this library"></div>
                 <div id="mlScanPreview" class="ml-scan-preview" role="status" aria-live="polite"></div>
                 <div class="ml-folder-pickers">
-                  <button type="button" class="ml-pick-folder" id="mlPickFolder" title="Import all video files in the chosen folder and its subfolders">+ Choose Folder</button>
-                  <button type="button" class="ml-compat-folder" id="mlCompatibilityFolder" title="Optional persistent folder access in browsers that support it">Persistent Picker</button>
+                  <button type="button" class="ml-pick-folder" id="mlPickFolder" title="Pick a folder once — Marmalade scans it, remembers it, and adds every video inside it and its subfolders">+ Add Folder</button>
+                  <button type="button" class="ml-compat-folder" id="mlCompatibilityFolder" hidden aria-hidden="true" tabindex="-1">Add Folder</button>
                 </div>
-                <p class="ml-help">Choose Folder imports every supported movie and TV file (including .mp4) in the selected folder and subfolders. The original videos stay on this device. Some browsers need the folder reselected after reopening; Persistent Picker can preserve access where supported.</p>
+                <p class="ml-help">Add Folder works like Plex: pick a folder once and every movie and TV file inside it — including subfolders — is scanned and added. Marmalade remembers the folder on Chrome and Edge so your library is still here when you come back. Your videos never leave this device.</p>
                 <div class="ml-dialog-bottom"><button id="mlDeleteLibrary" type="button" class="ml-danger" hidden>Remove Library</button><span class="ml-dialog-spacer"></span><button id="mlDialogCancel" type="button">Cancel</button><button id="mlDialogSave" type="button" class="ml-primary">Save Library</button></div>
               </div>
             </div>
@@ -5930,7 +5930,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./auto-mkv-audio.js?v=20261118-full-duration-v1"></script>
 <script src="./public-movie-info.js?v=20261103-imdb-score-v3" defer></script>
 <script src="./movie-info.js?v=20261119-metacritic-card-v1" defer></script>
-<script src="./media-library.js?v=20261120-library-filelist-v5" defer></script>
+<script src="./media-library.js?v=20261120-library-natural-v6" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>

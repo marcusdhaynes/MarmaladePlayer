@@ -228,8 +228,9 @@
         if(draft!==state.pending)return;
         if(found===null){
           state.scanProblems.set(folder.id,'Folder access not granted');
-          scanPreview('No access to '+folder.name+'. Click Reconnect and allow folder access, or use Other Picker.');
+          scanPreview('No access to '+folder.name+'. Click Reconnect next to the folder and allow access.');
           notify('Folder permission needed. Reconnect '+folder.name+' and allow read access.');
+          drawFolders();
           return null;
         }
         state.scanProblems.delete(folder.id);
@@ -245,15 +246,19 @@
         scanPreview(found.length?(found.length+' video'+(found.length===1?'':'s')+
           ' found in '+folder.name+
           (deferred?' · '+deferred+' need file access when played.':'')+
-          (direct?'. Adding to your library automatically…':'. Save Library to display them.')):
+          (direct?'. Adding to your library automatically…':'. Click Save Library — your movies will appear right away.')):
           '0 videos found in '+folder.name+
-          '. If this folder contains videos, use Other Picker to select it and its subfolders.');
+          '. Choose the folder that actually contains your video files, including its subfolders.');
+        drawFolders();
+        ui.save.textContent=(draft.items||[]).length?
+          'Save Library · '+countLabel((draft.items||[]).length):'Save Library';
         return found.length;
       }catch(error){
         console.warn('Library folder indexing failed',error);
         state.scanProblems.set(folder.id,error?.message||'Folder read failed');
         scanPreview('Cannot scan '+folder.name+': '+(error?.message||'folder unavailable')+
-          '. Try Other Picker to import its videos.');
+          '. Click Reconnect next to the folder and try again.');
+        drawFolders();
         return null;
       }
     })();
@@ -270,8 +275,8 @@
       if(state.autoAttachDraft!==draft||state.pending!==draft)return;
       if(count===null||count===undefined||count<1){
         state.autoAttachDraft=null;
-        notify(count===0?'No video files were found. Try Other Picker or another folder.':
-          'Folder could not be indexed. Reconnect or use Other Picker.');
+        notify(count===0?'No video files were found in that folder. Try another folder.':
+          'Folder could not be indexed. Use Reconnect next to the folder and allow access.');
         return;
       }
       state.autoAttachDraft=null;
@@ -1080,7 +1085,11 @@
       append(ui.folderList,'small','ml-help','No folders selected yet. You can save an empty library.');
     for(const folder of pending.folders){
       const wrap=append(ui.folderList,'div','ml-folder-entry');
-      const text=append(wrap,'span','','▣ '+folder.name);
+      const found=(pending.items||[]).filter(i=>i.folderId===folder.id).length;
+      const problem=state.scanProblems.get(folder.id);
+      const label=problem?('▣ '+folder.name+' · Not scanned — '+problem):
+        ('▣ '+folder.name+' · '+countLabel(found)+(folder.source==='handle'?' · Remembered':' · This session only'));
+      const text=append(wrap,'span','',label);
       text.title=folder.name;
       const controls=append(wrap,'div');
       const reconnect=append(controls,'button','','Reconnect');
@@ -1106,6 +1115,8 @@
       createdAt:lib?.createdAt||now(),lastScan:lib?.lastScan||0
     };
     ui.dialogTitle.textContent=lib?'Manage Library':'Create Library';
+    ui.save.textContent=(lib?.items||[]).length?
+      'Save Library · '+countLabel((lib.items||[]).length):'Save Library';
     ui.name.value=state.pending.name;
     ui.kind.value=state.pending.kind;
     ui.delete.hidden=!lib;
@@ -1142,54 +1153,80 @@
     drawFolders();
     indexPendingFolder(folder);
   }
-  function handleFolderSelection(handle){
+  async function handleFolderSelection(handle){
     if(!handle||handle.kind!=='directory')return;
+    // Ask for read access IMMEDIATELY, while the picker gesture is still
+    // active. Deferring this to the later scan is why folders previously
+    // appeared to be added but scanned as empty: by scan time the browser
+    // no longer counted the request as user-activated and left the handle
+    // in "prompt", so the walk silently returned nothing.
+    try{
+      if(typeof handle.queryPermission==='function'&&
+        await handle.queryPermission({mode:'read'})!=='granted'&&
+        typeof handle.requestPermission==='function')
+        await handle.requestPermission({mode:'read'});
+    }catch{/* The scan below reports a clear error if access is still denied. */}
     addFolder({id:id(),name:handle.name||'Video Folder',source:'handle',handle});
   }
-  // The browser directory-input picker exposes the actual FileList (including
-  // every nested MP4) without relying on a second File System Access permission
-  // prompt. This is the reliable DEFAULT, including inside restricted WebViews
-  // where showDirectoryPicker can silently fail or throw SecurityError.
+  // One natural Add Folder flow, exactly like Plex: pick a folder once and
+  // Marmalade remembers it. The File System Access picker is the DEFAULT
+  // wherever it exists (Chrome/Edge desktop) because its handle can be
+  // saved in IndexedDB, rescanned after a reload, and played later without
+  // re-picking. The directory-input FileList is only the fallback for
+  // Firefox/Safari/WebViews without that API; it indexes the same files
+  // for the current session and its catalog still persists.
   function pickFolder(){
     if(!state.pending){
       notify('Choose or create a library before selecting a media folder.');
+      return;
+    }
+    if(typeof window.showDirectoryPicker==='function'){
+      void pickNativeFolder();
       return;
     }
     scanPreview('Select the media folder. Marmaladeum will import its videos automatically.');
     ui.directoryInput.value='';
     ui.directoryInput.click(); // synchronous user gesture: do not await before click
   }
-  // An optional persistent native picker is retained for browsers that support
-  // it. Failure never erases a library or silently creates an empty folder.
-  async function pickPersistentFolder(){
-    if(!state.pending)return;
-    if(typeof window.showDirectoryPicker!=='function'){
-      notify('Persistent folder access is unavailable here. Use Choose Folder instead.');
-      scanPreview('Use Choose Folder to import MP4 videos from the selected directory.');
-      return;
-    }
+  async function pickNativeFolder(){
+    scanPreview('Select the media folder. Marmaladeum will scan it and remember it automatically.');
     try{
       const handle=await window.showDirectoryPicker({mode:'read'});
       if(!handle||handle.kind!=='directory'){
-        notify('Please choose a directory, not a single file.');
+        notify('Please choose a folder, not a single file.');
         return;
       }
-      handleFolderSelection(handle);
+      await handleFolderSelection(handle);
     }catch(error){
       if(error?.name==='AbortError'){
         scanPreview('Folder selection canceled. No changes were saved.');
-      }else{
-        console.warn('Persistent directory picker unavailable:',error);
-        notify('This browser blocked persistent folder access. Use Choose Folder instead.');
-        scanPreview('Use Choose Folder — it imports the selected MP4 files directly.');
+        return;
       }
+      // A blocked native picker must never dead-end or fake success:
+      // fall back to the directory input so the user can still import.
+      console.warn('Native directory picker unavailable, using fallback:',error);
+      scanPreview('Select the media folder. Marmaladeum will import its videos automatically.');
+      ui.directoryInput.value='';
+      ui.directoryInput.click();
     }
+  }
+  // Kept as an alias: both dialog buttons now run the same one-click flow,
+  // so there is no longer a "right" and "wrong" picker to choose between.
+  async function pickPersistentFolder(){
+    pickFolder();
   }
   function fallbackFiles(files){
     const pending=currentPending();
     if(!pending||!files.length)return;
-    const first=files[0];
-    const root=(first.webkitRelativePath||first.name).split('/')[0]||'Video Folder';
+    // The folder name is the first path segment shared by the selection.
+    // Deriving it from files[0] alone mislabels the folder whenever the
+    // browser lists a nested file first, so vote on the first segment.
+    const segments=new Map();
+    for(const f of files){
+      const seg=(f.webkitRelativePath||'').split('/')[0];
+      if(seg)segments.set(seg,(segments.get(seg)||0)+1);
+    }
+    const root=[...segments.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||'Selected Folder';
     const folder={id:id(),name:root,source:'session',handle:null};
     // Populate the session file map BEFORE initiating the same indexer used by
     // persistent directory handles. Previously fallback imports could look empty.
@@ -1200,7 +1237,12 @@
       if(prior)folder.id=prior.id;
     }
     for(const file of files){
-      const path=(file.webkitRelativePath||file.name).split('/').slice(1).join('/')||file.name;
+      const rel=file.webkitRelativePath||'';
+      const parts=rel.split('/').filter(Boolean);
+      // Strip only the shared root segment; a file sitting directly in the
+      // chosen folder keeps its bare filename, nested files keep their
+      // subfolder path. Files with no relative path keep their filename.
+      const path=(parts.length>1?parts.slice(1).join('/'):file.name)||file.name;
       if(video(file.name))state.sessionFiles.set(folder.id+'|'+path,file);
     }
     state.sessionFolderLoaded.add(folder.id);
@@ -1258,14 +1300,19 @@
     // needed after the async database write. Wait for durable IndexedDB save
     // before reporting that the library can safely survive a browser reload.
     ui.save.disabled=true;
+    ui.save.textContent='Save Library';
     closeEditor();render();
     await persist(pending);
     ui.save.disabled=false;
+    // Do NOT rescan here. The folder was already scanned in the editor and
+    // its catalog is what was just saved; an immediate silent rescan used
+    // to overwrite the success message with a misleading "access needed"
+    // notice whenever permission had lapsed back to "prompt", making a
+    // successful add look like it had failed. Rescans happen only from
+    // the Scan button or the stale-library check on load.
     if(pending.folders.length){
       if(pending.items.length)notify(countLabel(pending.items.length)+' saved in '+pending.name+'.');
-      // Refresh without prompting. The pre-save preview remains visible even
-      // when a previously granted directory permission has been revoked.
-      void scanLibrary(pending,{ask:false});
+      else notify('Library saved with no videos found. Add a folder that contains video files.');
     }else notify('Empty library saved. Open Edit Library to add a media folder.');
   }
   async function removeLibrary(){

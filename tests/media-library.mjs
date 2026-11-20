@@ -106,7 +106,7 @@ try{
   await page.locator('#mlNewLibrary').click();
   assert.equal(await page.locator('#mlDialogTitle').textContent(),'Create Library');
   await page.locator('#mlLibraryName').fill('My Movies');
-  await page.locator('#mlCompatibilityFolder').click();
+  await page.locator('#mlPickFolder').click();
   await page.waitForFunction(()=>document.querySelectorAll('#mlFolderList .ml-folder-entry').length===1);
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('3 videos'));
   assert((await page.locator('#mlScanPreview').textContent()).includes('3 videos'),
@@ -192,7 +192,7 @@ try{
   await page.locator('#mlNewLibrary').click();
   await page.locator('#mlLibraryName').fill('Series Shelf');
   await page.locator('#mlLibraryKind').selectOption('tv');
-  await page.locator('#mlCompatibilityFolder').click();
+  await page.locator('#mlPickFolder').click();
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
     l.name==='Series Shelf'&&l.count===2));
@@ -234,7 +234,7 @@ try{
   await page.waitForFunction(()=>document.querySelector('#mlCurrentShelf')?.textContent==='Fallback Folder');
   assert.equal(await page.locator('#mlCards .ml-card').count(),1,
     'Directory fallback includes nested videos, but not text files');
-  await page.waitForFunction(()=>/indexed in Fallback Folder/.test(
+  await page.waitForFunction(()=>/saved in Fallback Folder/.test(
     document.querySelector('#mlStatus')?.textContent||''));
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
@@ -260,7 +260,7 @@ try{
   });
   await page.locator('#mlNewLibrary').click();
   await page.locator('#mlLibraryName').fill('Disk Media');
-  await page.locator('#mlCompatibilityFolder').click();
+  await page.locator('#mlPickFolder').click();
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('1 video'));
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.name==='Disk Media'&&l.count===1));
@@ -304,6 +304,7 @@ try{
       }}
     });
   });
+  await page.evaluate(()=>{window.showDirectoryPicker=undefined;});
   await page.locator('#mlCards').getByRole('button',{name:'+ Choose Folder'}).click();
   // Actual browser directory-input path, not a mocked showDirectoryPicker.
   // The user selected this folder containing a .mp4 and nested video files.
@@ -329,7 +330,7 @@ try{
   assert.equal(await page.locator('#mlCards').getByText('A Single Movie',{exact:false}).count(),1,
     'A root-level .mp4 must appear without nested folders');
   assert.equal(await page.locator('#mlCards').getByText('Some Show',{exact:false}).count(),1);
-  await page.waitForFunction(()=>/indexed in Test/.test(
+  await page.waitForFunction(()=>/saved in Test/.test(
     document.getElementById('mlStatus')?.textContent||''));
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));

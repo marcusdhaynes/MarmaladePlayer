@@ -14,16 +14,26 @@ screens the Library and information panel stack vertically. The default is
 
 1. Choose **+ Library**. Name it, then select **Movies**, **TV Shows**, or
    **Other Videos**. You may save an empty library.
-2. Choose **+ Choose Folder** and grant read access. Add more source folders
-   as needed. Files are scanned recursively.
+2. Choose **+ Add Folder** and pick the folder once, exactly like Plex.
+   There is only one folder picker: on Chrome/Edge it remembers the folder
+   so the library can be rescanned and played after a reload; on other
+   browsers the same button imports the folder's files for the session.
+   The folder row shows how many videos were found in it before you save,
+   so an empty scan is visible immediately instead of after saving.
+   Add more source folders as needed. Files are scanned recursively.
 3. Save. The browser indexes video filenames, sizes, modification times,
    movie years when present, and recognizable TV season/episode numbers.
+   Saving never triggers a second silent scan, so the count you previewed
+   is the count that is saved. From an empty library or the toolbar
+   **+ Folder** button, one folder pick scans, saves, and displays the
+   videos with no second Save click at all.
 4. Switch libraries using the left-hand shelf. Search by name or path,
    sort, filter by movies/shows, or browse the original folder structure.
 5. Select a video card to open the original media file in Marmaladeum's
    existing host player, which retains the established playback, room,
    subtitle, and resume behavior.
-6. Use **+ Folder** for more folders, **⚙ Manage** to rename, reconnect, remove
+6. Use **+ Folder** for more folders (one pick adds and saves them),
+   **⚙ Manage** to rename, reconnect, remove
    individual source folders, or delete a library, and **↻ Scan** to detect
    additions and removals. Removing a catalog never deletes video files.
 7. Choose **▧ Find Artwork** to request posters. On first use, Marmaladeum
