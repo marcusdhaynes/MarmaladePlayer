@@ -118,7 +118,7 @@ function section(text, from, until) {
   assert.equal(preview.currentTime,398,'Inactive monitor cannot alter its playback');
   console.log('PASS paused/playing host monitor seeks preserve subtitle alignment');
 }
-assert.match(index,/duration:\s*\['file','hosted'\].*stableMovieDuration\(\)/,
+assert.match(index,/duration:\s*\['file','native','hosted'\].*stableMovieDuration\(\)/,
   'Host should broadcast stable movie duration');
 assert.match(index,/const seekTime = .*stableMovieDuration\(\)/,
   'Slider calculations should use stable movie duration');
