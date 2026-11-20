@@ -1316,8 +1316,11 @@
       fallbackFiles(chosen);
     });
     ui.directoryInput.addEventListener('cancel',()=>{
-      scanPreview('Folder selection canceled. Choose Folder to try again.');
-      if(state.autoAttachDraft===state.pending)state.autoAttachDraft=null;
+      // Browsers may emit 'cancel' while switching between a programmatically
+      // opened directory picker and the FileList change event. Never disarm
+      // an existing one-click import here: the next successful change must
+      // still attach and save its files. Close Editor resets the intent.
+      scanPreview('No folder change received yet. Choose Folder to select your videos.');
     });
     ui.name.addEventListener('input',()=>ui.name.setCustomValidity(''));
     ui.rescan.addEventListener('click',()=>{
