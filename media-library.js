@@ -534,6 +534,8 @@
         ()=>void mutateItems([target.item],item=>{item.watched=!item.watched;},'Watch status saved.'));
       action('★  '+(entry.favorite?'Remove Favorite':'Add to Favorites'),
         ()=>void mutateItems([target.item],item=>{item.favorite=!item.favorite;},'Favorites updated.'));
+      action('☷  '+(entry.watchlist?'Remove from Watchlist':'Add to Watchlist'),
+        ()=>void mutateItems([target.item],item=>{item.watchlist=!item.watchlist;},'Watchlist updated.'));
       action('✎  Edit Details',()=>showDetails(target.item));
       action('＋  Add to Playlist',()=>addToTagGroup(target.item,'playlists'));
       action('＋  Add to Collection',()=>addToTagGroup(target.item,'collections'));
@@ -545,6 +547,10 @@
       sep();
       action('⌕  Match / Fix Match',()=>void refreshMetadata([target.item],{fix:true}));
       action('↻  Refresh Metadata',()=>void refreshMetadata([target.item]));
+      if(entry.metadataSource||entry.poster||entry.overview)
+        action('✕  Unmatch Metadata',()=>void mutateItems([target.item],item=>{
+          item.poster='';item.overview='';item.metadataSource='';
+        },'External metadata cleared. Manually edited title and original file are unchanged.'));
       action('▤  Analyze',()=>void analyze(target.item));
       action('ℹ  Get Info',()=>showDetails(target.item,'info'));
       action('▣  Browse Containing Folder',()=>{
@@ -567,13 +573,33 @@
         item=>{item.watched=false;},'Series marked unwatched.'));
       action('★  Favorite Series',()=>void mutateItems(entries,
         item=>{item.favorite=true;},'Series added to favorites.'));
+      action('☷  Add Series to Watchlist',()=>void mutateItems(entries,
+        item=>{item.watchlist=true;},'Series added to watchlist.'));
+      action('＋  Add Series to Collection',()=>{
+        const name=window.prompt('Collection name:','');
+        if(name?.trim())void mutateItems(entries,item=>{
+          item.collections=[...new Set([...(item.collections||[]),name.trim().slice(0,100)])];
+        },'Series added to collection.');
+      });
+      action('＋  Add Series to Playlist',()=>{
+        const name=window.prompt('Playlist name:','');
+        if(name?.trim())void mutateItems(entries,item=>{
+          item.playlists=[...new Set([...(item.playlists||[]),name.trim().slice(0,100)])];
+        },'Series added to playlist.');
+      });
       action('✎  Rename Series',()=>{
         const name=window.prompt('Series Name',target.show);
         if(name?.trim())void mutateItems(entries,
           item=>{item.show=name.trim().slice(0,180);item.customized=true;},
           'Series renamed.');
       });
+      action('⌕  Fix Series Match',()=>void refreshMetadata(entries.slice(0,1),{fix:true}));
       action('↻  Refresh Series Metadata',()=>void refreshMetadata(entries.slice(0,1)));
+      action('▤  Analyze Series',()=>void (async()=>{
+        const count=entries.length;
+        notify(count+' episode'+(count===1?'':'s')+' in '+target.show+
+          '. Analyze individual episodes for runtime and file information.');
+      })());
       action('ℹ  Series Info',()=>notify(entries.length+' episodes in '+target.show+'.'));
     }else if(target.kind==='folder'){
       action('▤  Open Folder',()=>{
@@ -739,6 +765,7 @@
     const search=state.query.trim().toLocaleLowerCase();
     if(state.kind==='movie'||state.kind==='tv')items=items.filter(i=>i.type===state.kind);
     else if(state.kind==='favorites')items=items.filter(i=>!!i.favorite);
+    else if(state.kind==='watchlist')items=items.filter(i=>!!i.watchlist);
     else if(state.kind==='watched')items=items.filter(i=>!!i.watched);
     else if(state.kind==='unwatched')items=items.filter(i=>!i.watched);
     if(state.collection!=='all'){
