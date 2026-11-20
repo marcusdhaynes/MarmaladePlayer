@@ -303,6 +303,15 @@
   }
   async function scanLibrary(lib,{ask=false}={}){
     if(!lib||state.scanning){notify('A library scan is already in progress.');return;}
+    if(lib.id.startsWith('addon:')&&nativeLibraryApi()?.rescan){
+      try{
+        const catalog=await nativeLibraryApi().rescan();
+        await syncFromNative(catalog);
+        const current=state.libraries.find(l=>l.id===lib.id);
+        notify(countLabel(current?.items?.length||0)+' indexed in '+lib.name+' by the Minternet extension.');
+      }catch(error){notify('Native library scan failed: '+(error?.message||error));}
+      return;
+    }
     state.scanning=true;
     const seq=++state.scanSeq,oldItems=(lib.items||[]).slice();
     const prior=new Map(oldItems.map(item=>[item.id,item]));
@@ -368,16 +377,35 @@
     const lib=state.libraries.find(l=>l.id===item.libraryId);
     return {lib,entry:lib?.items.find(i=>i.id===item.id)};
   }
+  function nativeItemChanges(entry){
+    const fields=['title','year','type','show','season','episode','poster',
+      'overview','favorite','watched','watchlist','playlists','collections',
+      'runtimeSec','metadataSource','customized','analyzedAt'];
+    return Object.fromEntries(fields.filter(key=>entry[key]!==undefined).map(key=>[key,entry[key]]));
+  }
+  async function persistNativeItem(lib,entry,extra={}){
+    if(!lib?.id?.startsWith('addon:'))return;
+    const api=nativeLibraryApi();
+    if(typeof api?.updateItem!=='function')throw Error('Minternet extension cannot save media changes. Update Minternet and restart.');
+    await api.updateItem({libraryId:lib.id.slice(6),itemId:entry.id,
+      changes:{...nativeItemChanges(entry),...extra}});
+  }
   async function mutateItems(items,fn,message){
     const changed=new Set();
+    const edited=[];
     for(const item of items){
       const {lib,entry}=storedItem(item);
       if(!entry)continue;
-      fn(entry,lib);changed.add(lib);
+      fn(entry,lib);changed.add(lib);edited.push({lib,entry});
     }
-    for(const lib of changed)await persist(lib);
-    render();
-    if(message)notify(message);
+    try{
+      for(const {lib,entry} of edited)await persistNativeItem(lib,entry);
+      for(const lib of changed)await persist(lib);
+      render();
+      if(message)notify(message);
+    }catch(error){
+      notify('Media changes were not saved to the extension: '+(error?.message||error));
+    }
   }
   function showItems(target){
     return (state.libraries.find(l=>l.id===target.libId)?.items||[])
@@ -475,8 +503,11 @@
     item.poster=poster;
     item.overview=$('mlEditOverview').value.trim().slice(0,3000);
     item.customized=true;
-    await persist(lib);closeItemDialog();render();
-    notify('Updated '+item.title+' in '+lib.name+'.');
+    try{
+      await persistNativeItem(lib,item);
+      await persist(lib);closeItemDialog();render();
+      notify('Updated '+item.title+' in '+lib.name+' and saved to the extension.');
+    }catch(error){notify('Media edit not saved to Minternet: '+(error?.message||error));}
   }
   async function analyze(item){
     const {entry,lib}=storedItem(item);
@@ -549,6 +580,7 @@
           else entry.title=rec.title;
         }
         entry.metadataSource=rec.source||'Public metadata';
+        await persistNativeItem(lib,entry);
         await persist(lib);success++;
       }catch(error){console.debug('Library metadata lookup missed',query,error);}
     }
@@ -572,7 +604,13 @@
     if(!window.confirm('Remove "'+entry.title+'" from this library catalog? The original video will NOT be deleted. You can restore hidden entries from the library options menu.'))return;
     lib.hiddenIds=[...new Set([...(lib.hiddenIds||[]),entry.id])];
     lib.items=lib.items.filter(x=>x.id!==entry.id);
-    void persist(lib);render();notify('Removed from the catalog; original video was not deleted.');
+    void (async()=>{
+      try{
+        await persistNativeItem(lib,entry,{hidden:true});
+        await persist(lib);render();
+        notify('Hidden in the library catalog and saved to the extension. Original video untouched.');
+      }catch(error){notify('Could not save hidden video to extension: '+(error?.message||error));}
+    })();
   }
   function openMenu(target,x,y,anchor=null){
     if(!target)return;
@@ -595,9 +633,21 @@
       action('↻  Scan Library Files',()=>void scanLibrary(lib,{ask:true}));
       action('▧  Refresh All Posters',()=>{setSelected(lib.id);void findArtwork();});
       action('▤  Browse Folders',()=>{setSelected(lib.id);state.folderMode=true;render();});
-      if((lib.hiddenIds||[]).length)action('↶  Restore Hidden Videos',()=>{
-        lib.hiddenIds=[];void persist(lib);void scanLibrary(lib,{ask:true});
-      });
+      if((lib.hiddenIds||[]).length)action('↶  Restore Hidden Videos',()=>void (async()=>{
+        try{
+          if(lib.id.startsWith('addon:')){
+            const api=nativeLibraryApi();
+            if(!api?.updateItem)throw Error('Minternet extension is unavailable');
+            for(const itemId of lib.hiddenIds){
+              await api.updateItem({libraryId:lib.id.slice(6),itemId,changes:{hidden:false}});
+            }
+            await syncFromNative();
+          }else{
+            lib.hiddenIds=[];await persist(lib);await scanLibrary(lib,{ask:true});
+          }
+          notify('Hidden videos restored.');
+        }catch(error){notify('Could not restore hidden videos: '+(error?.message||error));}
+      })());
       sep();
       action('✕  Remove Library',()=>{state.editing=lib.id;void removeLibrary();},{danger:true});
     }else if(target.kind==='item'){
@@ -1051,6 +1101,7 @@
         // Choose Video flow; setting video.src alone left the theater blank.
         if(bridge.el?.stage)bridge.el.stage.classList.add('has-video');
         if(bridge.el?.empty)bridge.el.empty.hidden=true;
+        media.crossOrigin='anonymous';
         media.src=url;media.preload='auto';media.load();
         if(bridge.el?.fileName)bridge.el.fileName.textContent=item.name||item.title||'';
         if(bridge.el?.fileInfo)bridge.el.fileInfo.textContent=(item.name||'')+' · via Minternet';
@@ -1127,7 +1178,14 @@
           if(found)render();
         }catch{/* A network miss is not an invented media match. */}
       }
-      for(const lib of affected)await persist(lib);
+      for(const lib of affected){
+        if(lib.id.startsWith('addon:')){
+          for(const item of lib.items.filter(item=>item.poster)){
+            await persistNativeItem(lib,item);
+          }
+        }
+        await persist(lib);
+      }
       notify('Cover artwork added for '+found+' video'+(found===1?'':'s')+
         '. Missing public matches keep their original title cards.');
     }finally{state.artworkBusy=false;render();}
