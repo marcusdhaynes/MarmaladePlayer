@@ -1085,7 +1085,7 @@
       const controls=append(wrap,'div');
       const reconnect=append(controls,'button','','Reconnect');
       reconnect.type='button';reconnect.title='Choose the location again';
-      reconnect.addEventListener('click',()=>{state.relink=folder.id;void pickFolder();});
+      reconnect.addEventListener('click',()=>{state.relink=folder.id;pickFolder();});
       const remove=append(controls,'button','','Remove');
       remove.type='button';remove.setAttribute('aria-label','Remove '+folder.name+' from this library');
       remove.addEventListener('click',()=>{
@@ -1128,7 +1128,7 @@
     notify('Choose a folder. Its videos will be added to '+lib.name+' automatically.');
     // This must run in the original click handler, preserving browser file-picker
     // user activation. The editor is only a fallback if access fails.
-    void pickFolder();
+    pickFolder();
   }
   function addFolder(folder){
     const pending=currentPending();
@@ -1146,22 +1146,44 @@
     if(!handle||handle.kind!=='directory')return;
     addFolder({id:id(),name:handle.name||'Video Folder',source:'handle',handle});
   }
-  async function pickFolder(){
-    if(typeof window.showDirectoryPicker==='function'){
-      try{
-        const handle=await window.showDirectoryPicker({mode:'read'});
-        handleFolderSelection(handle);
-        return;
-      }catch(error){
-        if(error?.name==='AbortError')return;
-        console.warn('Native directory picker unavailable:',error);
-        scanPreview('Persistent folder picker unavailable. Click Other Picker to import videos.');
-        notify('Use Other Picker to select a directory in this browser.');
+  // The browser directory-input picker exposes the actual FileList (including
+  // every nested MP4) without relying on a second File System Access permission
+  // prompt. This is the reliable DEFAULT, including inside restricted WebViews
+  // where showDirectoryPicker can silently fail or throw SecurityError.
+  function pickFolder(){
+    if(!state.pending){
+      notify('Choose or create a library before selecting a media folder.');
+      return;
+    }
+    scanPreview('Select the media folder. Marmaladeum will import its videos automatically.');
+    ui.directoryInput.value='';
+    ui.directoryInput.click(); // synchronous user gesture: do not await before click
+  }
+  // An optional persistent native picker is retained for browsers that support
+  // it. Failure never erases a library or silently creates an empty folder.
+  async function pickPersistentFolder(){
+    if(!state.pending)return;
+    if(typeof window.showDirectoryPicker!=='function'){
+      notify('Persistent folder access is unavailable here. Use Choose Folder instead.');
+      scanPreview('Use Choose Folder to import MP4 videos from the selected directory.');
+      return;
+    }
+    try{
+      const handle=await window.showDirectoryPicker({mode:'read'});
+      if(!handle||handle.kind!=='directory'){
+        notify('Please choose a directory, not a single file.');
         return;
       }
+      handleFolderSelection(handle);
+    }catch(error){
+      if(error?.name==='AbortError'){
+        scanPreview('Folder selection canceled. No changes were saved.');
+      }else{
+        console.warn('Persistent directory picker unavailable:',error);
+        notify('This browser blocked persistent folder access. Use Choose Folder instead.');
+        scanPreview('Use Choose Folder — it imports the selected MP4 files directly.');
+      }
     }
-    ui.directoryInput.value='';
-    ui.directoryInput.click();
   }
   function fallbackFiles(files){
     const pending=currentPending();
@@ -1182,9 +1204,18 @@
       if(video(file.name))state.sessionFiles.set(folder.id+'|'+path,file);
     }
     state.sessionFolderLoaded.add(folder.id);
+    const matching=files.filter(file=>video(file.name));
+    if(!matching.length){
+      state.scanProblems.set(folder.id,'No supported video files in selected directory');
+      state.autoAttachDraft=null;
+      scanPreview('0 videos found among '+files.length+' files in '+root+
+        '. Choose the folder containing .mp4 files, including its subfolders.');
+      notify('No supported video files found in '+root+'. Try another folder.');
+      return;
+    }
     addFolder(folder);
-    scanPreview('Importing '+files.length+' selected files; only videos will appear.');
-    notify('Folder selected. Browser file access may need to be renewed after reopening.');
+    notify(matching.length+' video'+(matching.length===1?'':'s')+
+      ' detected in '+root+'. Adding the folder to the library…');
   }
   async function saveEditor(){
     const pending=currentPending();if(!pending)return;
@@ -1271,15 +1302,25 @@
     $('mlSidebarNew').addEventListener('click',()=>openEditor(null));
     $('mlDialogClose').addEventListener('click',closeEditor);
     $('mlDialogCancel').addEventListener('click',closeEditor);
-    ui.pick.addEventListener('click',()=>void pickFolder());
-    $('mlCompatibilityFolder').addEventListener('click',()=>{
-      ui.directoryInput.value='';
-      ui.directoryInput.click();
-    });
+    ui.pick.addEventListener('click',pickFolder);
+    $('mlCompatibilityFolder').addEventListener('click',()=>void pickPersistentFolder());
     ui.save.addEventListener('click',()=>void saveEditor());
     ui.delete.addEventListener('click',()=>void removeLibrary());
     ui.directoryInput.addEventListener('change',event=>{
-      fallbackFiles([...event.target.files||[]]);event.target.value='';
+      const chosen=[...event.target.files||[]];
+      event.target.value='';
+      if(!chosen.length){
+        scanPreview('No files selected. The library has not been changed.');
+        return;
+      }
+      fallbackFiles(chosen);
+    });
+    ui.directoryInput.addEventListener('cancel',()=>{
+      // Browsers may emit 'cancel' while switching between a programmatically
+      // opened directory picker and the FileList change event. Never disarm
+      // an existing one-click import here: the next successful change must
+      // still attach and save its files. Close Editor resets the intent.
+      scanPreview('No folder change received yet. Choose Folder to select your videos.');
     });
     ui.name.addEventListener('input',()=>ui.name.setCustomValidity(''));
     ui.rescan.addEventListener('click',()=>{
