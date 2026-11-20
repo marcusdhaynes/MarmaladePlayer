@@ -219,6 +219,8 @@ try{
   await page.waitForFunction(()=>document.querySelector('#mlCurrentShelf')?.textContent==='Fallback Folder');
   assert.equal(await page.locator('#mlCards .ml-card').count(),1,
     'Directory fallback includes nested videos, but not text files');
+  await page.waitForFunction(()=>/indexed in Fallback Folder/.test(
+    document.querySelector('#mlStatus')?.textContent||''));
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
   await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
