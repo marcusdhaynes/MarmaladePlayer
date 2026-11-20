@@ -112,3 +112,98 @@
  .ml-panel .ml-shelf{width:auto;max-width:55%;min-height:27px;padding:5px 8px}
  .ml-panel .ml-sidebar-add{width:max-content}.ml-filters{grid-template-columns:minmax(85px,1fr) auto auto}
  .ml-cards{grid-template-columns:repeat(auto-fill,minmax(99px,1fr))}.ml-card-art{min-height:88px}}
+
+/* Library v2: mirror the player's thin outline SVG controls, not oversized emoji. */
+.ml-panel .ml-toolbar-actions .ml-tool-icon,.ml-panel .ml-filters .ml-tool-icon{
+ display:grid!important;place-items:center!important;flex:none;width:31px!important;height:31px!important;
+ min-width:31px!important;min-height:31px!important;padding:5px!important;border:0!important;
+ border-radius:7px!important;background:transparent!important;color:#d7d6dc!important;
+ font-size:11px!important;box-shadow:none!important;transition:background .14s,color .14s;
+}
+.ml-panel .ml-tool-icon .glass-icon{display:block;width:20px;height:20px;stroke:currentColor;flex:none}
+.ml-panel .ml-tool-icon:hover:not(:disabled){background:#ffffff0c!important;color:#ffac53!important;border:0!important}
+.ml-panel .ml-tool-icon[aria-pressed="true"]{color:#ffb66e!important;background:#ffffff13!important}
+.ml-panel .ml-tool-icon:disabled{opacity:.35!important}
+.ml-filters{display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:5px!important}
+.ml-filters input{flex:2 1 125px;width:auto;max-width:none}
+.ml-filters select{flex:1 1 75px;min-width:0;max-width:none!important;width:auto}
+.ml-panel .ml-filters #mlView{display:grid!important;flex:0 0 31px!important}
+.ml-panel .ml-toolbar-actions button{font-size:11px!important}
+.ml-shelf-category{display:flex;align-items:center;gap:7px;margin:12px 0 4px;padding:2px 3px 5px;
+ font-size:9px;font-weight:800;color:#f0b985;letter-spacing:1.5px}
+.ml-shelf-category:after{content:"";height:1px;flex:1;background:linear-gradient(90deg,#9c705565,transparent)}
+.ml-shelf-row{display:flex;align-items:center;gap:1px;min-width:0;border-radius:7px}
+.ml-panel .ml-shelf-row>.ml-shelf{flex:1;min-width:0}
+.ml-panel .ml-shelf-edit{width:26px;min-width:26px;height:27px;min-height:27px;padding:3px;
+ border:0;background:transparent;color:#bca0a1;font-size:13px;line-height:1}
+.ml-panel .ml-shelf-edit:hover{color:#ffd2a2;background:#ffffff0d}
+.ml-shelf-none{font-size:9px;color:#877883;padding:2px 7px 7px;font-style:italic}
+.ml-section-index{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:5px 0 2px;border-bottom:1px solid #ffffff15}
+.ml-panel .ml-section-pill{background:#221d28;border:1px solid #664753;border-radius:999px;
+ padding:5px 10px;min-height:25px;color:#cbb4b3;font-size:10px}
+.ml-panel .ml-section-pill[aria-pressed="true"]{border-color:#e2a46b;color:#ffdeb8;background:#6d453f66}
+.ml-media-divider{grid-column:1/-1;min-height:33px;display:flex;align-items:center;gap:8px;
+ border-bottom:1px solid #b2846560;margin:8px 0 3px;padding-bottom:5px}
+.ml-media-divider strong{font-size:11px;letter-spacing:1.5px;color:#f4c7a0;font-weight:850}
+.ml-media-divider small{font-size:9px;color:#ac9aa0}
+.ml-cards .ml-media-divider:first-child{margin-top:0}
+.ml-panel .ml-card{cursor:pointer;transition:border-color .14s,transform .14s;outline-offset:3px}
+.ml-card .ml-card-label{padding-right:12px;display:block}
+.ml-panel .ml-card-more{position:absolute;right:5px;bottom:5px;z-index:5;width:29px;min-width:29px;
+ height:29px;min-height:29px;padding:0 3px!important;display:grid;place-items:center;
+ color:#f7d1ac!important;font-size:22px!important;font-weight:800;line-height:1;
+ border:1px solid #b98c703f!important;background:#1b1420d9!important;border-radius:7px!important;
+ letter-spacing:1px;opacity:.94;box-shadow:0 1px 8px #0007}
+.ml-panel .ml-card-more:hover,.ml-panel .ml-card-more:focus-visible{border-color:#ffc792!important;background:#54333f!important;color:#fff5dc!important;opacity:1}
+.ml-panel .ml-card-detail{padding-right:31px}
+.ml-card .ml-watched-mark,.ml-card .ml-favorite-mark{font-size:10px;margin-left:5px;color:#98d6a4}
+.ml-card .ml-favorite-mark{color:#eabd7d}
+.ml-panel .ml-cards.ml-list .ml-card{position:relative;padding-right:40px}
+.ml-panel .ml-cards.ml-list .ml-card-more{right:5px;bottom:50%;transform:translateY(50%)}
+.ml-panel .ml-cards.ml-list .ml-card-detail{padding-right:5px}
+.ml-context-menu{position:fixed!important;z-index:2147481000!important;min-width:228px;max-width:min(300px,calc(100vw - 14px));
+ max-height:min(75vh,560px);overflow-y:auto;overscroll-behavior:contain;padding:6px!important;
+ color:#efe5e0;background:linear-gradient(150deg,#29232f,#181720 80%);border:1px solid #8a6a66;
+ border-radius:11px;box-shadow:0 18px 60px #000d,0 2px 12px #0008;
+ scrollbar-color:#80636a transparent;scrollbar-width:thin}
+.ml-context-menu[hidden]{display:none!important}
+.ml-context-menu .ml-menu-action{display:flex;align-items:center;width:100%;min-height:32px;
+ background:transparent;border:0;border-radius:6px;color:#e9dadd;font:600 11px/1.25 system-ui,sans-serif;
+ padding:8px 10px;text-align:left;cursor:pointer;white-space:normal}
+.ml-context-menu .ml-menu-action:hover:not(:disabled),.ml-context-menu .ml-menu-action:focus-visible{
+ background:#5c4251;color:#ffe2bd;outline:none}
+.ml-context-menu .ml-menu-action:disabled{opacity:.45;cursor:default}
+.ml-context-menu .ml-menu-danger{color:#f6a4ae}
+.ml-context-menu .ml-menu-danger:hover{background:#793c48;color:#fff0f2}
+.ml-menu-separator{height:1px;background:#ffffff20;margin:5px 4px}
+.ml-item-dialog{z-index:40}
+.ml-item-dialog-body{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow-y:auto;padding:2px 1px 10px}
+.ml-item-field{display:flex;flex-direction:column;gap:4px;color:#e1c9ca;font-size:10px;font-weight:750}
+.ml-panel .ml-item-field input,.ml-panel .ml-item-field select,.ml-panel .ml-item-field textarea{
+ width:100%;min-width:0;min-height:31px;border:1px solid #72576a;background:#17151e;color:#f6e8e1;
+ border-radius:6px;padding:7px 9px;font-size:12px}
+.ml-panel .ml-item-field textarea{height:70px;resize:vertical}
+.ml-info-line{display:flex;align-items:start;justify-content:space-between;gap:8px;border-bottom:1px solid #ffffff18;
+ padding:6px 1px;font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+.ml-info-line strong{color:#e7c29d;flex:0 0 32%}
+.ml-info-line span{color:#eee2dc;text-align:right}
+.ml-scan-preview{padding:7px 9px;margin:5px 0;font-size:10px;line-height:1.4;color:#f4bd8b;
+ border:1px solid #e4aa7440;background:#a9794b12;border-radius:7px;min-height:27px}
+.ml-panel .ml-dialog-bottom .ml-primary{padding:7px 12px;min-height:32px}
+@media(max-width:480px){.ml-media-divider{min-height:30px}.ml-panel .ml-card-more{opacity:1}}
+
+/* Library action buttons share the player button sizing, stroke and hover. */
+.ml-panel .ml-add-library,.ml-panel .ml-sidebar-add,.ml-panel .ml-pick-folder,.ml-panel .ml-compat-folder,
+.ml-panel .ml-dialog-bottom button,.ml-panel .ml-empty button{
+ min-height:31px!important;border-radius:7px!important;padding:5px 10px!important;
+ font-size:10px!important;font-weight:700!important}
+.ml-panel .ml-add-library,.ml-panel .ml-primary{
+ color:#ffd5a6!important;border:1px solid #e8a65c88!important;
+ background:#221b1b!important;box-shadow:none!important}
+.ml-panel .ml-primary:hover:not(:disabled){
+ background:#3b2921!important;border-color:#ffd49c!important;color:#ffedd0!important}
+.ml-panel .ml-shelf-edit{display:grid!important;place-items:center!important;height:28px!important;
+ width:28px!important;min-width:28px!important;padding:4px!important;font-size:11px!important}
+.ml-panel .ml-shelf-edit svg{width:18px;height:18px;stroke:currentColor}
+.ml-panel .ml-card-more svg{width:19px;height:19px;stroke:none;fill:currentColor}
+.ml-panel .ml-card-more:hover:not(:disabled) svg{fill:#fff}

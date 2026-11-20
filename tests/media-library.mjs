@@ -95,18 +95,54 @@ try{
   await page.locator('#mlLibraryName').fill('My Movies');
   await page.locator('#mlPickFolder').click();
   await page.waitForFunction(()=>document.querySelectorAll('#mlFolderList .ml-folder-entry').length===1);
+  await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('3 videos'));
+  assert((await page.locator('#mlScanPreview').textContent()).includes('3 videos'),
+    'Selected video folder should index its actual video files before saving');
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
     l.name==='My Movies'&&l.count===3));
   assert.equal(await page.locator('#mlDialog').isVisible(),false);
   assert.equal(await page.locator('#mlCards .ml-card').count(),3,
     'Recursive scanning indexes videos and omits non-videos');
+  assert.equal(await page.locator('.ml-shelf-category').filter({hasText:'MOVIES'}).count(),1,
+    'Movie libraries must have a dedicated sidebar divider');
+  assert.equal(await page.locator('.ml-shelf-category').filter({hasText:'TV SHOWS'}).count(),1,
+    'TV libraries must have a dedicated sidebar divider');
+  assert.equal(await page.locator('.ml-media-divider').filter({hasText:'MOVIES'}).count(),1,
+    'Movie cards must have a visible in-library divider');
   assert.equal(await page.locator('#mlCards').getByText('Arrival',{exact:false}).count(),1);
+  assert.equal(await page.locator('.ml-shelf-edit').count(),1,
+    'Every named library exposes a direct pencil edit control');
+  assert.equal(await page.locator('.ml-tool-icon svg.glass-icon').count(),5,
+    'Library tool buttons have the player SVG style');
+  const arrival=()=>page.locator('#mlCards .ml-card').filter({hasText:'Arrival'});
+  await arrival().locator('.ml-card-more').click();
+  assert.equal(await page.locator('#mlContextMenu').isVisible(),true,
+    'Three-dot control must open the custom video options menu');
+  assert(await page.locator('#mlContextMenu').getByText('Edit Details').isVisible());
+  assert(await page.locator('#mlContextMenu').getByText('Mark as Watched').isVisible());
+  await page.locator('#mlContextMenu').getByText('Mark as Watched').click();
+  await arrival().click({button:'right'});
+  assert.equal(await page.locator('#mlContextMenu').isVisible(),true,
+    'Right-click must open the same browser-style context menu');
+  await page.locator('#mlContextMenu').getByText('Edit Details').click();
+  await page.locator('#mlEditTitle').fill('Arrival Custom Title');
+  await page.locator('#mlItemDialogSave').click();
+  await page.waitForFunction(()=>document.querySelector('#mlCards')?.textContent.includes('Arrival Custom Title'));
+  await page.locator('#mlRescan').click();
+  await page.waitForFunction(()=>!document.getElementById('mlRescan').disabled);
+  assert.equal(await page.locator('#mlCards .ml-card').filter({hasText:'Arrival Custom Title'}).count(),1,
+    'Manually edited titles must survive folder rescans');
+  await page.locator('#mlCards .ml-card').filter({hasText:'Arrival Custom Title'}).locator('.ml-card-more').click();
+  await page.locator('#mlContextMenu').getByText('Get Info').click();
+  assert.equal(await page.locator('#mlItemDialogTitle').textContent(),'Media File Info');
+  assert((await page.locator('#mlItemDialogBody').textContent()).includes('Arrival (2016).mp4'));
+  await page.locator('#mlItemDialogCancel').click();
   await page.locator('#mlSearch').fill('Moon');
   await page.waitForFunction(()=>document.querySelectorAll('#mlCards .ml-card').length===1);
   await page.locator('#mlSearch').fill('');
   await page.waitForFunction(()=>document.querySelectorAll('#mlCards .ml-card').length===3);
-  await page.locator('#mlCards .ml-card').filter({hasText:'Arrival'}).click();
+  await page.locator('#mlCards .ml-card').filter({hasText:'Arrival Custom Title'}).click();
   assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.file?.name),
     'Arrival (2016).mp4','Library card opens its real file through the existing host player');
   // The thumbnail index is persisted, but a fake JS handle cannot be cloned
@@ -147,6 +183,10 @@ try{
     l.name==='Series Shelf'&&l.count===2));
   assert.equal(await page.locator('#mlCards .ml-card').count(),1,
     'Two TV episodes are grouped under one series');
+  assert.equal(await page.locator('.ml-shelf-category').filter({hasText:'TV SHOWS'}).count(),1);
+  await page.locator('.ml-shelf-edit').last().click();
+  assert.equal(await page.locator('#mlDialogTitle').textContent(),'Manage Library');
+  await page.locator('#mlDialogCancel').click();
   await page.locator('#mlCards .ml-card').first().click();
   assert.equal(await page.locator('#mlCards .ml-card').count(),2,
     'Opening a series shows its episodes');
@@ -179,6 +219,8 @@ try{
   await page.waitForFunction(()=>document.querySelector('#mlCurrentShelf')?.textContent==='Fallback Folder');
   assert.equal(await page.locator('#mlCards .ml-card').count(),1,
     'Directory fallback includes nested videos, but not text files');
+  await page.waitForFunction(()=>/indexed in Fallback Folder/.test(
+    document.querySelector('#mlStatus')?.textContent||''));
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
   await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);

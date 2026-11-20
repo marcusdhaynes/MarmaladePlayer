@@ -16,6 +16,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Validate library JavaScript syntax before browser setup
+        run: |
+          node --check media-library.js
+          node --check tests/media-library.mjs
       - run: npm install --no-save --no-package-lock playwright@1.56.1
       - run: npx playwright install --with-deps chromium firefox
       - name: Prepare local-video verification fixture encoder

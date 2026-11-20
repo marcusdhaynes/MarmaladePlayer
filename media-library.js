@@ -10,24 +10,27 @@
   const ui={
     shelves:$('mlShelves'),cards:$('mlCards'),status:$('mlStatus'),
     title:$('mlCurrentShelf'),count:$('mlCount'),search:$('mlSearch'),
-    filter:$('mlKindFilter'),sort:$('mlSort'),view:$('mlView'),
+    filter:$('mlKindFilter'),collections:$('mlCollectionFilter'),sort:$('mlSort'),view:$('mlView'),
     rescan:$('mlRescan'),manage:$('mlManage'),quickAdd:$('mlQuickAdd'),
     art:$('mlFindArt'),crumbs:$('mlCrumbs'),
     dialog:$('mlDialog'),dialogTitle:$('mlDialogTitle'),name:$('mlLibraryName'),
     kind:$('mlLibraryKind'),folderList:$('mlFolderList'),
     delete:$('mlDeleteLibrary'),pick:$('mlPickFolder'),
-    directoryInput:$('mlDirectoryInput'),save:$('mlDialogSave')
+    directoryInput:$('mlDirectoryInput'),save:$('mlDialogSave'),
+    menu:$('mlContextMenu'),itemDialog:$('mlItemDialog'),itemBody:$('mlItemDialogBody'),
+    itemTitle:$('mlItemDialogTitle'),itemSave:$('mlItemDialogSave')
   };
   const KEY='marmalade:media-library:visible';
   const DB='marmalade:local-library:v1';
   const VIDEO=/\.(3g2|3gp|amv|asf|avi|divx|drc|f4v|flv|gifv|m1v|m2p|m2t|m2ts|m2v|m4v|mjpeg|mjpg|mk3d|mkv|mov|mp4|mpe|mpeg|mpg|mpv|mts|mxf|nsv|ogv|qt|rm|rmvb|roq|rv|ts|vob|webm|wmv|xvid|y4m|yuv)$/i;
   const IGNORE=new Set(['.git','node_modules','$recycle.bin','system volume information','__macosx']);
   const state={
-    db:null,libraries:[],selected:'all',query:'',kind:'all',sort:'title',
+    db:null,libraries:[],selected:'all',query:'',kind:'all',collection:'all',sort:'title',
     list:false,folderMode:false,folder:null,series:null,showCount:120,
     editing:null,pending:null,relink:null,scanning:false,scanSeq:0,
     sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
-    artworkBusy:false,storageAvailable:true
+    pendingScans:new Set(),scanProblems:new Map(),artworkBusy:false,storageAvailable:true,
+    menuTarget:null,itemEditing:null,menuOpen:false,playingId:null
   };
   const now=()=>Date.now();
   const id=()=>('ml'+now().toString(36)+Math.random().toString(36).slice(2,9));
@@ -113,6 +116,10 @@
     (lib.items||[]).map(item=>({...item,libraryId:lib.id,libraryName:lib.name})):allItems();}
   function setSelected(next){
     state.selected=next;state.series=null;state.folder=null;state.folderMode=false;
+    // Switching shelves must not inherit a hidden search/watch/collection
+    // filter and appear empty after a successful folder scan.
+    state.query='';state.kind='all';state.collection='all';
+    ui.search.value='';ui.filter.value='all';ui.collections.value='all';
     state.showCount=120;setLocal('marmalade:media-library:selected',next);render();
   }
   function setVisibility(enabled){
@@ -194,6 +201,44 @@
     return {id:folder.id+'|'+path,folderId:folder.id,path,name:file.name,
       size:file.size||0,lastModified:file.lastModified||0,addedAt:now(),...info};
   }
+  function scanPreview(message){
+    const el=$('mlScanPreview');
+    if(el)el.textContent=message||'';
+  }
+  function indexPendingFolder(folder){
+    const draft=state.pending;
+    if(!draft)return;
+    const promise=(async()=>{
+      scanPreview('Indexing '+folder.name+'…');
+      try{
+        const found=await scanFolder(folder,draft.kind,state.scanSeq,false);
+        if(draft!==state.pending)return;
+        if(found===null){
+          scanPreview('Folder access is not available. Use Reconnect or Other Picker to index its videos.');
+          return;
+        }
+        const previous=new Map((draft.items||[]).map(i=>[i.id,i]));
+        for(const item of found){
+          const old=previous.get(item.id);
+          if(old)Object.assign(item,{...old,id:item.id,path:item.path,folderId:item.folderId,
+            name:item.name,size:item.size,lastModified:item.lastModified});
+        }
+        draft.items=(draft.items||[]).filter(i=>i.folderId!==folder.id).concat(found);
+        scanPreview(found.length+' video'+(found.length===1?'':'s')+
+          ' found in '+folder.name+'. Save Library to display them.');
+      }catch(error){
+        console.warn('Library folder indexing failed',error);
+        scanPreview('Cannot scan '+folder.name+': '+(error?.message||'folder unavailable')+
+          '. Try Other Picker to import its videos.');
+      }
+    })();
+    state.pendingScans.add(promise);
+    ui.save.disabled=true;
+    promise.finally(()=>{
+      state.pendingScans.delete(promise);
+      if(!state.pendingScans.size)ui.save.disabled=false;
+    });
+  }
   async function scanLibrary(lib,{ask=false}={}){
     if(!lib||state.scanning){notify('A library scan is already in progress.');return;}
     state.scanning=true;
@@ -215,19 +260,26 @@
           for(const item of found){
             const previous=prior.get(item.id);
             if(previous){
-              item.addedAt=previous.addedAt||item.addedAt;
-              if(previous.poster)item.poster=previous.poster;
+              Object.assign(item,{...previous,id:item.id,path:item.path,folderId:item.folderId,
+                name:item.name,size:item.size,lastModified:item.lastModified,
+                addedAt:previous.addedAt||item.addedAt});
             }
           }
-          items.push(...found);
-        }else accessIssues++;
+          const blocked=new Set(lib.hiddenIds||[]);
+          items.push(...found.filter(item=>!blocked.has(item.id)));
+          state.scanProblems.delete(folder.id);
+        }else{
+          accessIssues++;
+          state.scanProblems.set(folder.id,'Permission needed. Use Edit Library → Reconnect.');
+        }
       }
       if(seq!==state.scanSeq)return;
       lib.items=items;
       lib.lastScan=now();
       await persist(lib);
-      if(folderIssues)notify('Some folders could not be scanned. Their last catalog was preserved.');
-      else if(accessIssues)notify('Folder access needed. Open Manage to reconnect folders; saved titles remain visible.');
+      if(folderIssues)notify('Some folders failed to scan. Edit Library to reconnect; previously indexed titles are kept.');
+      else if(accessIssues)notify(accessIssues+' folder'+(accessIssues===1?' needs':'s need')+
+        ' access. Click the pencil next to '+lib.name+' and reconnect. Indexed titles remain visible.');
       else notify(countLabel(items.length)+' indexed in '+lib.name+'.');
     }finally{
       if(seq===state.scanSeq){state.scanning=false;ui.rescan.disabled=false;render();}
@@ -238,10 +290,350 @@
     for(const ch of String(text||''))hash=(hash*31+ch.charCodeAt(0))|0;
     return ['#865f65','#6b779a','#9a714b','#80618c','#5f8781','#96745f','#786f9b'][Math.abs(hash)%7];
   }
-  function card(data,action,dir=false){
-    const button=create('button','ml-card');
-    button.type='button';
-    const art=append(button,'span','ml-card-art');
+  function storedItem(item){
+    const lib=state.libraries.find(l=>l.id===item.libraryId);
+    return {lib,entry:lib?.items.find(i=>i.id===item.id)};
+  }
+  async function mutateItems(items,fn,message){
+    const changed=new Set();
+    for(const item of items){
+      const {lib,entry}=storedItem(item);
+      if(!entry)continue;
+      fn(entry,lib);changed.add(lib);
+    }
+    for(const lib of changed)await persist(lib);
+    render();
+    if(message)notify(message);
+  }
+  function showItems(target){
+    return (state.libraries.find(l=>l.id===target.libId)?.items||[])
+      .filter(item=>item.show===target.show)
+      .map(item=>({...item,libraryId:target.libId}));
+  }
+  function closeMenu(){
+    ui.menu.hidden=true;
+    ui.menu.replaceChildren();
+    state.menuTarget=null;
+    state.menuOpen=false;
+  }
+  function closeItemDialog(){
+    ui.itemDialog.hidden=true;
+    state.itemEditing=null;
+    ui.itemBody.replaceChildren();
+  }
+  function itemField(parent,label,value,id,type='text'){
+    const row=append(parent,'label','ml-item-field');
+    append(row,'span','',label);
+    const input=append(row,type==='textarea'?'textarea':'input');
+    input.id=id;
+    if(type!=='textarea')input.type=type;
+    input.value=value??'';
+    if(type==='number'){input.min='0';input.max='2100';}
+    return input;
+  }
+  function showDetails(item,mode='edit'){
+    closeMenu();
+    const {entry}=storedItem(item);
+    if(!entry){notify('This entry no longer exists. Rescan its folder.');return;}
+    state.itemEditing={id:entry.id,libId:item.libraryId,mode};
+    ui.itemDialog.hidden=false;
+    ui.itemBody.replaceChildren();
+    const isEdit=mode==='edit';
+    ui.itemTitle.textContent=isEdit?'Edit Movie or Episode':mode==='info'?'Media File Info':'Video Analysis';
+    ui.itemSave.hidden=!isEdit;
+    $('mlItemDialogCancel').textContent=isEdit?'Cancel':'Close';
+    if(!isEdit){
+      const lib=state.libraries.find(l=>l.id===item.libraryId);
+      const folder=lib?.folders.find(f=>f.id===entry.folderId);
+      const rows=[
+        ['Title',entry.title],['File',entry.name],['Folder',folder?.name||'Unavailable'],
+        ['Relative Path',entry.path],['Size',(entry.size/1048576).toFixed(2)+' MB'],
+        ['Modified',entry.lastModified?new Date(entry.lastModified).toLocaleString():'Unknown'],
+        ['Type',entry.type==='tv'?'TV Episode':'Movie'],['Library',lib?.name||''],
+        ['Duration',entry.runtimeSec?Math.round(entry.runtimeSec)+' seconds':'Not Analyzed'],
+        ['Watched',entry.watched?'Yes':'No'],
+        ['Collections',(entry.collections||[]).join(', ')||'None'],
+        ['Playlists',(entry.playlists||[]).join(', ')||'None']
+      ];
+      for(const [name,value] of rows){
+        const line=append(ui.itemBody,'div','ml-info-line');
+        append(line,'strong','',name);
+        append(line,'span','',value||'Not Available');
+      }
+      return;
+    }
+    itemField(ui.itemBody,'Display Title',entry.title,'mlEditTitle');
+    itemField(ui.itemBody,'Year',entry.year||'','mlEditYear','number');
+    const typeRow=append(ui.itemBody,'label','ml-item-field');
+    append(typeRow,'span','','Content Type');
+    const select=append(typeRow,'select');
+    select.id='mlEditKind';
+    for(const [value,label] of [['movie','Movie'],['tv','TV Episode']]){
+      const option=create('option');option.value=value;option.textContent=label;select.append(option);
+    }
+    select.value=entry.type;
+    itemField(ui.itemBody,'Series Name (TV)',entry.show||'','mlEditShow');
+    itemField(ui.itemBody,'Season',entry.season??'','mlEditSeason','number');
+    itemField(ui.itemBody,'Episode',entry.episode??'','mlEditEpisode','number');
+    itemField(ui.itemBody,'Poster URL (HTTPS)',entry.poster||'','mlEditPoster','url');
+    itemField(ui.itemBody,'Summary',entry.overview||'','mlEditOverview','textarea');
+    const help=append(ui.itemBody,'p','ml-help',
+      'These changes update only your local catalog, never your original media files. They survive a folder rescan.');
+    help.id='mlEditHelp';
+  }
+  async function saveItemDetails(){
+    const target=state.itemEditing;
+    if(!target||target.mode!=='edit')return;
+    const lib=state.libraries.find(l=>l.id===target.libId);
+    const item=lib?.items.find(i=>i.id===target.id);
+    if(!item)return;
+    const title=$('mlEditTitle').value.trim();
+    if(!title){$('mlEditTitle').reportValidity();notify('Enter a title.');return;}
+    const poster=$('mlEditPoster').value.trim();
+    if(poster&&!/^https:\/\//i.test(poster)){notify('Poster URLs must use HTTPS.');return;}
+    const year=Number($('mlEditYear').value)||null;
+    if(year&&(year<1880||year>2100)){notify('Enter a valid movie year.');return;}
+    item.title=title.slice(0,180);item.year=year;
+    item.type=$('mlEditKind').value;
+    item.show=$('mlEditShow').value.trim().slice(0,180);
+    item.season=$('mlEditSeason').value?Number($('mlEditSeason').value):null;
+    item.episode=$('mlEditEpisode').value?Number($('mlEditEpisode').value):null;
+    item.poster=poster;
+    item.overview=$('mlEditOverview').value.trim().slice(0,3000);
+    item.customized=true;
+    await persist(lib);closeItemDialog();render();
+    notify('Updated '+item.title+' in '+lib.name+'.');
+  }
+  async function analyze(item){
+    const {entry,lib}=storedItem(item);
+    if(!entry)return;
+    notify('Analyzing '+entry.name+'…');
+    let duration=null;
+    try{
+      const {file}=await getPlayable(item);
+      if(file.type.startsWith('video/')||video(file.name)){
+        const url=URL.createObjectURL(file);
+        try{
+          duration=await new Promise(resolve=>{
+            const media=document.createElement('video');
+            media.preload='metadata';media.muted=true;
+            let done=false;
+            const finish=value=>{
+              if(done)return;done=true;
+              clearTimeout(timeout);media.removeAttribute('src');media.load();
+              resolve(value);
+            };
+            const timeout=setTimeout(()=>finish(null),6000);
+            media.onloadedmetadata=()=>finish(
+              Number.isFinite(media.duration)&&media.duration>0?media.duration:null);
+            media.onerror=()=>finish(null);
+            media.src=url;
+          });
+        }finally{URL.revokeObjectURL(url);}
+      }
+    }catch(error){notify('File access needed for analysis: '+(error?.message||''));return;}
+    entry.runtimeSec=duration;
+    entry.analyzedAt=now();
+    await persist(lib);
+    showDetails(item,'info');
+    notify(duration?'Duration analyzed: '+Math.round(duration)+' seconds.':
+      'File analyzed. This browser cannot decode duration for this container.');
+  }
+  async function refreshMetadata(items,{fix=false}={}){
+    const source=window.MarmaladePublicMovieInfo;
+    if(typeof source?.lookup!=='function'){notify('Metadata sources are unavailable.');return;}
+    if(readLocal('marmalade:media-library:art-consent','false')!=='true'){
+      if(!window.confirm('Look up movie metadata using its title and year? Only title and year, not video files or local paths, will be sent to a public information source.'))return;
+      setLocal('marmalade:media-library:art-consent','true');
+    }
+    let success=0;
+    for(const target of items.slice(0,12)){
+      const {lib,entry}=storedItem(target);
+      if(!entry)continue;
+      let query=entry.type==='tv'?(entry.show||entry.title):entry.title;
+      let year=entry.year;
+      if(fix){
+        const newTitle=window.prompt('Search public metadata for title:',query);
+        if(newTitle===null)return;
+        query=newTitle.trim();if(!query)return;
+      }
+      try{
+        const result=await source.lookup({title:query,year:year||null,
+          kind:entry.type==='tv'?'tv':'movie',season:null,episode:null});
+        const rec=result?.record;
+        if(!rec?.title)continue;
+        const normalize=t=>String(t||'').toLocaleLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+        if(!fix&&normalize(rec.title)!==normalize(query))continue;
+        if(!fix&&year&&rec.year&&Number(rec.year)!==Number(year))continue;
+        if(fix&&!window.confirm('Use metadata for "'+rec.title+'"'+
+          (rec.year?' ('+rec.year+')':'')+'?'))continue;
+        if(rec.poster&&/^https:\/\//i.test(rec.poster))entry.poster=rec.poster;
+        if(rec.overview)entry.overview=String(rec.overview).slice(0,3000);
+        if(rec.year)entry.year=Number(rec.year)||entry.year;
+        if(fix){
+          if(entry.type==='tv')entry.show=rec.title;
+          else entry.title=rec.title;
+        }
+        entry.metadataSource=rec.source||'Public metadata';
+        await persist(lib);success++;
+      }catch(error){console.debug('Library metadata lookup missed',query,error);}
+    }
+    render();
+    notify(success?'Updated metadata for '+success+' title'+(success===1?'':'s')+'.':
+      'No confirmed public metadata match. Use Edit Details to enter it manually.');
+  }
+  function addToTagGroup(item,field){
+    const raw=window.prompt(field==='collections'?'Collection name:':'Playlist name:','');
+    if(raw===null)return;
+    const name=raw.trim().slice(0,100);
+    if(!name)return;
+    void mutateItems([item],entry=>{
+      const list=entry[field]||[];
+      entry[field]=[...new Set([...list,name])];
+    },'Added to '+(field==='collections'?'collection ':'playlist ')+name+'.');
+  }
+  function removeFromCatalog(item){
+    const {entry,lib}=storedItem(item);
+    if(!entry)return;
+    if(!window.confirm('Remove "'+entry.title+'" from this library catalog? The original video will NOT be deleted. You can restore hidden entries from the library options menu.'))return;
+    lib.hiddenIds=[...new Set([...(lib.hiddenIds||[]),entry.id])];
+    lib.items=lib.items.filter(x=>x.id!==entry.id);
+    void persist(lib);render();notify('Removed from the catalog; original video was not deleted.');
+  }
+  function openMenu(target,x,y,anchor=null){
+    if(!target)return;
+    closeMenu();
+    state.menuTarget=target;state.menuOpen=true;
+    const menu=ui.menu;
+    const action=(label,fn,{danger=false,disabled=false}={})=>{
+      const b=append(menu,'button','ml-menu-action'+(danger?' ml-menu-danger':''),label);
+      b.type='button';b.setAttribute('role','menuitem');b.disabled=disabled;
+      b.addEventListener('click',event=>{
+        event.preventDefault();event.stopPropagation();closeMenu();fn();
+      });
+    };
+    const sep=()=>append(menu,'div','ml-menu-separator');
+    if(target.kind==='library'){
+      const lib=state.libraries.find(l=>l.id===target.libId);
+      if(!lib)return;
+      action('✎  Edit Library',()=>{setSelected(lib.id);openEditor(lib);});
+      action('＋  Add Media Folder',()=>{setSelected(lib.id);openEditor(lib);});
+      action('↻  Scan Library Files',()=>void scanLibrary(lib,{ask:true}));
+      action('▧  Refresh All Posters',()=>{setSelected(lib.id);void findArtwork();});
+      action('▤  Browse Folders',()=>{setSelected(lib.id);state.folderMode=true;render();});
+      if((lib.hiddenIds||[]).length)action('↶  Restore Hidden Videos',()=>{
+        lib.hiddenIds=[];void persist(lib);void scanLibrary(lib,{ask:true});
+      });
+      sep();
+      action('✕  Remove Library',()=>{state.editing=lib.id;void removeLibrary();},{danger:true});
+    }else if(target.kind==='item'){
+      const {lib,entry}=storedItem(target.item);
+      if(!entry)return;
+      action('▶  Play',()=>void play(target.item));
+      action('✓  Mark as '+(entry.watched?'Unwatched':'Watched'),
+        ()=>void mutateItems([target.item],item=>{item.watched=!item.watched;},'Watch status saved.'));
+      action('★  '+(entry.favorite?'Remove Favorite':'Add to Favorites'),
+        ()=>void mutateItems([target.item],item=>{item.favorite=!item.favorite;},'Favorites updated.'));
+      action('☷  '+(entry.watchlist?'Remove from Watchlist':'Add to Watchlist'),
+        ()=>void mutateItems([target.item],item=>{item.watchlist=!item.watchlist;},'Watchlist updated.'));
+      action('✎  Edit Details',()=>showDetails(target.item));
+      action('＋  Add to Playlist',()=>addToTagGroup(target.item,'playlists'));
+      action('＋  Add to Collection',()=>addToTagGroup(target.item,'collections'));
+      for(const key of ['playlists','collections']){
+        for(const name of entry[key]||[])action('−  Remove from '+name,()=>void mutateItems([target.item],item=>{
+          item[key]=(item[key]||[]).filter(n=>n!==name);
+        },'Removed from '+name+'.'));
+      }
+      sep();
+      action('⌕  Match / Fix Match',()=>void refreshMetadata([target.item],{fix:true}));
+      action('↻  Refresh Metadata',()=>void refreshMetadata([target.item]));
+      if(entry.metadataSource||entry.poster||entry.overview)
+        action('✕  Unmatch Metadata',()=>void mutateItems([target.item],item=>{
+          item.poster='';item.overview='';item.metadataSource='';
+        },'External metadata cleared. Manually edited title and original file are unchanged.'));
+      action('▤  Analyze',()=>void analyze(target.item));
+      action('ℹ  Get Info',()=>showDetails(target.item,'info'));
+      action('▣  Browse Containing Folder',()=>{
+        setSelected(lib.id);state.folderMode=true;
+        const parts=entry.path.split('/');
+        const parent=parts.length>1?parts.slice(0,-1).join('/')+'/':'';
+        state.folder={folderId:entry.folderId,path:parent,label:parent||'Folder'};
+        render();
+      });
+      sep();
+      action('✕  Remove from Library',()=>removeFromCatalog(target.item),{danger:true});
+    }else if(target.kind==='show'){
+      const entries=showItems(target);
+      action('▤  Open Series',()=>{
+        setSelected(target.libId);state.series={libId:target.libId,show:target.show};render();
+      });
+      action('✓  Mark All Episodes Watched',()=>void mutateItems(entries,
+        item=>{item.watched=true;},'Series marked watched.'));
+      action('✓  Mark All Episodes Unwatched',()=>void mutateItems(entries,
+        item=>{item.watched=false;},'Series marked unwatched.'));
+      action('★  Favorite Series',()=>void mutateItems(entries,
+        item=>{item.favorite=true;},'Series added to favorites.'));
+      action('☷  Add Series to Watchlist',()=>void mutateItems(entries,
+        item=>{item.watchlist=true;},'Series added to watchlist.'));
+      action('＋  Add Series to Collection',()=>{
+        const name=window.prompt('Collection name:','');
+        if(name?.trim())void mutateItems(entries,item=>{
+          item.collections=[...new Set([...(item.collections||[]),name.trim().slice(0,100)])];
+        },'Series added to collection.');
+      });
+      action('＋  Add Series to Playlist',()=>{
+        const name=window.prompt('Playlist name:','');
+        if(name?.trim())void mutateItems(entries,item=>{
+          item.playlists=[...new Set([...(item.playlists||[]),name.trim().slice(0,100)])];
+        },'Series added to playlist.');
+      });
+      action('✎  Rename Series',()=>{
+        const name=window.prompt('Series Name',target.show);
+        if(name?.trim())void mutateItems(entries,
+          item=>{item.show=name.trim().slice(0,180);item.customized=true;},
+          'Series renamed.');
+      });
+      action('⌕  Fix Series Match',()=>void refreshMetadata(entries.slice(0,1),{fix:true}));
+      action('↻  Refresh Series Metadata',()=>void refreshMetadata(entries.slice(0,1)));
+      action('▤  Analyze Series',()=>void (async()=>{
+        const count=entries.length;
+        notify(count+' episode'+(count===1?'':'s')+' in '+target.show+
+          '. Analyze individual episodes for runtime and file information.');
+      })());
+      action('ℹ  Series Info',()=>notify(entries.length+' episodes in '+target.show+'.'));
+    }else if(target.kind==='folder'){
+      action('▤  Open Folder',()=>{
+        setSelected(target.libId);state.folderMode=true;
+        state.folder={folderId:target.folderId,path:target.path,label:target.path||'Folder'};
+        render();
+      });
+      action('↻  Scan Library Files',()=>{
+        const lib=state.libraries.find(l=>l.id===target.libId);
+        if(lib)void scanLibrary(lib,{ask:true});
+      });
+      action('✎  Edit Library Folders',()=>{
+        const lib=state.libraries.find(l=>l.id===target.libId);
+        if(lib)openEditor(lib);
+      });
+    }
+    menu.hidden=false;
+    // Preserve a genuine browser-style popup even when cards are in
+    // overflow-hidden poster containers; this menu is portaled to <body>.
+    const width=menu.offsetWidth||220,height=menu.offsetHeight||200;
+    const left=Math.max(7,Math.min(x,window.innerWidth-width-7));
+    const top=Math.max(7,Math.min(y,window.innerHeight-height-7));
+    menu.style.left=left+'px';menu.style.top=top+'px';
+    const first=menu.querySelector('[role="menuitem"]');
+    first?.focus({preventScroll:true});
+    state.menuAnchor=anchor;
+  }
+  function card(data,action,dir=false,menuTarget=null){
+    // Never nest the 3-dot button inside a <button>. Card keyboard handling
+    // gives the card button semantics without invalid interactive markup.
+    const surface=create('div','ml-card');
+    surface.tabIndex=0;surface.setAttribute('role','button');
+    surface.setAttribute('aria-label',String(data.title||data.name||'Video'));
+    const art=append(surface,'span','ml-card-art');
     art.style.setProperty('--ml-glow',cleanHash(data.title||data.name));
     if(/^https:\/\//i.test(data.poster||'')){
       const image=append(art,'img','ml-art-poster');
@@ -249,15 +641,45 @@
       image.referrerPolicy='no-referrer';
       image.addEventListener('error',()=>image.remove(),{once:true});
     }
-    append(art,'span','ml-art-type',dir?(data.type==='tv'?'SERIES':'FOLDER'):data.type==='tv'?'EPISODE':'VIDEO');
+    append(art,'span','ml-art-type',dir?(data.type==='tv'?'SERIES':'FOLDER'):data.type==='tv'?'EPISODE':'MOVIE');
     const mark=String(data.title||data.name||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase();
     append(art,'span','ml-art-mark',dir?'▤':mark);
     append(art,'span','ml-play-symbol',dir?'›':'▶');
-    append(button,'span','ml-card-label',data.title||data.name);
-    append(button,'span','ml-card-detail',data.detail||'');
-    button.title=String(data.title||data.name);
-    button.addEventListener('click',action);
-    return button;
+    const label=append(surface,'span','ml-card-label',data.title||data.name);
+    if(data.watched){append(label,'span','ml-watched-mark','✓').title='Watched';}
+    if(data.favorite){append(label,'span','ml-favorite-mark','★').title='Favorite';}
+    append(surface,'span','ml-card-detail',data.detail||'');
+    surface.title=String(data.title||data.name);
+    surface.addEventListener('click',event=>{
+      if(event.target.closest('.ml-card-more'))return;
+      action();
+    });
+    surface.addEventListener('keydown',event=>{
+      if(event.target!==surface)return;
+      if(event.key==='Enter'||event.key===' '){
+        event.preventDefault();action();
+      }else if((event.key==='F10'&&event.shiftKey)||event.key==='ContextMenu'){
+        event.preventDefault();
+        const r=surface.getBoundingClientRect();
+        openMenu(menuTarget,r.right-10,r.bottom-5,surface);
+      }
+    });
+    if(menuTarget){
+      const more=append(surface,'button','ml-card-more');
+      more.innerHTML='<svg class="glass-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
+      more.type='button';more.title='More options for '+(data.title||data.name);
+      more.setAttribute('aria-label','More options for '+(data.title||data.name));
+      more.addEventListener('click',event=>{
+        event.preventDefault();event.stopPropagation();
+        const r=more.getBoundingClientRect();
+        openMenu(menuTarget,r.right,r.bottom,more);
+      });
+      surface.addEventListener('contextmenu',event=>{
+        event.preventDefault();event.stopPropagation();
+        openMenu(menuTarget,event.clientX,event.clientY,surface);
+      });
+    }
+    return surface;
   }
   function empty(title,explanation,actionLabel,action){
     const box=append(ui.cards,'div','ml-empty');
@@ -291,21 +713,66 @@
   function renderShelves(){
     ui.shelves.replaceChildren();
     const total=state.libraries.reduce((n,l)=>n+(l.items||[]).length,0);
-    const everything=[{id:'all',name:'All Videos',count:total},
-      ...state.libraries.map(l=>({id:l.id,name:l.name,count:(l.items||[]).length}))];
-    for(const lib of everything){
-      const button=append(ui.shelves,'button','ml-shelf');
-      button.type='button';button.dataset.libraryId=lib.id;
-      button.setAttribute('aria-current',state.selected===lib.id?'page':'false');
-      append(button,'span','',lib.name);
-      append(button,'small','',String(lib.count));
-      button.addEventListener('click',()=>setSelected(lib.id));
+    const everything=append(ui.shelves,'div','ml-shelf-row');
+    const all=append(everything,'button','ml-shelf');
+    all.type='button';all.dataset.libraryId='all';
+    all.setAttribute('aria-current',state.selected==='all'?'page':'false');
+    append(all,'span','','All Videos');append(all,'small','',String(total));
+    all.addEventListener('click',()=>setSelected('all'));
+    for(const [kind,label] of [['movie','MOVIES'],['tv','TV SHOWS'],['mixed','OTHER VIDEOS']]){
+      append(ui.shelves,'div','ml-shelf-category',label);
+      const libraries=state.libraries.filter(lib=>lib.kind===kind);
+      for(const lib of libraries){
+        const row=append(ui.shelves,'div','ml-shelf-row');
+        const button=append(row,'button','ml-shelf');
+        button.type='button';button.dataset.libraryId=lib.id;
+        button.setAttribute('aria-current',state.selected===lib.id?'page':'false');
+        append(button,'span','',lib.name);
+        append(button,'small','',String((lib.items||[]).length));
+        button.addEventListener('click',()=>setSelected(lib.id));
+        button.addEventListener('contextmenu',event=>{
+          event.preventDefault();openMenu({kind:'library',libId:lib.id},event.clientX,event.clientY);
+        });
+        const edit=append(row,'button','ml-shelf-edit icon-btn');
+        edit.type='button';edit.title='Edit '+lib.name+' library';
+        edit.innerHTML='<svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m4 20 4-.9L20 7l-3-3L5 16.1zM14.5 6.5l3 3"/></svg>';
+        edit.setAttribute('aria-label','Edit library '+lib.name);
+        edit.addEventListener('click',()=>{setSelected(lib.id);openEditor(lib);});
+      }
+      if(!libraries.length)append(ui.shelves,'div','ml-shelf-none','No '+label.toLowerCase()+' libraries');
     }
+    renderCollectionFilter();
+  }
+  function renderCollectionFilter(){
+    const current=ui.collections.value||state.collection||'all';
+    const tags=new Set();
+    for(const item of shelfItems()){
+      for(const name of item.collections||[])tags.add('collection:'+name);
+      for(const name of item.playlists||[])tags.add('playlist:'+name);
+    }
+    ui.collections.replaceChildren();
+    for(const [value,label] of [['all','All Collections'],
+      ...[...tags].sort().map(key=>[key,key.startsWith('playlist:')?
+        'Playlist: '+key.slice(9):'Collection: '+key.slice(11)])]){
+      const option=create('option');option.value=value;option.textContent=label;
+      ui.collections.append(option);
+    }
+    state.collection=[...ui.collections.options].some(o=>o.value===current)?current:'all';
+    ui.collections.value=state.collection;
   }
   function filteredItems(){
     let items=shelfItems();
     const search=state.query.trim().toLocaleLowerCase();
-    if(state.kind!=='all')items=items.filter(i=>i.type===state.kind);
+    if(state.kind==='movie'||state.kind==='tv')items=items.filter(i=>i.type===state.kind);
+    else if(state.kind==='favorites')items=items.filter(i=>!!i.favorite);
+    else if(state.kind==='watchlist')items=items.filter(i=>!!i.watchlist);
+    else if(state.kind==='watched')items=items.filter(i=>!!i.watched);
+    else if(state.kind==='unwatched')items=items.filter(i=>!i.watched);
+    if(state.collection!=='all'){
+      const key=state.collection.startsWith('playlist:')?'playlists':'collections';
+      const name=state.collection.slice(state.collection.indexOf(':')+1);
+      items=items.filter(i=>(i[key]||[]).includes(name));
+    }
     if(search)items=items.filter(i=>
       [i.title,i.show,i.path,i.name,i.libraryName].some(value=>
         String(value||'').toLocaleLowerCase().includes(search)));
@@ -346,11 +813,11 @@
     }
     for(const value of roots.slice(0,state.showCount)){
       if(value.item)ui.cards.append(card({...value.item,detail:formatItemDetail(value.item)},
-        ()=>void play(value.item)));
+        ()=>void play(value.item),false,{kind:'item',item:value.item}));
       else ui.cards.append(card(value,()=>{
         state.folder={folderId:value.folderId,path:value.path,label:value.name};
         state.showCount=120;render();
-      },true));
+      },true,{kind:'folder',libId:lib.id,folderId:value.folderId,path:value.path}));
     }
     if(!roots.length)empty('No Videos Here','This folder has no indexed videos. Try scanning again.','Rescan Library',
       ()=>void scanLibrary(lib,{ask:true}));
@@ -372,6 +839,7 @@
   }
   function renderCards(){
     ui.cards.replaceChildren();
+    $('mlLibrarySections').replaceChildren();
     ui.cards.classList.toggle('ml-list',state.list);
     const lib=selectedLibrary();
     const items=filteredItems();
@@ -386,7 +854,8 @@
     if(state.series){
       const episodes=items.filter(i=>i.libraryId===state.series.libId&&i.show===state.series.show);
       for(const item of episodes.slice(0,state.showCount))
-        ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item)));
+        ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item),false,
+          {kind:'item',item}));
       if(!episodes.length)empty('No Episodes Found','Try changing the filters or rescanning this folder.');
       more(episodes.length);return;
     }
@@ -408,17 +877,46 @@
     if(state.sort==='year')visible.sort((a,b)=>
       (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.year||0),0)-
       (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.year||0),0));
-    for(const entity of visible.slice(0,state.showCount)){
+    const renderEntity=entity=>{
       if(entity.kind==='show'){
         const entry={title:entity.show,type:'tv',detail:entity.items.length+' Episodes',
-          poster:entity.items.find(item=>item.poster)?.poster||''};
+          poster:entity.items.find(item=>item.poster)?.poster||'',
+          favorite:entity.items.some(item=>item.favorite),
+          watched:entity.items.every(item=>item.watched)};
         ui.cards.append(card(entry,()=>{
           state.series={libId:entity.libId,show:entity.show};state.showCount=120;render();
-        },true));
+        },true,{kind:'show',libId:entity.libId,show:entity.show}));
       }else{
         ui.cards.append(card({...entity.item,detail:formatItemDetail(entity.item)},
-          ()=>void play(entity.item)));
+          ()=>void play(entity.item),false,{kind:'item',item:entity.item}));
       }
+    };
+    const sections=$('mlLibrarySections');
+    const movies=visible.filter(entity=>entity.kind==='file'&&entity.item.type!=='tv');
+    const tvEntries=visible.filter(entity=>entity.kind==='show'||
+      (entity.kind==='file'&&entity.item.type==='tv'));
+    sections.replaceChildren();
+    const totalMovies=items.filter(item=>item.type!=='tv').length;
+    const totalShows=items.filter(item=>item.type==='tv').length;
+    for(const [kind,label,num] of [['movie','Movies',totalMovies],['tv','TV Shows',totalShows]]){
+      const b=append(sections,'button','ml-section-pill',label+' · '+num);
+      b.type='button';b.setAttribute('aria-pressed',String(state.kind===kind));
+      b.addEventListener('click',()=>{
+        state.kind=state.kind===kind?'all':kind;
+        ui.filter.value=state.kind;state.showCount=120;render();
+      });
+    }
+    const grouped=state.kind==='all'&&!state.collection.startsWith('playlist:')&&
+      !state.collection.startsWith('collection:');
+    if(grouped){
+      for(const [name,entries] of [['MOVIES',movies],['TV SHOWS',tvEntries]]){
+        const heading=append(ui.cards,'div','ml-media-divider');
+        append(heading,'strong','',name);
+        append(heading,'small','',countLabel(entries.length));
+        for(const entity of entries.slice(0,state.showCount))renderEntity(entity);
+      }
+    }else{
+      for(const entity of visible.slice(0,state.showCount))renderEntity(entity);
     }
     if(!visible.length){
       if(state.query)empty('No Matches','Try another title, show, or folder name.');
@@ -554,18 +1052,22 @@
       name:lib?.name||'',
       kind:lib?.kind||'movie',
       folders:(lib?.folders||[]).map(folder=>({...folder})),
-      items:lib?.items||[],createdAt:lib?.createdAt||now(),lastScan:lib?.lastScan||0
+      items:(lib?.items||[]).slice(),hiddenIds:(lib?.hiddenIds||[]).slice(),
+      createdAt:lib?.createdAt||now(),lastScan:lib?.lastScan||0
     };
     ui.dialogTitle.textContent=lib?'Manage Library':'Create Library';
     ui.name.value=state.pending.name;
     ui.kind.value=state.pending.kind;
     ui.delete.hidden=!lib;
     drawFolders();
+    scanPreview(lib?(lib.items||[]).length+' indexed videos · Edit the name, type or folders, then Save.':
+      'Choose a folder to preview its videos before saving.');
     ui.dialog.hidden=false;
     ui.name.focus();
   }
   function closeEditor(){
     ui.dialog.hidden=true;state.pending=null;state.editing=null;state.relink=null;
+    scanPreview('');
   }
   function addFolder(folder){
     const pending=currentPending();
@@ -577,6 +1079,7 @@
     }else pending.folders.push(folder);
     if(!ui.name.value.trim())ui.name.value=folder.name;
     drawFolders();
+    indexPendingFolder(folder);
   }
   function handleFolderSelection(handle){
     if(!handle||handle.kind!=='directory')return;
@@ -590,7 +1093,10 @@
         return;
       }catch(error){
         if(error?.name==='AbortError')return;
-        console.warn('Native directory picker unavailable, trying folder input:',error);
+        console.warn('Native directory picker unavailable:',error);
+        scanPreview('Persistent folder picker unavailable. Click Other Picker to import videos.');
+        notify('Use Other Picker to select a directory in this browser.');
+        return;
       }
     }
     ui.directoryInput.value='';
@@ -602,13 +1108,22 @@
     const first=files[0];
     const root=(first.webkitRelativePath||first.name).split('/')[0]||'Video Folder';
     const folder={id:id(),name:root,source:'session',handle:null};
-    addFolder(folder);
-    state.sessionFolderLoaded.add(folder.id);
+    // Populate the session file map BEFORE initiating the same indexer used by
+    // persistent directory handles. Previously fallback imports could look empty.
+    if(state.relink){
+      const prior=pending.folders.find(f=>f.id===state.relink);
+      for(const key of state.sessionFiles.keys())if(key.startsWith(state.relink+'|'))
+        state.sessionFiles.delete(key);
+      if(prior)folder.id=prior.id;
+    }
     for(const file of files){
       const path=(file.webkitRelativePath||file.name).split('/').slice(1).join('/')||file.name;
       if(video(file.name))state.sessionFiles.set(folder.id+'|'+path,file);
     }
-    notify('Folder selected. This browser will require reselecting the folder after it closes.');
+    state.sessionFolderLoaded.add(folder.id);
+    addFolder(folder);
+    scanPreview('Importing '+files.length+' selected files; only videos will appear.');
+    notify('Folder selected. Browser file access may need to be renewed after reopening.');
   }
   async function saveEditor(){
     const pending=currentPending();if(!pending)return;
@@ -619,16 +1134,40 @@
       ui.name.setCustomValidity('A library with this name already exists.');
       ui.name.reportValidity();return;
     }
+    // A user can click Save while a selected directory is still indexing.
+    // Wait for its preview scan rather than committing an apparently blank catalog.
+    if(state.pendingScans.size)await Promise.allSettled([...state.pendingScans]);
+    if(state.pending!==pending)return;
+    const priorKind=pending.kind;
     pending.name=name;pending.kind=ui.kind.value;
     pending.items=(pending.items||[]).filter(item=>pending.folders.some(f=>f.id===item.folderId));
+    if(priorKind!==pending.kind){
+      for(const item of pending.items){
+        const parsed=describe(item.name,item.path,pending.kind);
+        item.type=parsed.type;item.show=parsed.show;
+        item.season=parsed.season;item.episode=parsed.episode;
+      }
+    }
     const replacing=state.libraries.findIndex(l=>l.id===pending.id);
     if(replacing>=0)state.libraries[replacing]=pending;
     else state.libraries.push(pending);
     state.selected=pending.id;setLocal('marmalade:media-library:selected',pending.id);
     state.folder=null;state.series=null;state.folderMode=false;
-    await persist(pending);closeEditor();render();
-    if(pending.folders.length)void scanLibrary(pending,{ask:true});
-    else notify('Empty library created. Open Manage to add a media folder.');
+    state.query='';state.kind='all';state.collection='all';
+    ui.search.value='';ui.filter.value='all';ui.collections.value='all';
+    // Preview indexes are already available; no fresh permission request is
+    // needed after the async database write. Wait for durable IndexedDB save
+    // before reporting that the library can safely survive a browser reload.
+    ui.save.disabled=true;
+    closeEditor();render();
+    await persist(pending);
+    ui.save.disabled=false;
+    if(pending.folders.length){
+      if(pending.items.length)notify(countLabel(pending.items.length)+' saved in '+pending.name+'.');
+      // Refresh without prompting. The pre-save preview remains visible even
+      // when a previously granted directory permission has been revoked.
+      void scanLibrary(pending,{ask:false});
+    }else notify('Empty library saved. Open Edit Library to add a media folder.');
   }
   async function removeLibrary(){
     const lib=state.libraries.find(x=>x.id===state.editing);
@@ -642,6 +1181,24 @@
     closeEditor();notify('Removed '+lib.name+' from your library. Original videos were not touched.');render();
   }
   function connectUI(){
+    // Like Plex, both the in-card overflow and the right-click menu share the
+    // same actions. Dismiss on outside click, scroll, Escape or new selection.
+    document.body.append(ui.menu);
+    document.addEventListener('pointerdown',event=>{
+      if(!ui.menu.hidden&&!ui.menu.contains(event.target)&&
+        !event.target.closest('.ml-card-more'))closeMenu();
+    },true);
+    window.addEventListener('scroll',()=>{
+      if(!ui.menu.hidden)closeMenu();
+    },true);
+    window.addEventListener('resize',closeMenu);
+    window.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&!ui.menu.hidden){event.preventDefault();closeMenu();return;}
+      if(event.key==='Escape'&&!ui.itemDialog.hidden){event.preventDefault();closeItemDialog();}
+    },true);
+    $('mlItemDialogClose').addEventListener('click',closeItemDialog);
+    $('mlItemDialogCancel').addEventListener('click',closeItemDialog);
+    ui.itemSave.addEventListener('click',()=>void saveItemDetails());
     $('mlNewLibrary').addEventListener('click',()=>openEditor(null));
     $('mlSidebarNew').addEventListener('click',()=>openEditor(null));
     $('mlDialogClose').addEventListener('click',closeEditor);
@@ -679,6 +1236,7 @@
       searchTimer=setTimeout(()=>{state.query=ui.search.value;state.showCount=120;render();},110);
     });
     ui.filter.addEventListener('change',()=>{state.kind=ui.filter.value;state.showCount=120;render();});
+    ui.collections.addEventListener('change',()=>{state.collection=ui.collections.value;state.showCount=120;renderCards();});
     ui.sort.addEventListener('change',()=>{state.sort=ui.sort.value;render();});
     ui.view.addEventListener('click',()=>{
       state.list=!state.list;ui.view.setAttribute('aria-pressed',String(state.list));
