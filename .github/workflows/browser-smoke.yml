@@ -27,6 +27,8 @@ jobs:
       - name: Verify fixed duration and caption seek regressions
         run: node tests/media-timeline-regression.mjs
       - run: node tests/browser-smoke.mjs
+      - name: Verify poster auto-loading, title formatting and frameless controls
+        run: node --test tests/library-poster-polish.test.mjs
       - name: Verify local media library scanning, persistence and playback
         run: node tests/media-library.mjs
       - name: Verify Minternet-style native library video uses normal playback controls
