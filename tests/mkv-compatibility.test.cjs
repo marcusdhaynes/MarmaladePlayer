@@ -83,6 +83,8 @@ test('Minternet stream and browser File must both be wired to the audio decoder'
   assert.ok(player.indexOf('mkv-decoder-io.js')<player.indexOf('auto-mkv-audio.js'));
   assert.match(script,/async function handleSource\(source, file=null\)/);
   assert.match(script,/async function handleNative/);
+  assert.match(script,/compatibilityWorker/);
+  assert.match(fs.readFileSync(path.join(root,'mkv-asyncify-worker.js'),'utf8'),/WebAssembly/);
   assert.match(script,/read: source\.read/);
   assert.match(media,/chooseNativeStream/);
 });
