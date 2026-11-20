@@ -33,6 +33,16 @@ const shim=[
   ':new Actual({...idOrOptions,...local});};})();'
 ].join('');
 const web=createServer((req,res)=>{
+  const pathname=new URL(req.url,'http://localhost').pathname;
+  if(['/games.js','/games.css','/updates-ui.css',
+      '/assets/onlyframes-logo.svg','/assets/onlyframes-poster.svg'].includes(pathname)){
+    const contentType=pathname.endsWith('.js')?'application/javascript':
+      pathname.endsWith('.css')?'text/css':'image/svg+xml';
+    res.writeHead(200,{'content-type':contentType});
+    res.end(readFileSync(new URL('..'+pathname,import.meta.url)));
+    return;
+  }
+
   if(req.url?.startsWith('/rapid-controls.js') || req.url?.startsWith('/subtitle-compact.js') || req.url?.startsWith('/seek-preview.js')){
     const name=req.url.split('?')[0];
     res.writeHead(200,{'content-type':'application/javascript'});
