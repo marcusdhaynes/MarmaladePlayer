@@ -323,8 +323,21 @@ try{
     l.name==='Test'&&l.count===4&&l.folders.length===2));
   assert.equal(await page.locator('#mlDialog').isVisible(),false,
     'Toolbar folder import does not require another Save click');
-  await page.waitForFunction(()=>/indexed in Test/.test(
-    document.querySelector('#mlStatus')?.textContent||''));
+  // A previous mock directory handle is not cloneable to IndexedDB and will
+  // need reconnecting after reload, so a background scan may correctly report
+  // "folder access needed" instead of "indexed". Check the durable catalog
+  // rather than relying on transient progress text.
+  await page.waitForFunction(()=>new Promise(resolve=>{
+    const open=indexedDB.open('marmalade:local-library:v1');
+    open.onerror=()=>resolve(false);
+    open.onsuccess=()=>{
+      const req=open.result.transaction('libraries','readonly')
+        .objectStore('libraries').getAll();
+      req.onerror=()=>resolve(false);
+      req.onsuccess=()=>resolve(req.result.some(lib=>
+        lib.name==='Test'&&lib.items?.length===4&&lib.folders?.length===2));
+    };
+  }));
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
   await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
