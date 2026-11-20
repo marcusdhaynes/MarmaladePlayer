@@ -86,6 +86,11 @@ const web=createServer((req,res)=>{
     res.writeHead(200,{'content-type':'text/css'});
     res.end(readFileSync(new URL('../movie-info.css',import.meta.url)));return;
   }
+  if(req.url?.startsWith('/media-library.js') || req.url?.startsWith('/media-library.css')){
+    const path=req.url.split('?')[0];
+    res.writeHead(200,{'content-type':path.endsWith('.css')?'text/css':'application/javascript'});
+    res.end(readFileSync(new URL('..'+path,import.meta.url)));return;
+  }
   if(req.url?.startsWith('/manifest.webmanifest')){
     res.writeHead(200,{'content-type':'application/manifest+json'});
     res.end('{"name":"Marmalade","start_url":"./"}');return;

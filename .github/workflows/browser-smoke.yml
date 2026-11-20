@@ -23,6 +23,8 @@ jobs:
       - name: Verify fixed duration and caption seek regressions
         run: node tests/media-timeline-regression.mjs
       - run: node tests/browser-smoke.mjs
+      - name: Verify local media library scanning, persistence and playback
+        run: node tests/media-library.mjs
       - name: Verify non-black WebRTC frames in Chromium and Firefox
         if: ${{ !cancelled() }}
         run: node tests/webrtc-video.mjs

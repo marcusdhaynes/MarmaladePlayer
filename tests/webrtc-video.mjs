@@ -58,6 +58,10 @@ const server=createServer((req,res)=>{
     const css=req.url.endsWith('.css');
     res.writeHead(200,{'content-type':css?'text/css':'application/javascript'});
     res.end(readFileSync(new URL('..'+req.url,import.meta.url)));
+  }else if(req.url?.startsWith('/media-library.js') || req.url?.startsWith('/media-library.css')){
+    const path=req.url.split('?')[0];
+    res.writeHead(200,{'content-type':path.endsWith('.css')?'text/css':'application/javascript'});
+    res.end(readFileSync(new URL('..'+path,import.meta.url)));
   }else if(req.url==='/manifest.webmanifest'){
     res.writeHead(200,{'content-type':'application/manifest+json'});
     res.end('{"name":"Marmalade Player","start_url":"./"}');

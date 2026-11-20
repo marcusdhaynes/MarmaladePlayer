@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png?v=20261104-fullbleed-v1">
   <link rel="manifest" href="manifest.webmanifest?v=20261104-fullbleed-v1">
   <link rel="stylesheet" href="./movie-info.css?v=20261119-metacritic-card-v1">
+  <link rel="stylesheet" href="./media-library.css?v=20261119-library-v1">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <style>
@@ -662,7 +663,59 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
  
 
         <div class="movie-info-reopen-row"><button id="mediaInfoReopen" type="button" class="movie-info-reopen" title="Show Movie &amp; Series Information" aria-label="Show Movie &amp; Series Information" aria-controls="mediaInfoPanel" aria-expanded="false"><span aria-hidden="true">i</span></button></div>
-        <section class="media-info" id="mediaInfoPanel" aria-label="Movie and TV information" hidden>
+        <div class="movie-info-row" id="movieInfoRow">
+          <section class="ml-panel" id="mediaLibraryPanel" aria-label="Your local video libraries" hidden>
+            <div class="ml-header">
+              <div class="ml-header-copy"><small class="ml-kicker">YOUR COLLECTION</small><strong>Media Library</strong></div>
+              <button type="button" id="mlNewLibrary" class="ml-primary ml-add-library" title="Create a new library">+ Library</button>
+            </div>
+            <div class="ml-workspace">
+              <nav class="ml-sidebar" aria-label="Library shelves">
+                <div class="ml-sidebar-heading">LIBRARIES</div>
+                <div id="mlShelves" class="ml-shelves"></div>
+                <button type="button" id="mlSidebarNew" class="ml-sidebar-add">+ Add Library</button>
+              </nav>
+              <div class="ml-main">
+                <div class="ml-toolbar">
+                  <div class="ml-toolbar-heading"><strong id="mlCurrentShelf">All Videos</strong><span id="mlCount" aria-live="polite">0 Videos</span></div>
+                  <div class="ml-toolbar-actions">
+                    <button id="mlQuickAdd" type="button" title="Add a media folder to this library" aria-label="Add folder">＋</button>
+                    <button id="mlFindArt" type="button" title="Look up posters for catalog titles" aria-label="Find poster artwork">▧</button>
+                    <button id="mlRescan" type="button" title="Scan selected library folders again" aria-label="Rescan library">↻</button>
+                    <button id="mlManage" type="button" title="Rename library and manage folders" aria-label="Manage library">⚙</button>
+                  </div>
+                </div>
+                <div class="ml-filters">
+                  <input type="search" id="mlSearch" placeholder="Search your collection" aria-label="Search videos in your libraries">
+                  <select id="mlKindFilter" aria-label="Filter by content type"><option value="all">All Videos</option><option value="movie">Movies</option><option value="tv">TV Shows</option></select>
+                  <select id="mlSort" aria-label="Sort library"><option value="title">Title A–Z</option><option value="recent">Recently Added</option><option value="year">Year</option></select>
+                  <button id="mlView" type="button" aria-pressed="false" title="Toggle poster and list views" aria-label="Toggle library view">☷</button>
+                </div>
+                <div id="mlCrumbs" class="ml-crumbs" aria-label="Library navigation"></div>
+                <div id="mlStatus" class="ml-status" role="status" aria-live="polite"></div>
+                <div id="mlCards" class="ml-cards" aria-label="Videos in the selected library"></div>
+              </div>
+            </div>
+            <input id="mlDirectoryInput" type="file" webkitdirectory directory multiple hidden aria-label="Choose a folder containing video files">
+            <div id="mlDialog" class="ml-dialog" role="dialog" aria-modal="true" aria-labelledby="mlDialogTitle" hidden>
+              <div class="ml-dialog-surface">
+                <div class="ml-dialog-top"><div><small class="ml-kicker">COLLECTION SETUP</small><strong id="mlDialogTitle">Create Library</strong></div><button type="button" id="mlDialogClose" aria-label="Close library editor">✕</button></div>
+                <label class="ml-dialog-label" for="mlLibraryName">Library Name</label>
+                <input id="mlLibraryName" type="text" maxlength="80" placeholder="e.g. Movies, Series, Documentaries" autocomplete="off">
+                <label class="ml-dialog-label" for="mlLibraryKind">Library Type</label>
+                <select id="mlLibraryKind"><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="mixed">Other Videos</option></select>
+                <div class="ml-dialog-label">Media Folders</div>
+                <div id="mlFolderList" class="ml-folder-list" aria-label="Folders belonging to this library"></div>
+                <div class="ml-folder-pickers">
+                  <button type="button" class="ml-pick-folder" id="mlPickFolder">+ Choose Folder</button>
+                  <button type="button" class="ml-compat-folder" id="mlCompatibilityFolder" title="Use a compatible folder picker for Safari, Firefox, or restricted WebViews">Other Picker</button>
+                </div>
+                <p class="ml-help">Only the folder's video files are indexed. Videos stay on this device and are never uploaded. You can add more folders or change them later.</p>
+                <div class="ml-dialog-bottom"><button id="mlDeleteLibrary" type="button" class="ml-danger" hidden>Remove Library</button><span class="ml-dialog-spacer"></span><button id="mlDialogCancel" type="button">Cancel</button><button id="mlDialogSave" type="button" class="ml-primary">Save Library</button></div>
+              </div>
+            </div>
+          </section>
+          <section class="media-info" id="mediaInfoPanel" aria-label="Movie and TV information" hidden>
           <div class="mi-header"><strong>Movie &amp; Series Information</strong><div class="mi-header-right"><span id="miStatus" class="mi-muted" role="status" aria-live="polite">No Video Selected</span></div></div>
           <form id="miSearchForm" class="mi-search-row" role="search">
             <input id="miSearch" type="search" aria-label="Search Title" placeholder="Movie or Series Title" autocomplete="off" maxlength="160">
@@ -681,7 +734,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           <div id="miMatches"></div>
           <div id="miResults"></div>
           <p class="mi-attribution"><img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_2-d537fb228cf3ded904ef09b136fe3fec72548ebc1fea3fbbd1ad9e36364db38b.svg" alt="TMDB logo" width="30" height="30" loading="lazy"> Movie and TV Information: <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a> When Configured, With Automatic Public Sources From <a href="https://www.tvmaze.com/" target="_blank" rel="noopener noreferrer">TVmaze</a> (CC BY-SA) and <a href="https://en.wikipedia.org/" target="_blank" rel="noopener noreferrer">Wikipedia</a> (CC BY-SA), Plus Optional OMDb and OpenSubtitles. This Product Uses the TMDB API When Configured but Is Not Endorsed or Certified by TMDB.</p>
-        </section>
+          </section>
+        </div>
       </section>
 
 
@@ -5865,6 +5919,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./auto-mkv-audio.js?v=20261118-full-duration-v1"></script>
 <script src="./public-movie-info.js?v=20261103-imdb-score-v3" defer></script>
 <script src="./movie-info.js?v=20261119-metacritic-card-v1" defer></script>
+<script src="./media-library.js?v=20261119-library-v1" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
