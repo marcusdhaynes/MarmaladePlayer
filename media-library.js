@@ -1155,14 +1155,19 @@
     state.folder=null;state.series=null;state.folderMode=false;
     state.query='';state.kind='all';state.collection='all';
     ui.search.value='';ui.filter.value='all';ui.collections.value='all';
+    // Preview indexes are already available; no fresh permission request is
+    // needed after the async database write. Wait for durable IndexedDB save
+    // before reporting that the library can safely survive a browser reload.
+    ui.save.disabled=true;
     closeEditor();render();
-    // Persist and publish the preview immediately. Requiring permissions after
-    // await persist() lost user activation and previously left libraries empty.
-    void persist(pending);
+    await persist(pending);
+    ui.save.disabled=false;
     if(pending.folders.length){
-      if(pending.items.length)notify(countLabel(pending.items.length)+' added to '+pending.name+'.');
+      if(pending.items.length)notify(countLabel(pending.items.length)+' saved in '+pending.name+'.');
+      // Refresh without prompting. The pre-save preview remains visible even
+      // when a previously granted directory permission has been revoked.
       void scanLibrary(pending,{ask:false});
-    }else notify('Empty library created. Open Edit Library to add a media folder.');
+    }else notify('Empty library saved. Open Edit Library to add a media folder.');
   }
   async function removeLibrary(){
     const lib=state.libraries.find(x=>x.id===state.editing);
