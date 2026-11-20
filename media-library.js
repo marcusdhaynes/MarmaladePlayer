@@ -26,7 +26,8 @@
     db:null,libraries:[],selected:'all',query:'',kind:'all',sort:'title',
     list:false,folderMode:false,folder:null,series:null,showCount:120,
     editing:null,pending:null,relink:null,scanning:false,scanSeq:0,
-    sessionFiles:new Map(),status:'',ready:false,artworkBusy:false,storageAvailable:true
+    sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
+    artworkBusy:false,storageAvailable:true
   };
   const now=()=>Date.now();
   const id=()=>('ml'+now().toString(36)+Math.random().toString(36).slice(2,9));
@@ -161,7 +162,7 @@
         const path=key.slice(folder.id.length+1);
         matches.push(makeItem(folder,path,file,kind));
       }
-      return matches.length||[...state.sessionFiles.keys()].some(key=>key.startsWith(folder.id+'|'))?matches:null;
+      return state.sessionFolderLoaded.has(folder.id)?matches:null;
     }
     if(!folder.handle)return null;
     if(!await permissions(folder,ask))return null;
@@ -197,6 +198,7 @@
     if(!lib||state.scanning){notify('A library scan is already in progress.');return;}
     state.scanning=true;
     const seq=++state.scanSeq,oldItems=(lib.items||[]).slice();
+    const prior=new Map(oldItems.map(item=>[item.id,item]));
     let items=oldItems.slice(),accessIssues=0,folderIssues=0;
     ui.rescan.disabled=true;notify('Scanning '+lib.name+'…');
     try{
@@ -210,6 +212,13 @@
         }
         if(found!==null){
           items=items.filter(item=>item.folderId!==folder.id);
+          for(const item of found){
+            const previous=prior.get(item.id);
+            if(previous){
+              item.addedAt=previous.addedAt||item.addedAt;
+              if(previous.poster)item.poster=previous.poster;
+            }
+          }
           items.push(...found);
         }else accessIssues++;
       }
@@ -281,7 +290,8 @@
   }
   function renderShelves(){
     ui.shelves.replaceChildren();
-    const everything=[{id:'all',name:'All Videos',count:allItems().length},
+    const total=state.libraries.reduce((n,l)=>n+(l.items||[]).length,0);
+    const everything=[{id:'all',name:'All Videos',count:total},
       ...state.libraries.map(l=>({id:l.id,name:l.name,count:(l.items||[]).length}))];
     for(const lib of everything){
       const button=append(ui.shelves,'button','ml-shelf');
@@ -300,7 +310,7 @@
       [i.title,i.show,i.path,i.name,i.libraryName].some(value=>
         String(value||'').toLocaleLowerCase().includes(search)));
     items.sort((a,b)=>{
-      if(state.sort==='recent')return (b.lastModified||0)-(a.lastModified||0)||(a.title||'').localeCompare(b.title||'');
+      if(state.sort==='recent')return (b.addedAt||0)-(a.addedAt||0)||(a.title||'').localeCompare(b.title||'');
       if(state.sort==='year')return (b.year||0)-(a.year||0)||(a.title||'').localeCompare(b.title||'');
       return (a.show||a.title||'').localeCompare(b.show||b.title||'')||
         (a.season||0)-(b.season||0)||(a.episode||0)-(b.episode||0);
@@ -393,8 +403,8 @@
     if(state.sort==='title')visible.sort((a,b)=>
       (a.kind==='show'?a.show:a.item.title).localeCompare(b.kind==='show'?b.show:b.item.title));
     if(state.sort==='recent')visible.sort((a,b)=>
-      (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.lastModified||0),0)-
-      (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.lastModified||0),0));
+      (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.addedAt||0),0)-
+      (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.addedAt||0),0));
     if(state.sort==='year')visible.sort((a,b)=>
       (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.year||0),0)-
       (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.year||0),0));
@@ -593,6 +603,7 @@
     const root=(first.webkitRelativePath||first.name).split('/')[0]||'Video Folder';
     const folder={id:id(),name:root,source:'session',handle:null};
     addFolder(folder);
+    state.sessionFolderLoaded.add(folder.id);
     for(const file of files){
       const path=(file.webkitRelativePath||file.name).split('/').slice(1).join('/')||file.name;
       if(video(file.name))state.sessionFiles.set(folder.id+'|'+path,file);
