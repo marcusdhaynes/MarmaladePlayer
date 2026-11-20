@@ -1145,13 +1145,15 @@
       const label=problem?('▣ '+folder.name+' · Not scanned — '+problem):
         ('▣ '+folder.name+' · '+countLabel(found)+
           (folder.source==='handle'?(folder.handle?' · Remembered':' · Needs reconnect'):
-           folder.source==='native'?' · Via Minternet':' · This session only'));
+           folder.source==='native'?' · Stored in Minternet extension':' · This session only'));
       const text=append(wrap,'span','',label);
       text.title=folder.name;
       const controls=append(wrap,'div');
-      const reconnect=append(controls,'button','','Reconnect');
-      reconnect.type='button';reconnect.title='Choose the location again';
-      reconnect.addEventListener('click',()=>{state.relink=folder.id;pickFolder();});
+      if(folder.source!=='native'){
+        const reconnect=append(controls,'button','','Reconnect');
+        reconnect.type='button';reconnect.title='Choose the location again';
+        reconnect.addEventListener('click',()=>{state.relink=folder.id;pickFolder();});
+      }
       const remove=append(controls,'button','','Remove');
       remove.type='button';remove.setAttribute('aria-label','Remove '+folder.name+' from this library');
       remove.addEventListener('click',()=>{
@@ -1292,22 +1294,38 @@
     pickFolder();
   }
   async function pickAddonFolder(api){
-    scanPreview('Choose a folder in the native dialog. Minternet\u2019s Local Media Library add-on stores it and rescans it on every launch — no reconnect, ever.');
-    let catalog=null;
-    try{catalog=await api.addFolder();}catch{/* read the catalog below */}
-    if(!catalog&&typeof api.getCatalog==='function'){
-      try{catalog=await api.getCatalog();}catch{/* handled below */}
+    const pending=currentPending();if(!pending)return;
+    const name=(ui.name.value||'').trim();
+    if(!name){
+      ui.name.setCustomValidity('Name this library before adding a folder.');
+      ui.name.reportValidity();return;
     }
-    const libraries=Array.isArray(catalog)?catalog:(catalog?.libraries||[]);
-    const result=await importAddonCatalog(libraries);
+    ui.name.setCustomValidity('');
+    const libraryId=pending.id.startsWith('addon:')?pending.id.slice(6):'';
+    scanPreview('Choose your media folder. Minternet will index its files and permanently register it under '+name+'.');
+    // MUST begin directly inside the click event; do not await a fetch before
+    // opening Minternet's native picker, or the browser loses user activation.
+    let catalog;
+    try{
+      catalog=await api.addFolder({libraryId,name,kind:ui.kind.value});
+    }catch(error){
+      scanPreview('Folder was not added: '+(error?.message||error)+'. Existing libraries are unchanged.');
+      notify('No folder imported. Choose Add Folder again to retry.');
+      state.autoAttachDraft=null;
+      return;
+    }
+    const previousIds=new Set(state.libraries.filter(l=>l.id.startsWith('addon:')).map(l=>l.id));
+    const result=await syncFromNative(catalog);
     state.autoAttachDraft=null;
-    if(result.count>0){
+    const imported=state.libraries.filter(l=>l.id.startsWith('addon:')&&
+      (l.name===name||l.id===pending.id||!previousIds.has(l.id)));
+    if(imported.length){
       closeEditor();
-      if(result.libId)setSelected(result.libId);
-      notify(countLabel(result.count)+' available from Minternet. The folder is stored by the add-on and rescanned on every launch.');
+      setSelected(imported[0].id);
+      const count=imported[0].items.length;
+      notify(countLabel(count)+' indexed in '+name+' and saved in the Minternet extension.');
     }else{
-      scanPreview('Minternet returned no videos. If you cancelled the folder dialog, press + Add Folder and choose the folder again. If the folder does contain videos, open Minternet\u2019s Local Media Library add-on panel and confirm the folder is listed there.');
-      notify('No videos came from Minternet yet. Nothing was saved over your existing libraries.');
+      scanPreview('The folder picker closed, but no matching library was returned by Minternet. Check the extension connection and retry.');
     }
   }
   function fallbackFiles(files){
@@ -1380,6 +1398,31 @@
       ui.name.setCustomValidity('A library with this name already exists.');
       ui.name.reportValidity();return;
     }
+    const addon=nativeLibraryApi();
+    if(addon&&typeof addon.saveLibrary==='function' &&
+       (!state.editing||String(state.editing).startsWith('addon:'))){
+      const nativeId=String(state.editing||'').startsWith('addon:')?
+        String(state.editing).slice(6):undefined;
+      const original=state.libraries.find(l=>l.id===state.editing);
+      ui.save.disabled=true;
+      try{
+        const saved=await addon.saveLibrary({id:nativeId,name,kind:ui.kind.value});
+        const id=saved.id||nativeId;
+        if(original&&typeof addon.removeFolder==='function'){
+          const still=new Set(pending.folders.map(f=>f.id));
+          for(const folder of original.folders){
+            if(!still.has(folder.id))await addon.removeFolder({libraryId:id,folderId:folder.id});
+          }
+        }
+        await syncFromNative();
+        closeEditor();setSelected('addon:'+id);
+        notify('Library '+name+' saved in the Minternet extension. Media folders remain registered across restarts.');
+      }catch(error){
+        scanPreview('Minternet could not save this library: '+(error?.message||error));
+        notify('Library was not saved in the extension. Please retry.');
+      }finally{ui.save.disabled=false;}
+      return;
+    }
     // A user can click Save while a selected directory is still indexing.
     // Wait for its preview scan rather than committing an apparently blank catalog.
     if(state.pendingScans.size)await Promise.allSettled([...state.pendingScans]);
@@ -1431,6 +1474,15 @@
     const lib=state.libraries.find(x=>x.id===state.editing);
     if(!lib)return;
     if(!window.confirm('Remove "'+lib.name+'" from Marmaladeum? The videos on your device will NOT be deleted.'))return;
+    if(lib.id.startsWith('addon:')&&nativeLibraryApi()?.deleteLibrary){
+      try{
+        await nativeLibraryApi().deleteLibrary({id:lib.id.slice(6)});
+        await syncFromNative();
+        state.selected='all';setLocal('marmalade:media-library:selected','all');
+        closeEditor();render();notify('Library removed from the Minternet extension. Original video files were not deleted.');
+      }catch(error){notify('Could not remove library from extension: '+(error?.message||error));}
+      return;
+    }
     await erase(lib.id);
     for(const f of lib.folders)for(const k of state.sessionFiles.keys())
       if(k.startsWith(f.id+'|'))state.sessionFiles.delete(k);
@@ -1628,8 +1680,8 @@
       const items=extLib.items.map(item=>{const copy={...item};delete copy.libraryId;return copy;});
       const existing=state.libraries.find(l=>l.id===libId);
       const record={id:libId,name:extLib.name||'Extension Library',kind:extLib.kind||'movie',
-        folders,items,hiddenIds:existing?.hiddenIds||[],createdAt:existing?.createdAt||now(),
-        lastScan:extLib.lastScan||now()};
+        folders,items,hiddenIds:extLib.hiddenIds||existing?.hiddenIds||[],
+        createdAt:existing?.createdAt||now(),lastScan:extLib.lastScan||now()};
       if(existing)state.libraries[state.libraries.indexOf(existing)]=record;
       else state.libraries.push(record);
       await persist(record);
@@ -1646,6 +1698,11 @@
   // catalog it is granted. Items arrive with an asset `url` for playback.
   async function importAddonCatalog(libraries){
     let imported=0,firstLibId=null;
+    const active=new Set((libraries||[]).filter(l=>l?.id).map(l=>'addon:'+l.id));
+    for(const stale of state.libraries.filter(l=>l.id.startsWith('addon:')&&!active.has(l.id))){
+      state.libraries=state.libraries.filter(l=>l!==stale);
+      await erase(stale.id);
+    }
     for(const extLib of libraries||[]){
       if(!extLib?.id||!Array.isArray(extLib.items))continue;
       const libId='addon:'+extLib.id;
@@ -1671,7 +1728,7 @@
       imported+=items.length;
       if(!firstLibId)firstLibId=libId;
     }
-    if(imported)render();
+    render();
     return {count:imported,libId:firstLibId};
   }
   async function syncFromNative(preloaded){
