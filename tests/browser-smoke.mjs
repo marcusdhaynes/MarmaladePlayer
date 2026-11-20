@@ -70,6 +70,12 @@ const server = createServer((req,res) => {
   } else if (req.url?.startsWith('/movie-info.css')) {
     res.writeHead(200, {'content-type':'text/css'});
     res.end(readFileSync(new URL('../movie-info.css', import.meta.url), 'utf8'));
+  } else if (req.url?.startsWith('/media-library.js')) {
+    res.writeHead(200, {'content-type':'application/javascript'});
+    res.end(readFileSync(new URL('../media-library.js', import.meta.url), 'utf8'));
+  } else if (req.url?.startsWith('/media-library.css')) {
+    res.writeHead(200, {'content-type':'text/css'});
+    res.end(readFileSync(new URL('../media-library.css', import.meta.url), 'utf8'));
   } else if (req.url?.startsWith('/sw.js')) {
     res.writeHead(200, {'content-type':'application/javascript'}); res.end('');
   } else {
