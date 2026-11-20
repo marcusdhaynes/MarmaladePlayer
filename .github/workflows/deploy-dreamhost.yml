@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      rollback_ref:
+        description: 'Optional complete commit SHA or marmalade-backup-<12 hex chars> tag to redeploy'
+        required: false
+        type: string
 
 # Prevent a superseded deploy from replacing a newer production release.
 concurrency:
@@ -14,8 +19,20 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate requested rollback version
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_ref != '' }}
+        shell: bash
+        env:
+          ROLLBACK_REF: ${{ inputs.rollback_ref }}
+        run: |
+          if [[ ! "$ROLLBACK_REF" =~ ^([a-f0-9]{40}|marmalade-backup-[a-f0-9]{12})$ ]]; then
+            echo "Use a full 40-character commit SHA or Marmaladeum backup tag."
+            exit 1
+          fi
       - name: Check out repo
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.rollback_ref || github.sha }}
 
       # MarmaladePlayer is a static web app (no dist/ build like Somniel).
       # These are the same staging steps its GitHub Pages workflow uses,
