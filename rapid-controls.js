@@ -187,7 +187,10 @@
    });
  };
  const savePosition=()=>{
-   if(!last||state.role!=='host'||state.source!=='file')return;
+   if(!last||state.role!=='host')return;
+   if(state.source==='native'){
+     if(last.source!=='native'||last.nativeKey!==state.nativeMediaKey)return;
+   }else if(state.source!=='file'||last.source==='native')return;
    const time=Number(media.currentTime);
    if(!Number.isFinite(time)||time<0)return;
    last.positionSeconds=time;
@@ -222,7 +225,10 @@
    recentButton.hidden=!last||state.role!=='host';
    if(!last)return;
    recentButton.querySelector('span').textContent='Resume '+last.name.slice(0,37)+(last.name.length>37?'…':'');
-   recentButton.title=last.handle?'Reopen the saved video without file selection':'Previous browser selection did not preserve the original path';
+   recentButton.title=last.source==='native'?
+     'Reopen this video directly from its saved Minternet Media Library folder':
+     last.handle?'Reopen the saved video without file selection':
+     'Previous browser selection did not preserve the original path';
  }
  window.addEventListener('marmalade:video-selected',async event=>{
    const file=event.detail?.file;
@@ -242,6 +248,43 @@
    }
    missing.hidden=true;
  });
+ window.addEventListener('marmalade:library-video-selected',event=>{
+   const {name,size,itemId,key}=event.detail||{};
+   if(!name||!itemId||!key||state.role!=='host')return;
+   const previous=last;
+   last={source:'native',name:String(name),size:Number(size)||0,
+     nativeItemId:String(itemId),nativeKey:String(key),updated:Date.now(),
+     positionSeconds:previous?.source==='native'&&previous?.nativeItemId===itemId?
+       Math.max(0,Number(previous.positionSeconds)||0):0};
+   reflectRecent();
+   void store('write',last).catch(error=>console.debug('Native resume record unavailable',error));
+   missing.hidden=true;
+ });
+ async function resumeNativeMedia(){
+   const api=window.MinternetMediaLibrary;
+   if(typeof api?.getCatalog!=='function'||typeof bridge.chooseNativeStream!=='function'){
+     missing.textContent='Minternet Media Server extension is not active. Update Minternet or enable the extension.';
+     missing.hidden=false;bridge.notify(missing.textContent);return false;
+   }
+   const catalog=await api.getCatalog();
+   const item=(catalog?.libraries||[]).flatMap(l=>l.items||[])
+     .find(i=>i.id===last.nativeItemId);
+   if(!item?.url){
+     missing.textContent='That video is not available in the saved media library. Reconnect its drive or rescan.';
+     missing.hidden=false;bridge.notify(missing.textContent);return false;
+   }
+   const resumeAt=Math.max(0,Number(last.positionSeconds)||0);
+   media.addEventListener('loadedmetadata',()=>{
+     if(resumeAt>.2&&Number.isFinite(media.duration)&&media.duration>0){
+       try{media.currentTime=Math.min(resumeAt,Math.max(0,media.duration-.25));}catch{}
+     }
+     void media.play().catch(()=>bridge.notify('Video loaded. Press Play to resume.'));
+   },{once:true});
+   const ready=bridge.chooseNativeStream({url:item.url,name:item.name||last.name,
+     size:item.size,id:item.id});
+   if(!ready)throw Error('Could not open saved library video.');
+   missing.hidden=true;return true;
+ }
  async function verifyAndOpen(file,handle=null){
    if(!last||!file)return false;
    if(file.name!==last.name||file.size!==last.size){
@@ -295,6 +338,10 @@
    if(!last||state.role!=='host'||recentButton.disabled)return;
    recentButton.disabled=true;locateButton.hidden=true;missing.hidden=true;
    try{
+     if(last.source==='native'){
+       await resumeNativeMedia();
+       return;
+     }
      // Reauthorize a retained file handle while the Resume click is active.
      // Browsers cannot bypass permission revocation.
      if(last.handle){
