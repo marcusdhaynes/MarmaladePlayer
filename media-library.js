@@ -1144,6 +1144,13 @@
     // Wait for its preview scan rather than committing an apparently blank catalog.
     if(state.pendingScans.size)await Promise.allSettled([...state.pendingScans]);
     if(state.pending!==pending)return;
+    const failed=pending.folders.filter(folder=>state.scanProblems.has(folder.id));
+    if(failed.length&&!(pending.items||[]).length){
+      scanPreview('Videos were not indexed. Reconnect '+failed.map(f=>f.name).join(', ')+
+        ', approve read access, then Save. Your library was not overwritten.');
+      notify('Folder scan incomplete. Reconnect and approve access before saving.');
+      return;
+    }
     const priorKind=pending.kind;
     pending.name=name;pending.kind=ui.kind.value;
     pending.items=(pending.items||[]).filter(item=>pending.folders.some(f=>f.id===item.folderId));
