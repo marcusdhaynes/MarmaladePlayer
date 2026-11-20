@@ -13,7 +13,7 @@
  grid-column:auto;margin-top:14px
 }
 .games-panel{position:relative;box-sizing:border-box;align-self:stretch;
- padding:15px;min-height:420px;height:100%;border-radius:14px;
+ padding:15px;min-height:420px;border-radius:14px;
  border:1px solid #554a59;background:linear-gradient(150deg,#2a222f,#16161f 75%);
  color:#f5e8e5}
 .games-panel-heading{display:flex;align-items:center;justify-content:space-between;
