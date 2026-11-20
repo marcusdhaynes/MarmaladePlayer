@@ -313,3 +313,11 @@
  font-size:11px;font-weight:700;cursor:pointer}
 .ml-panel .ml-poster-editor button:hover{background:#49312b;border-color:#f4c99a}
 .ml-poster-editor small{flex:1 1 120px;font-size:9px;line-height:1.4;color:#aa9da7}
+
+.ml-panel .ml-info-analyze{
+  align-self:flex-start;margin-top:7px;min-height:32px;padding:7px 12px;
+  color:#ffe2bf;background:#322632;border:1px solid #a67976;border-radius:7px;
+  font-size:11px;font-weight:700;cursor:pointer;
+}
+.ml-panel .ml-info-analyze:hover:not(:disabled){background:#503646;border-color:#ffca9f}
+.ml-panel .ml-info-analyze:disabled{opacity:.45;cursor:progress}
