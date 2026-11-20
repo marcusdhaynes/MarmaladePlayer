@@ -11,7 +11,8 @@
     shelves:$('mlShelves'),cards:$('mlCards'),status:$('mlStatus'),
     title:$('mlCurrentShelf'),count:$('mlCount'),search:$('mlSearch'),
     filter:$('mlKindFilter'),sort:$('mlSort'),view:$('mlView'),
-    rescan:$('mlRescan'),manage:$('mlManage'),crumbs:$('mlCrumbs'),
+    rescan:$('mlRescan'),manage:$('mlManage'),quickAdd:$('mlQuickAdd'),
+    art:$('mlFindArt'),crumbs:$('mlCrumbs'),
     dialog:$('mlDialog'),dialogTitle:$('mlDialogTitle'),name:$('mlLibraryName'),
     kind:$('mlLibraryKind'),folderList:$('mlFolderList'),
     delete:$('mlDeleteLibrary'),pick:$('mlPickFolder'),
@@ -25,7 +26,7 @@
     db:null,libraries:[],selected:'all',query:'',kind:'all',sort:'title',
     list:false,folderMode:false,folder:null,series:null,showCount:120,
     editing:null,pending:null,relink:null,scanning:false,scanSeq:0,
-    sessionFiles:new Map(),status:'',ready:false,storageAvailable:true
+    sessionFiles:new Map(),status:'',ready:false,artworkBusy:false,storageAvailable:true
   };
   const now=()=>Date.now();
   const id=()=>('ml'+now().toString(36)+Math.random().toString(36).slice(2,9));
@@ -233,6 +234,12 @@
     button.type='button';
     const art=append(button,'span','ml-card-art');
     art.style.setProperty('--ml-glow',cleanHash(data.title||data.name));
+    if(/^https:\/\//i.test(data.poster||'')){
+      const image=append(art,'img','ml-art-poster');
+      image.src=data.poster;image.loading='lazy';image.alt='';
+      image.referrerPolicy='no-referrer';
+      image.addEventListener('error',()=>image.remove(),{once:true});
+    }
     append(art,'span','ml-art-type',dir?(data.type==='tv'?'SERIES':'FOLDER'):data.type==='tv'?'EPISODE':'VIDEO');
     const mark=String(data.title||data.name||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase();
     append(art,'span','ml-art-mark',dir?'▤':mark);
@@ -361,6 +368,8 @@
     ui.count.textContent=countLabel(items.length);
     ui.title.textContent=lib?.name||'All Videos';
     ui.manage.disabled=!lib||state.scanning;
+    ui.quickAdd.disabled=!lib||state.scanning;
+    ui.art.disabled=state.scanning||state.artworkBusy||!items.length;
     ui.rescan.disabled=!lib||state.scanning;
     breadcrumbs();
     if(state.folderMode){renderFolders(items);return;}
@@ -391,7 +400,8 @@
       (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.year||0),0));
     for(const entity of visible.slice(0,state.showCount)){
       if(entity.kind==='show'){
-        const entry={title:entity.show,type:'tv',detail:entity.items.length+' Episodes'};
+        const entry={title:entity.show,type:'tv',detail:entity.items.length+' Episodes',
+          poster:entity.items.find(item=>item.poster)?.poster||''};
         ui.cards.append(card(entry,()=>{
           state.series={libId:entity.libId,show:entity.show};state.showCount=120;render();
         },true));
@@ -453,6 +463,56 @@
       bridge.chooseVideo(file);
       notify('Playing '+file.name+' · Your video stays on this device.');
     }catch(error){notify(error?.message||'This video cannot be accessed. Reconnect the folder.');}
+  }
+  // Only titles are sent to the existing public metadata source, never a video
+  // or local folder path. User consent is required before first lookup.
+  async function findArtwork(){
+    if(state.artworkBusy||state.scanning)return;
+    const source=window.MarmaladePublicMovieInfo;
+    if(typeof source?.lookup!=='function'){notify('Poster sources are not available.');return;}
+    if(readLocal('marmalade:media-library:art-consent','false')!=='true'){
+      if(!window.confirm('Look up posters using movie and series titles? Titles (but not video files or folder paths) will be sent to public movie-information services.'))return;
+      setLocal('marmalade:media-library:art-consent','true');
+    }
+    const files=filteredItems().filter(item=>!item.poster);
+    const groups=new Map();
+    for(const item of files){
+      const title=item.type==='tv'?(item.show||item.title):item.title;
+      if(!title)continue;
+      const key=item.type+'|'+title.toLowerCase()+'|'+(item.year||'');
+      if(!groups.has(key))groups.set(key,{title,type:item.type,year:item.year,items:[]});
+      groups.get(key).items.push(item);
+    }
+    const candidates=[...groups.values()].slice(0,40);
+    if(!candidates.length){notify('All visible titles already have available cover artwork.');return;}
+    state.artworkBusy=true;ui.art.disabled=true;
+    let found=0,attempted=0;
+    const affected=new Set();
+    try{
+      for(const group of candidates){
+        attempted++;
+        ui.status.textContent='Finding poster artwork · '+attempted+' / '+candidates.length;
+        try{
+          const output=await source.lookup({title:group.title,year:group.year,
+            kind:group.type==='tv'?'tv':'movie',season:null,episode:null});
+          const record=output?.record;
+          if(!record?.poster||!/^https:\/\//i.test(record.poster))continue;
+          const normalize=value=>String(value||'').toLocaleLowerCase()
+            .replace(/[^a-z0-9]+/g,' ').trim();
+          if(normalize(record.title)!==normalize(group.title))continue;
+          if(group.year&&record.year&&Number(group.year)!==Number(record.year))continue;
+          for(const item of group.items){
+            const lib=state.libraries.find(l=>l.id===item.libraryId);
+            const stored=lib?.items.find(i=>i.id===item.id);
+            if(stored){stored.poster=record.poster;affected.add(lib);found++;}
+          }
+          if(found)render();
+        }catch{/* A network miss is not an invented media match. */}
+      }
+      for(const lib of affected)await persist(lib);
+      notify('Cover artwork added for '+found+' video'+(found===1?'':'s')+
+        '. Missing public matches keep their original title cards.');
+    }finally{state.artworkBusy=false;render();}
   }
   function currentPending(){return state.pending;}
   function drawFolders(){
@@ -585,6 +645,13 @@
     ui.rescan.addEventListener('click',()=>{
       const lib=selectedLibrary();if(lib)void scanLibrary(lib,{ask:true});
     });
+    ui.quickAdd.addEventListener('click',()=>{
+      const lib=selectedLibrary();
+      if(!lib)return;
+      openEditor(lib);
+      void pickFolder();
+    });
+    ui.art.addEventListener('click',()=>void findArtwork());
     ui.manage.addEventListener('click',()=>openEditor(selectedLibrary()));
     let searchTimer;
     ui.search.addEventListener('input',()=>{
