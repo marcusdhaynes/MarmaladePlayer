@@ -46,6 +46,99 @@
     const n=create(tag,cls,content);parent.append(n);return n;
   };
   const countLabel=n=>n.toLocaleString()+(n===1?' Video':' Videos');
+
+  const AUTO_POSTERS_KEY='marmalade:media-library:auto-posters';
+  const POSTER_MISSES_KEY='marmalade:media-library:poster-misses';
+  const posterQueue=[],posterQueued=new Set(),posterSeen=new Set();
+  let posterWorker=false;
+  const posterMisses=(()=>{
+    try{
+      const data=JSON.parse(readLocal(POSTER_MISSES_KEY,'{}'));
+      return data&&typeof data==='object'&&!Array.isArray(data)?data:{};
+    }catch{return {};}
+  })();
+  // Keep the underlying filename and year unchanged: these helpers only
+  // determine what is shown on a poster and what title is matched publicly.
+  function posterDisplayTitle(title){
+    return String(title||'').replace(/\\s*\\((?:18|19|20|21)\\d{2}\\)(?=\\s|$)/g,'')
+      .replace(/\\s{2,}/g,' ').trim();
+  }
+  const posterNormalize=value=>posterDisplayTitle(value).toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g,' ').trim();
+  const autoPostersEnabled=()=>readLocal(AUTO_POSTERS_KEY,'true')!=='false';
+  function rememberPosterMiss(key){
+    posterMisses[key]=now();
+    const entries=Object.entries(posterMisses).sort((a,b)=>b[1]-a[1]).slice(0,400);
+    for(const old of Object.keys(posterMisses))delete posterMisses[old];
+    for(const [k,v] of entries)posterMisses[k]=v;
+    setLocal(POSTER_MISSES_KEY,JSON.stringify(posterMisses));
+  }
+  function scheduleAutoPoster(item){
+    if(panel.hidden||!autoPostersEnabled()||!item||item.poster||item.posterCustomized)return;
+    const title=posterDisplayTitle(item.type==='tv'?(item.show||item.title):item.title);
+    if(!title||title.length>160)return;
+    const kind=item.type==='tv'?'tv':'movie',year=Number(item.year)||null;
+    const key=kind+'|'+posterNormalize(title)+'|'+(year||'');
+    if(posterQueued.has(key)||posterSeen.has(key))return;
+    if(Number(posterMisses[key])>now()-24*60*60*1000)return;
+    posterQueued.add(key);posterQueue.push({key,title,kind,year});
+    if(!posterWorker)void processAutoPosters();
+  }
+  async function processAutoPosters(){
+    if(posterWorker)return;
+    posterWorker=true;
+    try{
+      while(posterQueue.length&&autoPostersEnabled()){
+        const job=posterQueue.shift();posterQueued.delete(job.key);posterSeen.add(job.key);
+        const source=window.MarmaladePublicMovieInfo;
+        if(typeof source?.lookup!=='function')continue;
+        try{
+          // Only the normalized title/year/kind are sent to public catalog
+          // services. Video bytes, file paths and folder names never leave.
+          const result=await source.lookup({
+            title:job.title,year:job.year,kind:job.kind,season:null,episode:null
+          });
+          const match=result?.record;
+          if(!match?.poster||!/^https:\/\//i.test(match.poster)||!match.title||
+             posterNormalize(match.title)!==posterNormalize(job.title)||
+             (job.year&&match.year&&Number(match.year)!==job.year)){
+            rememberPosterMiss(job.key);
+            continue;
+          }
+          let updated=false;
+          for(const lib of state.libraries){
+            for(const entry of lib.items||[]){
+              if(entry.poster||entry.posterCustomized)continue;
+              const title=entry.type==='tv'?(entry.show||entry.title):entry.title;
+              if((entry.type==='tv'?'tv':'movie')!==job.kind||
+                 posterNormalize(title)!==posterNormalize(job.title)||
+                 (job.year&&entry.year&&Number(entry.year)!==job.year))continue;
+              const previous=entry.poster;
+              entry.poster=match.poster;
+              try{
+                await persistNativeItem(lib,entry);
+                await persist(lib);
+                updated=true;
+              }catch(error){
+                entry.poster=previous;
+                console.debug('Automatic poster could not be saved',error);
+              }
+            }
+          }
+          if(updated)render();
+        }catch(error){
+          // Network and provider errors are not permanent negative matches.
+          console.debug('Automatic library poster lookup unavailable',job.title,error);
+        }
+        // Stay gentle on public metadata providers and keep the UI responsive.
+        await new Promise(resolve=>setTimeout(resolve,220));
+      }
+    }finally{
+      posterWorker=false;
+      if(!autoPostersEnabled()){posterQueue.length=0;posterQueued.clear();}
+    }
+  }
+
   const video=(name)=>VIDEO.test(name||'');
   function normalizeTitle(name){
     return String(name||'').replace(/\.[^.]+$/,'').replace(/[._]+/g,' ')
@@ -163,6 +256,20 @@
     const hint=append(stack,'p','settings-hint',
       'Show your named, on-device movie and TV libraries beside Movie & Series Information.');
     hint.id='mlSettingHint';
+    const posterRow=create('label','settings-row settings-toggle-row ml-setting-row');
+    posterRow.id='mlAutomaticPostersSetting';
+    append(posterRow,'span','','Automatically Load Posters');
+    const posterToggle=append(posterRow,'input');
+    posterToggle.type='checkbox';posterToggle.id='mlAutomaticPostersToggle';
+    posterToggle.checked=autoPostersEnabled();
+    posterToggle.addEventListener('change',()=>{
+      setLocal(AUTO_POSTERS_KEY,posterToggle.checked?'true':'false');
+      posterSeen.clear();
+      if(posterToggle.checked)render();
+    });
+    stack.append(posterRow);
+    append(stack,'p','settings-hint',
+      'Automatically look up missing artwork using only movie or series titles and years. Video files and folder paths stay on your device.');
     setVisibility(check.checked);
   }
   function permissions(folder,ask){
@@ -865,13 +972,13 @@
       image.src=picture;image.loading='lazy';image.alt='';
       image.addEventListener('error',()=>image.remove(),{once:true});
     }
-    const mark=String(data.title||data.name||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase();
-    append(art,'span','ml-art-mark',dir?'▤':mark);
+    // No letter monograms or folder glyphs above the poster artwork.
     append(art,'span','ml-play-symbol',dir?'›':'▶');
     const copy=append(surface,'span','ml-card-copy');
-    const label=append(copy,'span','ml-card-label',data.title||data.name);
+    const label=append(copy,'span','ml-card-label',posterDisplayTitle(data.title||data.name));
     if(data.watched)append(label,'span','ml-watched-mark','✓').title='Watched';
-    const sub=String(data.year||data.detail||'').trim();
+    const titleYear=String(data.title||data.name||'').match(/\\(((?:18|19|20|21)\\d{2})\\)/);
+    const sub=String(data.year||titleYear?.[1]||data.detail||'').trim();
     if(sub)append(copy,'span','ml-card-year',sub);
     if(menuTarget?.kind==='item'||menuTarget?.kind==='show'){
       const star=append(surface,'button','ml-card-star',data.favorite?'★':'☆');
@@ -920,6 +1027,12 @@
         event.preventDefault();event.stopPropagation();
         openMenu(menuTarget,event.clientX,event.clientY,surface);
       });
+    }
+    if(menuTarget?.kind==='item')scheduleAutoPoster(menuTarget.item);
+    else if(menuTarget?.kind==='show'){
+      const episodes=showItems(menuTarget);
+      const missing=episodes.find(i=>!i.poster&&!i.posterCustomized);
+      if(missing)scheduleAutoPoster(missing);
     }
     return surface;
   }
@@ -1251,8 +1364,8 @@
     if(state.artworkBusy||state.scanning)return;
     const source=window.MarmaladePublicMovieInfo;
     if(typeof source?.lookup!=='function'){notify('Poster sources are not available.');return;}
-    if(readLocal('marmalade:media-library:art-consent','false')!=='true'){
-      if(!window.confirm('Look up posters using movie and series titles? Titles (but not video files or folder paths) will be sent to public movie-information services.'))return;
+    if(!autoPostersEnabled()&&readLocal('marmalade:media-library:art-consent','false')!=='true'){
+      if(!window.confirm('Look up posters using movie and series titles? Only titles and years are sent, never video files or folder paths.'))return;
       setLocal('marmalade:media-library:art-consent','true');
     }
     const files=filteredItems().filter(item=>!item.poster);
