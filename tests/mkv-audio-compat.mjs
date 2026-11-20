@@ -58,7 +58,19 @@ try{
   await page.locator('#fileInput').setInputFiles(source);
   await page.waitForFunction(()=>
     document.querySelector('#fileInfo').textContent.includes('Compatible AAC audio'),
-    {timeout:45000});
+    null,{timeout:60000}).catch(async error=>{
+      const diagnostic=await page.evaluate(()=>({
+        status:document.querySelector('#fileInfo')?.textContent,
+        toast:document.querySelector('#toast')?.textContent,
+        adapter:!!window.MarmaladeMkvIO,
+        decoder:!!window.MarmaladeMkvAudio,
+        webAssembly:typeof WebAssembly,
+        mediaSource:typeof MediaSource
+      }));
+      console.error('MKV DECODER INIT FAILURE',JSON.stringify(diagnostic));
+      console.error('Page errors:',JSON.stringify(errors.slice(-15)));
+      throw error;
+    });
   const video=page.locator('#player');
   await page.waitForFunction(()=>document.querySelector('#player').readyState>=2,
     {timeout:20000});
