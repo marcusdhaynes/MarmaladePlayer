@@ -279,6 +279,317 @@
     for(const ch of String(text||''))hash=(hash*31+ch.charCodeAt(0))|0;
     return ['#865f65','#6b779a','#9a714b','#80618c','#5f8781','#96745f','#786f9b'][Math.abs(hash)%7];
   }
+  function storedItem(item){
+    const lib=state.libraries.find(l=>l.id===item.libraryId);
+    return {lib,entry:lib?.items.find(i=>i.id===item.id)};
+  }
+  async function mutateItems(items,fn,message){
+    const changed=new Set();
+    for(const item of items){
+      const {lib,entry}=storedItem(item);
+      if(!entry)continue;
+      fn(entry,lib);changed.add(lib);
+    }
+    for(const lib of changed)await persist(lib);
+    render();
+    if(message)notify(message);
+  }
+  function showItems(target){
+    return (state.libraries.find(l=>l.id===target.libId)?.items||[])
+      .filter(item=>item.show===target.show)
+      .map(item=>({...item,libraryId:target.libId}));
+  }
+  function closeMenu(){
+    ui.menu.hidden=true;
+    ui.menu.replaceChildren();
+    state.menuTarget=null;
+    state.menuOpen=false;
+  }
+  function closeItemDialog(){
+    ui.itemDialog.hidden=true;
+    state.itemEditing=null;
+    ui.itemBody.replaceChildren();
+  }
+  function itemField(parent,label,value,id,type='text'){
+    const row=append(parent,'label','ml-item-field');
+    append(row,'span','',label);
+    const input=append(row,type==='textarea'?'textarea':'input');
+    input.id=id;
+    if(type!=='textarea')input.type=type;
+    input.value=value??'';
+    if(type==='number'){input.min='0';input.max='2100';}
+    return input;
+  }
+  function showDetails(item,mode='edit'){
+    closeMenu();
+    const {entry}=storedItem(item);
+    if(!entry){notify('This entry no longer exists. Rescan its folder.');return;}
+    state.itemEditing={id:entry.id,libId:item.libraryId,mode};
+    ui.itemDialog.hidden=false;
+    ui.itemBody.replaceChildren();
+    const isEdit=mode==='edit';
+    ui.itemTitle.textContent=isEdit?'Edit Movie or Episode':mode==='info'?'Media File Info':'Video Analysis';
+    ui.itemSave.hidden=!isEdit;
+    $('mlItemDialogCancel').textContent=isEdit?'Cancel':'Close';
+    if(!isEdit){
+      const lib=state.libraries.find(l=>l.id===item.libraryId);
+      const folder=lib?.folders.find(f=>f.id===entry.folderId);
+      const rows=[
+        ['Title',entry.title],['File',entry.name],['Folder',folder?.name||'Unavailable'],
+        ['Relative Path',entry.path],['Size',(entry.size/1048576).toFixed(2)+' MB'],
+        ['Modified',entry.lastModified?new Date(entry.lastModified).toLocaleString():'Unknown'],
+        ['Type',entry.type==='tv'?'TV Episode':'Movie'],['Library',lib?.name||''],
+        ['Duration',entry.runtimeSec?Math.round(entry.runtimeSec)+' seconds':'Not Analyzed'],
+        ['Watched',entry.watched?'Yes':'No'],
+        ['Collections',(entry.collections||[]).join(', ')||'None'],
+        ['Playlists',(entry.playlists||[]).join(', ')||'None']
+      ];
+      for(const [name,value] of rows){
+        const line=append(ui.itemBody,'div','ml-info-line');
+        append(line,'strong','',name);
+        append(line,'span','',value||'Not Available');
+      }
+      return;
+    }
+    itemField(ui.itemBody,'Display Title',entry.title,'mlEditTitle');
+    itemField(ui.itemBody,'Year',entry.year||'','mlEditYear','number');
+    const typeRow=append(ui.itemBody,'label','ml-item-field');
+    append(typeRow,'span','','Content Type');
+    const select=append(typeRow,'select');
+    select.id='mlEditKind';
+    for(const [value,label] of [['movie','Movie'],['tv','TV Episode']]){
+      const option=create('option');option.value=value;option.textContent=label;select.append(option);
+    }
+    select.value=entry.type;
+    itemField(ui.itemBody,'Series Name (TV)',entry.show||'','mlEditShow');
+    itemField(ui.itemBody,'Season',entry.season??'','mlEditSeason','number');
+    itemField(ui.itemBody,'Episode',entry.episode??'','mlEditEpisode','number');
+    itemField(ui.itemBody,'Poster URL (HTTPS)',entry.poster||'','mlEditPoster','url');
+    itemField(ui.itemBody,'Summary',entry.overview||'','mlEditOverview','textarea');
+    const help=append(ui.itemBody,'p','ml-help',
+      'These changes update only your local catalog, never your original media files. They survive a folder rescan.');
+    help.id='mlEditHelp';
+  }
+  async function saveItemDetails(){
+    const target=state.itemEditing;
+    if(!target||target.mode!=='edit')return;
+    const lib=state.libraries.find(l=>l.id===target.libId);
+    const item=lib?.items.find(i=>i.id===target.id);
+    if(!item)return;
+    const title=$('mlEditTitle').value.trim();
+    if(!title){$('mlEditTitle').reportValidity();notify('Enter a title.');return;}
+    const poster=$('mlEditPoster').value.trim();
+    if(poster&&!/^https:\/\//i.test(poster)){notify('Poster URLs must use HTTPS.');return;}
+    const year=Number($('mlEditYear').value)||null;
+    if(year&&(year<1880||year>2100)){notify('Enter a valid movie year.');return;}
+    item.title=title.slice(0,180);item.year=year;
+    item.type=$('mlEditKind').value;
+    item.show=$('mlEditShow').value.trim().slice(0,180);
+    item.season=$('mlEditSeason').value?Number($('mlEditSeason').value):null;
+    item.episode=$('mlEditEpisode').value?Number($('mlEditEpisode').value):null;
+    item.poster=poster;
+    item.overview=$('mlEditOverview').value.trim().slice(0,3000);
+    item.customized=true;
+    await persist(lib);closeItemDialog();render();
+    notify('Updated '+item.title+' in '+lib.name+'.');
+  }
+  async function analyze(item){
+    const {entry,lib}=storedItem(item);
+    if(!entry)return;
+    notify('Analyzing '+entry.name+'…');
+    let duration=null;
+    try{
+      const {file}=await getPlayable(item);
+      if(file.type.startsWith('video/')||video(file.name)){
+        const url=URL.createObjectURL(file);
+        try{
+          duration=await new Promise(resolve=>{
+            const media=document.createElement('video');
+            media.preload='metadata';media.muted=true;
+            let done=false;
+            const finish=value=>{
+              if(done)return;done=true;
+              clearTimeout(timeout);media.removeAttribute('src');media.load();
+              resolve(value);
+            };
+            const timeout=setTimeout(()=>finish(null),6000);
+            media.onloadedmetadata=()=>finish(
+              Number.isFinite(media.duration)&&media.duration>0?media.duration:null);
+            media.onerror=()=>finish(null);
+            media.src=url;
+          });
+        }finally{URL.revokeObjectURL(url);}
+      }
+    }catch(error){notify('File access needed for analysis: '+(error?.message||''));return;}
+    entry.runtimeSec=duration;
+    entry.analyzedAt=now();
+    await persist(lib);
+    showDetails(item,'info');
+    notify(duration?'Duration analyzed: '+Math.round(duration)+' seconds.':
+      'File analyzed. This browser cannot decode duration for this container.');
+  }
+  async function refreshMetadata(items,{fix=false}={}){
+    const source=window.MarmaladePublicMovieInfo;
+    if(typeof source?.lookup!=='function'){notify('Metadata sources are unavailable.');return;}
+    if(readLocal('marmalade:media-library:art-consent','false')!=='true'){
+      if(!window.confirm('Look up movie metadata using its title and year? Only title and year, not video files or local paths, will be sent to a public information source.'))return;
+      setLocal('marmalade:media-library:art-consent','true');
+    }
+    let success=0;
+    for(const target of items.slice(0,12)){
+      const {lib,entry}=storedItem(target);
+      if(!entry)continue;
+      let query=entry.type==='tv'?(entry.show||entry.title):entry.title;
+      let year=entry.year;
+      if(fix){
+        const newTitle=window.prompt('Search public metadata for title:',query);
+        if(newTitle===null)return;
+        query=newTitle.trim();if(!query)return;
+      }
+      try{
+        const result=await source.lookup({title:query,year:year||null,
+          kind:entry.type==='tv'?'tv':'movie',season:null,episode:null});
+        const rec=result?.record;
+        if(!rec?.title)continue;
+        const normalize=t=>String(t||'').toLocaleLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+        if(!fix&&normalize(rec.title)!==normalize(query))continue;
+        if(!fix&&year&&rec.year&&Number(rec.year)!==Number(year))continue;
+        if(fix&&!window.confirm('Use metadata for "'+rec.title+'"'+
+          (rec.year?' ('+rec.year+')':'')+'?'))continue;
+        if(rec.poster&&/^https:\/\//i.test(rec.poster))entry.poster=rec.poster;
+        if(rec.overview)entry.overview=String(rec.overview).slice(0,3000);
+        if(rec.year)entry.year=Number(rec.year)||entry.year;
+        if(fix){
+          if(entry.type==='tv')entry.show=rec.title;
+          else entry.title=rec.title;
+        }
+        entry.metadataSource=rec.source||'Public metadata';
+        await persist(lib);success++;
+      }catch(error){console.debug('Library metadata lookup missed',query,error);}
+    }
+    render();
+    notify(success?'Updated metadata for '+success+' title'+(success===1?'':'s')+'.':
+      'No confirmed public metadata match. Use Edit Details to enter it manually.');
+  }
+  function addToTagGroup(item,field){
+    const raw=window.prompt(field==='collections'?'Collection name:':'Playlist name:','');
+    if(raw===null)return;
+    const name=raw.trim().slice(0,100);
+    if(!name)return;
+    void mutateItems([item],entry=>{
+      const list=entry[field]||[];
+      entry[field]=[...new Set([...list,name])];
+    },'Added to '+(field==='collections'?'collection ':'playlist ')+name+'.');
+  }
+  function removeFromCatalog(item){
+    const {entry,lib}=storedItem(item);
+    if(!entry)return;
+    if(!window.confirm('Remove "'+entry.title+'" from this library catalog? The original video will NOT be deleted. You can restore hidden entries from the library options menu.'))return;
+    lib.hiddenIds=[...new Set([...(lib.hiddenIds||[]),entry.id])];
+    lib.items=lib.items.filter(x=>x.id!==entry.id);
+    void persist(lib);render();notify('Removed from the catalog; original video was not deleted.');
+  }
+  function openMenu(target,x,y,anchor=null){
+    if(!target)return;
+    closeMenu();
+    state.menuTarget=target;state.menuOpen=true;
+    const menu=ui.menu;
+    const action=(label,fn,{danger=false,disabled=false}={})=>{
+      const b=append(menu,'button','ml-menu-action'+(danger?' ml-menu-danger':''),label);
+      b.type='button';b.setAttribute('role','menuitem');b.disabled=disabled;
+      b.addEventListener('click',event=>{
+        event.preventDefault();event.stopPropagation();closeMenu();fn();
+      });
+    };
+    const sep=()=>append(menu,'div','ml-menu-separator');
+    if(target.kind==='library'){
+      const lib=state.libraries.find(l=>l.id===target.libId);
+      if(!lib)return;
+      action('✎  Edit Library',()=>{setSelected(lib.id);openEditor(lib);});
+      action('＋  Add Media Folder',()=>{setSelected(lib.id);openEditor(lib);});
+      action('↻  Scan Library Files',()=>void scanLibrary(lib,{ask:true}));
+      action('▧  Refresh All Posters',()=>{setSelected(lib.id);void findArtwork();});
+      action('▤  Browse Folders',()=>{setSelected(lib.id);state.folderMode=true;render();});
+      if((lib.hiddenIds||[]).length)action('↶  Restore Hidden Videos',()=>{
+        lib.hiddenIds=[];void persist(lib);void scanLibrary(lib,{ask:true});
+      });
+      sep();
+      action('✕  Remove Library',()=>{state.editing=lib.id;void removeLibrary();},{danger:true});
+    }else if(target.kind==='item'){
+      const {lib,entry}=storedItem(target.item);
+      if(!entry)return;
+      action('▶  Play',()=>void play(target.item));
+      action('✓  Mark as '+(entry.watched?'Unwatched':'Watched'),
+        ()=>void mutateItems([target.item],item=>{item.watched=!item.watched;},'Watch status saved.'));
+      action('★  '+(entry.favorite?'Remove Favorite':'Add to Favorites'),
+        ()=>void mutateItems([target.item],item=>{item.favorite=!item.favorite;},'Favorites updated.'));
+      action('✎  Edit Details',()=>showDetails(target.item));
+      action('＋  Add to Playlist',()=>addToTagGroup(target.item,'playlists'));
+      action('＋  Add to Collection',()=>addToTagGroup(target.item,'collections'));
+      for(const key of ['playlists','collections']){
+        for(const name of entry[key]||[])action('−  Remove from '+name,()=>void mutateItems([target.item],item=>{
+          item[key]=(item[key]||[]).filter(n=>n!==name);
+        },'Removed from '+name+'.'));
+      }
+      sep();
+      action('⌕  Match / Fix Match',()=>void refreshMetadata([target.item],{fix:true}));
+      action('↻  Refresh Metadata',()=>void refreshMetadata([target.item]));
+      action('▤  Analyze',()=>void analyze(target.item));
+      action('ℹ  Get Info',()=>showDetails(target.item,'info'));
+      action('▣  Browse Containing Folder',()=>{
+        setSelected(lib.id);state.folderMode=true;
+        const parts=entry.path.split('/');
+        const parent=parts.length>1?parts.slice(0,-1).join('/')+'/':'';
+        state.folder={folderId:entry.folderId,path:parent,label:parent||'Folder'};
+        render();
+      });
+      sep();
+      action('✕  Remove from Library',()=>removeFromCatalog(target.item),{danger:true});
+    }else if(target.kind==='show'){
+      const entries=showItems(target);
+      action('▤  Open Series',()=>{
+        setSelected(target.libId);state.series={libId:target.libId,show:target.show};render();
+      });
+      action('✓  Mark All Episodes Watched',()=>void mutateItems(entries,
+        item=>{item.watched=true;},'Series marked watched.'));
+      action('✓  Mark All Episodes Unwatched',()=>void mutateItems(entries,
+        item=>{item.watched=false;},'Series marked unwatched.'));
+      action('★  Favorite Series',()=>void mutateItems(entries,
+        item=>{item.favorite=true;},'Series added to favorites.'));
+      action('✎  Rename Series',()=>{
+        const name=window.prompt('Series Name',target.show);
+        if(name?.trim())void mutateItems(entries,
+          item=>{item.show=name.trim().slice(0,180);item.customized=true;},
+          'Series renamed.');
+      });
+      action('↻  Refresh Series Metadata',()=>void refreshMetadata(entries.slice(0,1)));
+      action('ℹ  Series Info',()=>notify(entries.length+' episodes in '+target.show+'.'));
+    }else if(target.kind==='folder'){
+      action('▤  Open Folder',()=>{
+        setSelected(target.libId);state.folderMode=true;
+        state.folder={folderId:target.folderId,path:target.path,label:target.path||'Folder'};
+        render();
+      });
+      action('↻  Scan Library Files',()=>{
+        const lib=state.libraries.find(l=>l.id===target.libId);
+        if(lib)void scanLibrary(lib,{ask:true});
+      });
+      action('✎  Edit Library Folders',()=>{
+        const lib=state.libraries.find(l=>l.id===target.libId);
+        if(lib)openEditor(lib);
+      });
+    }
+    menu.hidden=false;
+    // Preserve a genuine browser-style popup even when cards are in
+    // overflow-hidden poster containers; this menu is portaled to <body>.
+    const width=menu.offsetWidth||220,height=menu.offsetHeight||200;
+    const left=Math.max(7,Math.min(x,window.innerWidth-width-7));
+    const top=Math.max(7,Math.min(y,window.innerHeight-height-7));
+    menu.style.left=left+'px';menu.style.top=top+'px';
+    const first=menu.querySelector('[role="menuitem"]');
+    first?.focus({preventScroll:true});
+    state.menuAnchor=anchor;
+  }
   function card(data,action,dir=false,menuTarget=null){
     // Never nest the 3-dot button inside a <button>. Card keyboard handling
     // gives the card button semantics without invalid interactive markup.
