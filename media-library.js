@@ -1133,6 +1133,24 @@
     closeEditor();notify('Removed '+lib.name+' from your library. Original videos were not touched.');render();
   }
   function connectUI(){
+    // Like Plex, both the in-card overflow and the right-click menu share the
+    // same actions. Dismiss on outside click, scroll, Escape or new selection.
+    document.body.append(ui.menu);
+    document.addEventListener('pointerdown',event=>{
+      if(!ui.menu.hidden&&!ui.menu.contains(event.target)&&
+        !event.target.closest('.ml-card-more'))closeMenu();
+    },true);
+    window.addEventListener('scroll',()=>{
+      if(!ui.menu.hidden)closeMenu();
+    },true);
+    window.addEventListener('resize',closeMenu);
+    window.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&!ui.menu.hidden){event.preventDefault();closeMenu();return;}
+      if(event.key==='Escape'&&!ui.itemDialog.hidden){event.preventDefault();closeItemDialog();}
+    },true);
+    $('mlItemDialogClose').addEventListener('click',closeItemDialog);
+    $('mlItemDialogCancel').addEventListener('click',closeItemDialog);
+    ui.itemSave.addEventListener('click',()=>void saveItemDetails());
     $('mlNewLibrary').addEventListener('click',()=>openEditor(null));
     $('mlSidebarNew').addEventListener('click',()=>openEditor(null));
     $('mlDialogClose').addEventListener('click',closeEditor);
