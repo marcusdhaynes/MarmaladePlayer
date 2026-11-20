@@ -991,6 +991,9 @@
       });
     }
     menu.hidden=false;
+    // Each new popup must start at its first action. Reusing a portal after
+    // opening a tall menu can otherwise leave earlier actions scrolled away.
+    menu.scrollTop=0;
     // Preserve a genuine browser-style popup even when cards are in
     // overflow-hidden poster containers; this menu is portaled to <body>.
     const width=menu.offsetWidth||220,height=menu.offsetHeight||200;

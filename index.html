@@ -3295,7 +3295,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       // was leaving maintain-resolution active permanently even while FPS
       // collapsed. Two sustained slow-encoder windows now trigger automatic
       // maintain-framerate rescue for this guest only.
-      params.degradationPreference = 'maintain-framerate';
+      // Respect an explicitly selected 720p/1080p resolution on a healthy
+      // connection. Switch to frame-rate-first ONLY after repeated measured
+      // encoder stalls activate this guest's motion-recovery path.
+      params.degradationPreference = entry.motionRescue ? 'maintain-framerate' : 'maintain-resolution';
       let scalingSupported=true,applied=false;
       try {
         await sender.setParameters(params);applied=true;
@@ -3310,7 +3313,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             compatible.encodings[0].maxBitrate=bitrate;
             compatible.encodings[0].maxFramerate=24;
             compatible.encodings[0].scaleResolutionDownBy=scale;
-            compatible.degradationPreference='maintain-framerate';
+            compatible.degradationPreference=entry.motionRescue?'maintain-framerate':'maintain-resolution';
             await sender.setParameters(compatible);
             applied=true;
           } catch { /* Existing capture-size fallback below. */ }

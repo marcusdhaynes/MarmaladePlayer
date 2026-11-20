@@ -119,6 +119,20 @@ try{
   assert.equal(await page.locator('#mlDialog').isVisible(),false);
   assert.equal(await page.locator('#mlCards .ml-card').count(),3,
     'Recursive scanning indexes videos and omits non-videos');
+  const columnCount=()=>page.locator('#mlCards').evaluate(grid=>
+    getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length);
+  assert.equal(await columnCount(),4,'Poster view defaults to four columns');
+  assert.equal(await page.locator('#mlPosterZoom').isVisible(),true,
+    'Minimalist poster sizing controls are visible only in poster mode');
+  await page.locator('#mlPosterSmaller').click();
+  assert.equal(await columnCount(),5,'Minus shows one more poster per row');
+  await page.locator('#mlPosterLarger').click();
+  assert.equal(await columnCount(),4,'Plus shows one fewer poster per row');
+  await page.locator('#mlView').click();
+  assert.equal(await page.locator('#mlPosterZoom').isVisible(),false,
+    'Poster sizing controls are hidden in list view');
+  await page.locator('#mlView').click();
+  assert.equal(await columnCount(),4,'Poster density survives list-view switching');
   assert.equal(await page.locator('.ml-shelf-category').filter({hasText:'MOVIES'}).count(),1,
     'Movie libraries must have a dedicated sidebar divider');
   assert.equal(await page.locator('.ml-shelf-category').filter({hasText:'TV SHOWS'}).count(),1,
@@ -182,8 +196,8 @@ try{
   }
   assert.equal(await page.locator('#mlContextMenu').isVisible(),true,
     'Three-dot control must open the custom video options menu');
-  assert(await page.locator('#mlContextMenu').getByText('Edit Details').isVisible());
-  assert(await page.locator('#mlContextMenu').getByText('Mark as Watched').isVisible());
+  await page.locator('#mlContextMenu').getByText('Edit Details').waitFor({state:'visible'});
+  await page.locator('#mlContextMenu').getByText('Mark as Watched').waitFor({state:'visible'});
   // Uploading a poster must use the user's own image, not fetch a metadata API.
   await page.locator('#mlContextMenu').getByText('Edit Poster').click();
   // Exercise the actual image input/change handler. Some headless WebView/CI
