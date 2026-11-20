@@ -2675,7 +2675,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Other parts of Marmaladeum should react exactly as they do to a chosen
     // video, but they must not mistake an HTTP stream for a browser File.
     window.dispatchEvent(new CustomEvent('marmalade:library-video-selected',{
-      detail:{name:state.nativeMediaName,size:Number(size)||0,id:state.nativeMediaKey}
+      detail:{name:state.nativeMediaName,size:Number(size)||0,
+        itemId:String(libraryItemId||''),key:state.nativeMediaKey}
     }));
     el.hint.textContent='Video loaded from your Media Library. All playback controls use the same player.';
     setStage('Loading your video…','Preparing your library video. Files remain on your device.','LOADING');
