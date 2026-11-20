@@ -548,6 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
+<link rel="stylesheet" href="./games.css?v=20261120-games-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -556,6 +557,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         <span class="logo-mark" aria-hidden="true"><img src="./assets/marmalade-icon.webp?v=20261104-fullbleed-v1" width="43" height="43" alt=""></span>
         <span class="brand"><strong>Marmalade</strong><span>PLAYER</span></span>
       </a>
+      <div id="gameScoreboard" class="game-scoreboard" aria-label="Game Scores" hidden>
+        <div id="gameScoreList" class="game-score-list" aria-live="polite"></div>
+      </div>
       <div class="top-actions"><div class="stage-quick-actions header-room-actions" aria-label="Room Actions">
   <button type="button" id="broadcastToggle" class="theater-pill quick-broadcast-btn" aria-pressed="false" title="Not Broadcasting" aria-label="Not Broadcasting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9m9-9a6.4 6.4 0 0 1 0 9M4.3 4.3a11 11 0 0 0 0 15.4m15.4-15.4a11 11 0 0 1 0 15.4"/></svg></button>
    <button type="button" id="localCopyButton" class="theater-pill quick-link-btn" hidden disabled aria-pressed="false" title="Guest Local Video: Click to Choose; Hold to Toggle Local Mode" aria-label="Choose Local Video">
@@ -737,6 +741,23 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <div class="ml-dialog-top"><div><small class="ml-kicker">MEDIA DETAILS</small><strong id="mlItemDialogTitle">Edit Video</strong></div><button type="button" id="mlItemDialogClose" aria-label="Close video details">✕</button></div>
                 <div id="mlItemDialogBody" class="ml-item-dialog-body"></div>
                 <div class="ml-dialog-bottom"><button type="button" id="mlItemDialogCancel">Cancel</button><button type="button" id="mlItemDialogSave" class="ml-primary">Save Changes</button></div>
+              </div>
+            </div>
+          </section>
+          <section class="games-panel" id="gamesPanel" aria-label="Games Library" hidden>
+            <div class="games-panel-heading"><div><small>PLAY TOGETHER</small><strong>Games</strong></div><span>1 Game</span></div>
+            <div class="games-cards">
+              <button id="onlyFramesLaunch" class="games-card" type="button" aria-label="Open OnlyFrames">
+                <img src="./assets/onlyframes-poster.svg" alt="OnlyFrames poster" width="280" height="420" loading="lazy">
+                <span class="games-card-name">OnlyFrames</span>
+              </button>
+            </div>
+            <div id="onlyFramesDialog" class="games-dialog" role="dialog" aria-modal="true" aria-label="OnlyFrames" hidden>
+              <div class="games-dialog-surface">
+                <button type="button" id="onlyFramesClose" class="games-dialog-close" aria-label="Close OnlyFrames">×</button>
+                <img src="./assets/onlyframes-logo.svg" alt="OnlyFrames" width="280" height="84">
+                <p>The rules for OnlyFrames haven't been provided yet. The game will be ready for its rules once they're defined.</p>
+                <p>Use the scoreboard at the top of Marmaladeum to keep players' scores in the meantime.</p>
               </div>
             </div>
           </section>
@@ -6033,6 +6054,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261120-library-settings-v2" defer></script>
+<script src="./games.js?v=20261120-games-v1" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
