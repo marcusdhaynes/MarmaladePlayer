@@ -75,6 +75,28 @@ watch-together player remains independent; library selection loads a video
 using its existing player pathway. Users can always use the ordinary Choose
 Video button instead.
 
+## Persistent Library: Extension And Minternet
+
+The web library above stores its catalog in this site's IndexedDB. For a
+library that survives site-data clears and browser restarts, use the
+**Marmalade Library extension** in this repo's `extension/` folder
+(`extension/README.md` has load-unpacked instructions for Chrome/Edge,
+the Firefox overlay, and Safari wrapper notes). Its catalog lives in
+extension storage; on Chromium its folder handles live there too. The web
+app imports the extension catalog with
+`MarmaladeMediaLibrary.syncFromExtension()`; extension-held videos play
+in the extension's library page.
+
+For **Minternet** (Marcus's own browser), the guarantee is stronger by
+design: a native module (`extension/minternet/media_library.rs`) stores
+folder **paths** in Minternet's app data and rescans them natively on
+startup — no handles, no permission prompts, **no reconnect, ever**.
+Route analysis (why WebView2 extension loading was rejected) is in
+`extension/minternet/README.md`. Honest per-browser limits for
+Firefox/Safari are documented in `extension/targets/` — their catalogs
+persist, but those engines offer no persistent folder access to any
+extension.
+
 ## Recovery
 
 Source changes and successful builds are archived by the existing

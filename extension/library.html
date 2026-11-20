@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Marmalade Library</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:900px;padding:0 1rem;background:#17130f;color:#f3e9dc}
+  button{background:#e8912d;border:0;border-radius:8px;color:#17130f;cursor:pointer;font-weight:600;padding:.55rem 1rem}
+  button.secondary{background:#3a3128;color:#f3e9dc}
+  .card{border:1px solid #3a3128;border-radius:10px;margin:.5rem 0;padding:.75rem 1rem;display:flex;justify-content:space-between;gap:1rem;align-items:center}
+  .muted{color:#b8a88f}.status{min-height:1.4em}
+  video{width:100%;max-height:60vh;background:#000;border-radius:10px}
+  input[type=text],select{background:#241d16;border:1px solid #3a3128;border-radius:8px;color:#f3e9dc;padding:.5rem}
+</style>
+</head>
+<body>
+<h1>Marmalade Library</h1>
+<p class="muted">This library lives in the <strong>extension</strong>, not on marmaladeum.com.
+Your catalog survives site cache clears and browser restarts. On Chrome/Edge the folder
+itself is remembered too — after a restart, one click on <em>Rescan</em> or a video
+re-confirms access (Chrome's rule for all extensions, not something any extension can skip silently).</p>
+
+<section id="playerWrap" hidden>
+  <h2 id="nowPlaying"></h2>
+  <video id="player" controls></video>
+  <p><button class="secondary" id="closePlayer" type="button">Close Player</button></p>
+</section>
+
+<p>
+  <input type="text" id="libName" placeholder="Library name (e.g. My Movies)">
+  <select id="libKind"><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="mixed">Other Videos</option></select>
+  <button id="addFolder" type="button">+ Add Folder</button>
+  <input type="file" id="dirInput" webkitdirectory hidden>
+</p>
+<p class="status" id="status" role="status"></p>
+<div id="libraries"></div>
+
+<script type="module" src="library.js"></script>
+</body>
+</html>

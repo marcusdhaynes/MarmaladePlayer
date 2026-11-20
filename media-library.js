@@ -294,6 +294,9 @@
     try{
       for(const folder of lib.folders){
         if(seq!==state.scanSeq)break;
+        // Extension-held folders are rescanned by the extension itself;
+        // the web app must never overwrite their catalog from here.
+        if(folder.source==='extension')continue;
         let found=null;
         try{found=await scanFolder(folder,lib.kind,seq,ask);}
         catch(error){
@@ -997,6 +1000,7 @@
     const lib=state.libraries.find(l=>l.id===item.libraryId);
     const folder=lib?.folders.find(f=>f.id===item.folderId);
     if(!folder)throw Error('This source folder is no longer in your library.');
+    if(folder.source==='extension')throw Error('This video is held by the Marmalade Library extension. Use Play and it will open in the extension library.');
     if(folder.source==='session'){
       const file=state.sessionFiles.get(item.id);
       if(file)return {file,handle:null};
@@ -1012,6 +1016,15 @@
     return {file,handle};
   }
   async function play(item){
+    // Extension-held items play in the extension library page, which owns
+    // the stored folder handles. The web page never receives handles/bytes.
+    const ownerLib=state.libraries.find(l=>l.id===item.libraryId);
+    const ownerFolder=ownerLib?.folders.find(f=>f.id===item.folderId);
+    if(ownerFolder?.source==='extension'){
+      window.postMessage({source:'marmalade-web',type:'play',itemId:item.id},location.origin);
+      notify('Opening in the Marmalade Library extension… If nothing opens, click the extension icon and choose Open Library.');
+      return;
+    }
     const bridge=window.MarmaladeAddonBridge;
     if(typeof bridge?.chooseVideo!=='function'){
       notify('Player is not ready to open library videos.');return;
@@ -1453,8 +1466,76 @@
       now()-(chosen.lastScan||0)>20*60*1000)void scanLibrary(chosen);
     return true;
   })();
+  // ---- Marmalade Library Extension bridge --------------------------------
+  // The extension (extension/ in this repo) holds its catalog in extension
+  // storage, independent of this origin. This client imports that catalog
+  // (metadata only) as libraries whose folders have source:'extension'.
+  // Playback is handed back to the extension page via the play() branch
+  // above. In Minternet, the same catalog shape arrives from the native
+  // module instead (window.MarmaladeNativeLibrary) — see extension/minternet/.
+  let extensionCatalogResolve=null;
+  window.addEventListener('message',event=>{
+    if(event.source!==window)return;
+    const data=event.data;
+    if(!data||data.source!=='marmalade-extension')return;
+    if(data.type==='catalog'&&extensionCatalogResolve){
+      const resolve=extensionCatalogResolve;extensionCatalogResolve=null;
+      resolve(Array.isArray(data.libraries)?data.libraries:[]);
+    }
+  });
+  function requestExtensionCatalog(timeoutMs=1500){
+    return new Promise(resolve=>{
+      let done=false;
+      const finish=value=>{if(done)return;done=true;extensionCatalogResolve=null;resolve(value);};
+      extensionCatalogResolve=finish;
+      window.postMessage({source:'marmalade-web',type:'get-catalog'},location.origin);
+      setTimeout(()=>finish(null),timeoutMs);
+    });
+  }
+  async function importExtensionCatalog(libraries){
+    let imported=0;
+    for(const extLib of libraries||[]){
+      if(!extLib?.id||!Array.isArray(extLib.items))continue;
+      const libId='extlib:'+extLib.id;
+      const folders=(extLib.folders||[]).map(f=>({id:f.id,name:f.name,source:'extension',handle:null}));
+      const items=extLib.items.map(item=>{const copy={...item};delete copy.libraryId;return copy;});
+      const existing=state.libraries.find(l=>l.id===libId);
+      const record={id:libId,name:extLib.name||'Extension Library',kind:extLib.kind||'movie',
+        folders,items,hiddenIds:existing?.hiddenIds||[],createdAt:existing?.createdAt||now(),
+        lastScan:extLib.lastScan||now()};
+      if(existing)state.libraries[state.libraries.indexOf(existing)]=record;
+      else state.libraries.push(record);
+      await persist(record);
+      imported+=items.length;
+    }
+    if(imported)render();
+    return imported;
+  }
+  async function syncFromExtension(){
+    const nativeLib=window.MarmaladeNativeLibrary;
+    if(nativeLib&&typeof nativeLib.getCatalog==='function'){
+      // Minternet native module: paths are native-owned, rescanned on
+      // Minternet startup; this is a pure catalog read, no reconnect step.
+      try{
+        const catalog=await nativeLib.getCatalog();
+        const count=await importExtensionCatalog(catalog?.libraries||catalog||[]);
+        notify(count?count+' videos synced from Minternet\u2019s library.':
+          'Minternet library is empty. Add a folder in Minternet\u2019s library panel.');
+        return count;
+      }catch{/* fall through to the WebExtension bridge */}
+    }
+    const libraries=await requestExtensionCatalog();
+    if(!libraries){
+      notify('Marmalade Library extension not detected. Install it (see the repo\u2019s extension/ folder) or use + Add Folder here.');
+      return 0;
+    }
+    const count=await importExtensionCatalog(libraries);
+    notify(count?count+' videos synced from the Marmalade Library extension.':
+      'Extension library is empty. Add a folder in the extension\u2019s library page.');
+    return count;
+  }
   window.MarmaladeMediaLibrary={
-    ready,show:setVisibility,select:setSelected,
+    ready,show:setVisibility,select:setSelected,syncFromExtension,
     getLibraries:()=>state.libraries.map(l=>({id:l.id,name:l.name,kind:l.kind,
       folders:l.folders.map(f=>({id:f.id,name:f.name,source:f.source})),
       count:l.items.length})),
