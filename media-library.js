@@ -211,12 +211,18 @@
     const promise=(async()=>{
       scanPreview('Indexing '+folder.name+'…');
       try{
-        const found=await scanFolder(folder,draft.kind,state.scanSeq,false);
+        // Request access while the folder-selection gesture is still active.
+        // Newly chosen handles often report "prompt", not "granted", and a
+        // silent scan with ask=false previously produced an empty library.
+        const found=await scanFolder(folder,draft.kind,state.scanSeq,true);
         if(draft!==state.pending)return;
         if(found===null){
-          scanPreview('Folder access is not available. Use Reconnect or Other Picker to index its videos.');
+          state.scanProblems.set(folder.id,'Folder access not granted');
+          scanPreview('No access to '+folder.name+'. Click Reconnect and allow folder access, or use Other Picker.');
+          notify('Folder permission needed. Reconnect '+folder.name+' and allow read access.');
           return;
         }
+        state.scanProblems.delete(folder.id);
         const previous=new Map((draft.items||[]).map(i=>[i.id,i]));
         for(const item of found){
           const old=previous.get(item.id);
