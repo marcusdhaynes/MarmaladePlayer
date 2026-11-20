@@ -12,12 +12,14 @@
   const save=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
   let enabled=read(VISIBLE_KEY,'false')==='true';
   let players=[];
+  let restoredScores=false;
   let nextId=1;
   let armedId=null,armedTimeout=null;
   let holdTimer=null,pressId=null,pressed=false,deleted=new Set();
   try{
     const saved=JSON.parse(read(SCORES_KEY,'null'));
     if(saved && Array.isArray(saved.players)){
+      restoredScores=true;
       players=saved.players.slice(0,100).filter(player=>
         player && Number.isSafeInteger(player.id) && player.id>0 &&
         Number.isSafeInteger(player.score)).map(player=>({
@@ -28,7 +30,7 @@
       nextId=Math.max(Number(saved.nextId)||1,...players.map(p=>p.id+1),1);
     }
   }catch{}
-  if(!players.length)players=[{id:nextId++,name:'Player 01',score:0}];
+  if(!players.length&&!restoredScores)players=[{id:nextId++,name:'Player 01',score:0}];
   function persist(){save(SCORES_KEY,JSON.stringify({nextId,players}));}
   const node=(tag,className,text)=>{
     const element=document.createElement(tag);
@@ -87,7 +89,7 @@
   function shatter(card,playerId){
     if(deleted.has(playerId))return;
     deleted.add(playerId);clearArm();
-    card.classList.add('disintegrating');card.setAttribute('aria-hidden','true');
+    card.classList.add('delete-armed','disintegrating');card.setAttribute('aria-hidden','true');
     card.style.pointerEvents='none';
     const bounds=card.getBoundingClientRect();
     for(let i=0;i<28;i++){
