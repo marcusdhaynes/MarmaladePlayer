@@ -647,6 +647,10 @@
     $('mlDialogClose').addEventListener('click',closeEditor);
     $('mlDialogCancel').addEventListener('click',closeEditor);
     ui.pick.addEventListener('click',()=>void pickFolder());
+    $('mlCompatibilityFolder').addEventListener('click',()=>{
+      ui.directoryInput.value='';
+      ui.directoryInput.click();
+    });
     ui.save.addEventListener('click',()=>void saveEditor());
     ui.delete.addEventListener('click',()=>void removeLibrary());
     ui.directoryInput.addEventListener('change',event=>{
