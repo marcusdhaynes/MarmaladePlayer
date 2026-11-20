@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,extname} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright';
 import {PeerServer} from 'peer';
@@ -104,6 +104,24 @@ const web=createServer((req,res)=>{
   if(req.url?.startsWith('/manifest.webmanifest')){
     res.writeHead(200,{'content-type':'application/manifest+json'});
     res.end('{"name":"Marmalade","start_url":"./"}');return;
+  }
+  // Serve any bundled static asset (not just the original hardcoded scripts).
+  // HTML as a fallback for a JS request produces "Unexpected token '<'" and
+  // masks genuine host/guest video problems; unknown assets must be 404.
+  const requestPath=new URL(req.url,'http://localhost').pathname;
+  if(requestPath!=='/'&&requestPath!=='/index.html'){
+    if(!/^\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9._-]+$/.test(requestPath) ||
+       requestPath.includes('..')){res.writeHead(403);res.end();return;}
+    try{
+      const bytes=readFileSync(new URL('..'+requestPath,import.meta.url));
+      const types={'.js':'application/javascript','.css':'text/css',
+        '.svg':'image/svg+xml','.webmanifest':'application/manifest+json',
+        '.webp':'image/webp','.png':'image/png','.ico':'image/x-icon',
+        '.json':'application/json','.wasm':'application/wasm'};
+      res.writeHead(200,{'content-type':types[extname(requestPath)]||'application/octet-stream'});
+      res.end(bytes);
+    }catch{res.writeHead(404);res.end();}
+    return;
   }
   res.writeHead(200,{'content-type':'text/html;charset=utf-8'});res.end(html);
 });
