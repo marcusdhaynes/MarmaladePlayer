@@ -41,7 +41,44 @@ try{
  });
  assert(three.halves&&three.lower&&three.full,
    'Three panels must show two half-width panels and one full-width information panel');
+ const panelHeights=()=>page.locator('#movieInfoRow').evaluate(row=>{
+   const library=row.querySelector('#mediaLibraryPanel').getBoundingClientRect();
+   const games=row.querySelector('#gamesPanel').getBoundingClientRect();
+   return {library:library.height,games:games.height};
+ });
+ let heights=await panelHeights();
+ assert(Math.abs(heights.games-heights.library)<2,
+   'Games and Media Library must be equal height when side by side: '+JSON.stringify(heights));
  await page.locator('#closeSettingsPanel').click();
+ const headerAlignment=()=>page.locator('.topbar').evaluate(bar=>{
+   const rect=node=>node.getBoundingClientRect();
+   const head=rect(bar),icon=rect(bar.querySelector('.logo-mark'));
+   const score=rect(bar.querySelector('.game-score-card'));
+   const add=rect(bar.querySelector('.game-score-add'));
+   const list=rect(bar.querySelector('.game-score-list'));
+   return {head:{top:head.top,bottom:head.bottom},
+     midpointDiff:Math.abs((icon.top+icon.bottom)/2-(score.top+score.bottom)/2),
+     topPadding:score.top-head.top,bottomPadding:head.bottom-score.bottom,
+     addHeight:add.height,scoreHeight:score.height,
+     listTop:list.top,listBottom:list.bottom};
+ });
+ let alignment=await headerAlignment();
+ assert(alignment.midpointDiff<2,
+   'Scores must be vertically centered on the app icon: '+JSON.stringify(alignment));
+ assert(Math.abs(alignment.topPadding-alignment.bottomPadding)<3,
+   'Score boxes must have symmetrical header space: '+JSON.stringify(alignment));
+ assert(alignment.topPadding>=0 && alignment.bottomPadding>=0 &&
+   alignment.addHeight===alignment.scoreHeight,
+   'Score boxes and add-player icon must fit fully within the header');
+ await page.setViewportSize({width:780,height:760});
+ alignment=await headerAlignment();
+ assert(alignment.topPadding>=0 && alignment.bottomPadding>=0,
+   'Scores must not be clipped by the compact header: '+JSON.stringify(alignment));
+ await page.setViewportSize({width:390,height:844});
+ const mobileAlignment=await headerAlignment();
+ assert(mobileAlignment.topPadding>=0&&mobileAlignment.bottomPadding>=0,
+   'Mobile score boxes must remain wholly visible: '+JSON.stringify(mobileAlignment));
+ await page.setViewportSize({width:1440,height:850});
  assert.equal(await page.locator('#mlSettingsBtn').isVisible(),true);
  await page.locator('#mlSettingsBtn').click();
  assert.equal(await page.locator('#mlSettingsPanel').isVisible(),true);

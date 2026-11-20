@@ -1,7 +1,7 @@
 /* Games library and scores: visually related to the media library, without
    disturbing video playback / the room controls. */
 .movie-info-row{display:grid!important;grid-template-columns:minmax(0,1fr)!important;
- gap:14px!important;align-items:start;min-width:0}
+ gap:14px!important;align-items:stretch!important;min-width:0}
 .movie-info-row[data-panel-count="2"],.movie-info-row[data-panel-count="3"]{
  grid-template-columns:repeat(2,minmax(0,1fr))!important
 }
@@ -12,7 +12,8 @@
 .movie-info-row>.media-info,.movie-info-row>.ml-panel,.movie-info-row>.games-panel{
  grid-column:auto;margin-top:14px
 }
-.games-panel{position:relative;padding:15px;min-height:250px;border-radius:14px;
+.games-panel{position:relative;box-sizing:border-box;align-self:stretch;
+ padding:15px;min-height:420px;height:100%;border-radius:14px;
  border:1px solid #554a59;background:linear-gradient(150deg,#2a222f,#16161f 75%);
  color:#f5e8e5}
 .games-panel-heading{display:flex;align-items:center;justify-content:space-between;
@@ -45,20 +46,23 @@
 .games-dialog-close{position:absolute;top:8px;right:9px;min-width:28px;min-height:28px;
  color:#d8e5f6;border:0;background:transparent;font-size:23px;cursor:pointer}
 .game-scoreboard[hidden]{display:none!important}
-.game-scoreboard{flex:1 1 auto;min-width:0;max-width:min(48vw,670px);
+.game-scoreboard{display:flex;align-items:center;flex:1 1 auto;min-width:0;
+ max-width:min(48vw,670px);height:100%;max-height:100%;
  margin:0 12px;align-self:center}
-.game-score-list{display:flex;align-items:stretch;gap:7px;overflow:auto hidden;
- padding:4px 2px 8px;scrollbar-width:thin;scrollbar-color:#746171 transparent}
-.game-score-card,.game-score-add{position:relative;display:flex;flex:0 0 82px;
- width:82px;height:76px;min-width:82px;border-radius:9px;
+.game-score-list{box-sizing:border-box;width:100%;display:flex;align-items:center;
+ gap:7px;overflow-x:auto;overflow-y:hidden;padding:4px 2px;
+ margin:0;scrollbar-width:thin;scrollbar-color:#746171 transparent}
+.game-score-card,.game-score-add{box-sizing:border-box;position:relative;display:flex;
+ flex:0 0 82px;width:82px;height:56px;min-width:82px;border-radius:9px;
  border:1px solid #8d667b;background:linear-gradient(150deg,#40303e,#211d2c);
  color:#f4e1ea;box-shadow:0 4px 12px #0004}
 .game-score-card{flex-direction:column;overflow:hidden;touch-action:pan-x;
  user-select:none;-webkit-user-select:none;cursor:default}
-.game-score-name{flex:0 0 25%;min-height:0;border:0;border-bottom:1px solid #ffffff1c;
- display:block;width:100%;background:#ffffff0b;overflow:hidden;
- white-space:nowrap;text-overflow:ellipsis;padding:1px 4px;
- color:#ffe0ef;text-align:center;font:700 10px/1.5 system-ui,sans-serif;
+.game-score-name{box-sizing:border-box;flex:0 0 25%;min-height:0;border:0;
+ border-bottom:1px solid #ffffff1c;display:grid;place-items:center;
+ width:100%;background:#ffffff0b;overflow:hidden;
+ white-space:nowrap;text-overflow:ellipsis;padding:0 3px;
+ color:#ffe0ef;text-align:center;font:700 10px/1.15 system-ui,sans-serif;
  cursor:pointer}
 .game-score-name:hover{color:#ffca94}
 .game-score-body{position:relative;flex:1 1 75%;display:grid;align-items:center;
@@ -70,8 +74,13 @@
 .game-score-value{text-align:center;font:800 22px/1 ui-monospace,Consolas,monospace;
  color:#fff7f5;letter-spacing:-1px;min-width:0}
 .game-score-add{display:grid;place-items:center;border:1px dashed #c1a7b5a6;
- background:rgba(168,135,161,.10);color:#ead8e3;font:300 34px/1 system-ui;
+ background:rgba(168,135,161,.10);color:#ead8e3;font-size:0;
  cursor:pointer}
+.game-score-add::before,.game-score-add::after{content:"";position:absolute;
+ left:50%;top:50%;border-radius:2px;background:currentColor;
+ transform:translate(-50%,-50%);pointer-events:none}
+.game-score-add::before{width:18px;height:2px}
+.game-score-add::after{width:2px;height:18px}
 .game-score-add:hover{background:#d9b0c61c;color:white;border-color:#eac5db}
 .game-score-card.delete-armed{border-color:#ff6774;background:linear-gradient(150deg,#9b3948,#451d2d);
  box-shadow:0 0 0 2px #ed556348,0 5px 18px #0008}
@@ -94,7 +103,7 @@
  outline:2px solid #f2be90;outline-offset:1px}
 @media(max-width:930px){
  .game-scoreboard{max-width:40vw;margin:0 6px}
- .game-score-card,.game-score-add{flex-basis:70px;min-width:70px;width:70px;height:67px}
+ .game-score-card,.game-score-add{flex-basis:70px;min-width:70px;width:70px;height:52px}
  .game-score-name{font-size:9px}
  .game-score-value{font-size:19px}
 }
@@ -105,8 +114,9 @@
  .movie-info-row[data-panel-count="3"]>.media-info{grid-column:auto!important}
  .topbar:has(.game-scoreboard:not([hidden])){flex-wrap:wrap;height:auto!important;min-height:70px;
   row-gap:6px;padding-bottom:6px}
- .game-scoreboard{order:3;flex:1 0 100%;width:100%;max-width:none;margin:0}
- .game-score-list{padding-bottom:5px}
+ .game-scoreboard{order:3;flex:1 0 100%;width:100%;max-width:none;
+  height:auto;max-height:none;margin:0}
+ .game-score-list{padding-block:5px}
 }
 @media(prefers-reduced-motion:reduce){
  .game-score-card.disintegrating{animation:none;opacity:0}
