@@ -191,3 +191,19 @@
  border:1px solid #e4aa7440;background:#a9794b12;border-radius:7px;min-height:27px}
 .ml-panel .ml-dialog-bottom .ml-primary{padding:7px 12px;min-height:32px}
 @media(max-width:480px){.ml-media-divider{min-height:30px}.ml-panel .ml-card-more{opacity:1}}
+
+/* Library action buttons share the player button sizing, stroke and hover. */
+.ml-panel .ml-add-library,.ml-panel .ml-sidebar-add,.ml-panel .ml-pick-folder,.ml-panel .ml-compat-folder,
+.ml-panel .ml-dialog-bottom button,.ml-panel .ml-empty button{
+ min-height:31px!important;border-radius:7px!important;padding:5px 10px!important;
+ font-size:10px!important;font-weight:700!important}
+.ml-panel .ml-add-library,.ml-panel .ml-primary{
+ color:#ffd5a6!important;border:1px solid #e8a65c88!important;
+ background:#221b1b!important;box-shadow:none!important}
+.ml-panel .ml-primary:hover:not(:disabled){
+ background:#3b2921!important;border-color:#ffd49c!important;color:#ffedd0!important}
+.ml-panel .ml-shelf-edit{display:grid!important;place-items:center!important;height:28px!important;
+ width:28px!important;min-width:28px!important;padding:4px!important;font-size:11px!important}
+.ml-panel .ml-shelf-edit svg{width:18px;height:18px;stroke:currentColor}
+.ml-panel .ml-card-more svg{width:19px;height:19px;stroke:none;fill:currentColor}
+.ml-panel .ml-card-more:hover:not(:disabled) svg{fill:#fff}
