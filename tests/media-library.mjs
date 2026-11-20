@@ -136,6 +136,30 @@ try{
     return bounds.width/bounds.height;
   });
   assert(Math.abs(aspect-2/3)<.04,'Poster artwork must be a portrait 2:3 aspect ratio');
+  const posterStyle=await arrival().evaluate(card=>{
+    const style=el=>getComputedStyle(el);
+    const star=card.querySelector('.ml-card-star');
+    const more=card.querySelector('.ml-card-more');
+    return {
+      cardBorder:style(card).borderTopWidth,cardBackground:style(card).backgroundColor,
+      cardShadow:style(card).boxShadow,artBorder:style(card.querySelector('.ml-card-art')).borderTopWidth,
+      starBorder:style(star).borderTopWidth,starBackground:style(star).backgroundColor,
+      moreBorder:style(more).borderTopWidth,moreBackground:style(more).backgroundColor,
+      markCount:card.querySelectorAll('.ml-art-mark').length
+    };
+  });
+  assert.equal(posterStyle.cardBorder,'0px','Poster cards must not have outer borders');
+  assert.equal(posterStyle.cardShadow,'none','Poster cards must not have outer boxes or shadows');
+  assert.equal(posterStyle.cardBackground,'rgba(0, 0, 0, 0)',
+    'Poster card background must be transparent');
+  assert.equal(posterStyle.artBorder,'0px','Poster image must not be framed');
+  assert.equal(posterStyle.starBorder,'0px','Star must not be inside a box');
+  assert.equal(posterStyle.starBackground,'rgba(0, 0, 0, 0)',
+    'Favorite star must have transparent background');
+  assert.equal(posterStyle.moreBorder,'0px','Dots must not be inside a box');
+  assert.equal(posterStyle.moreBackground,'rgba(0, 0, 0, 0)',
+    'Three-dot control must have a transparent background');
+  assert.equal(posterStyle.markCount,0,'Never render top-left artwork initials');
   assert.equal(await arrival().locator('.ml-art-type').count(),0,'Movie label is removed from artwork');
   assert.equal(await arrival().locator('.ml-card-star').getAttribute('aria-pressed'),'false');
   await arrival().locator('.ml-card-star').click();
