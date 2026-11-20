@@ -5,7 +5,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const ui = {
-    toggle: $('mediaInfoToggle'), panel: $('mediaInfoPanel'), close: $('miClose'), reopen: $('mediaInfoReopen'),
+    toggle: $('mediaInfoToggle'), panel: $('mediaInfoPanel'), reopen: $('mediaInfoReopen'),
     status: $('miStatus'), form: $('miSearchForm'), search: $('miSearch'),
     matches: $('miMatches'), results: $('miResults'), sources: $('miSources'), kind: $('miKind'),
     tmdb: $('miTmdbToken'), omdb: $('miOmdbKey'), subtitles: $('miSubtitlesKey'),
@@ -42,6 +42,16 @@
   function status(value) { ui.status.textContent = value; }
   // IMDb supplies no supported third-party personal-rating write API.
   // All rating changes happen on IMDb, using the person's IMDb session.
+  // OMDb reports Metascore out of 100. Public Wikipedia reception data can
+  // also provide a verified Metacritic value when an OMDb key is unavailable.
+  // A missing or malformed value is never guessed or shown as a real score.
+  function metacriticScore(data){
+    const record=(data.ratings||[]).find(r=>/^Metacritic$/i.test(String(r?.source||'')));
+    const raw=data.metacritic||record?.value||'';
+    const match=String(raw).trim().match(/^(\d{1,3})(?:\s*\/\s*100)?$/);
+    const value=match?Number(match[1]):NaN;
+    return Number.isInteger(value)&&value>=0&&value<=100?value:null;
+  }
   function imdbRatingUrl(data){
     const episode=data.kind==='tv'&&Number(data.season)>0&&Number(data.episode)>0;
     const exactId=episode?(data.imdbEpisodeId||
@@ -97,7 +107,6 @@
   }
   function closePanel() { ui.panel.hidden = true; if (ui.reopen) { ui.reopen.parentElement.hidden = false; ui.reopen.setAttribute('aria-expanded', 'false'); } ui.toggle.setAttribute('aria-expanded', 'false'); }
   ui.toggle.addEventListener('click', () => ui.panel.hidden ? openPanel(true) : closePanel());
-  ui.close.addEventListener('click', closePanel);
   if (ui.reopen) { ui.reopen.parentElement.hidden = true; ui.reopen.addEventListener('click', () => openPanel(true)); }
   openPanel(false);
   function normalize(value) {
@@ -270,7 +279,7 @@
       }
     }else if(receivedScores.length)next.ratings=receivedScores;
     const hasUpdates=!!(next.budgetText||next.revenueText||next.receptionText||next.imdbId||
-      next.ratings.length||next.omdbBoxOffice||next.awards);
+      next.ratings.length||next.metacritic||next.omdbBoxOffice||next.awards);
     if(!hasUpdates)return;
     displayed=next;
     render(next);
@@ -563,6 +572,19 @@
     line(rtCard,'span','mi-user-rating-stars','●').setAttribute('aria-hidden','true');
     line(rtCard,'span','mi-user-rating-number',rt?.value||'N/A');
     line(rtCard,'span','mi-user-rating-note','Rotten Tomatoes ↗');
+    const mcScore=metacriticScore(data);
+    const mcFromOmdb=data.metacritic!==undefined&&data.metacritic!==null&&
+      String(data.metacritic).trim()!==''&&mcScore!==null;
+    const mcCard=line(ratingCards,'div','mi-user-rating mi-mc-rating');
+    mcCard.setAttribute('aria-label',
+      'Metacritic Metascore: '+(mcScore===null?'Not Available':mcScore+' out of 100'));
+    mcCard.title=mcScore===null?'Metacritic score unavailable from configured sources':
+      'Metacritic score reported via '+(mcFromOmdb?'OMDb':'Wikipedia');
+    line(mcCard,'span','mi-user-rating-head','Metacritic');
+    line(mcCard,'span','mi-user-rating-stars','M').setAttribute('aria-hidden','true');
+    line(mcCard,'span','mi-user-rating-number',mcScore===null?'N/A':mcScore+'/100');
+    line(mcCard,'span','mi-user-rating-note',mcScore===null?
+      'Metascore Unavailable':mcFromOmdb?'Metascore · OMDb':'Metascore · Wikipedia');
     const scoreGrid = line(score,'div','mi-stats');
     let listed=0;
     if(Number(data.score)>0){
@@ -570,15 +592,14 @@
         Number(data.score).toFixed(1)+'/10'+(data.votes?' · '+Number(data.votes).toLocaleString()+' Votes':''));
       listed++;
     }
-    if(data.metacritic){labeled(scoreGrid,'Metacritic (via OMDb)',data.metacritic+'/100');listed++;}
     for(const rating of data.ratings||[]){
       if(!rating?.source||!rating.value)continue;
-      if(/Internet Movie Database|Rotten Tomatoes/i.test(rating.source)||
-          (/Metacritic/i.test(rating.source)&&data.metacritic))continue;
+      if(/Internet Movie Database|Rotten Tomatoes|Metacritic/i.test(rating.source))continue;
       labeled(scoreGrid,rating.source+(rating.via?' (via '+rating.via+')':''),rating.value);
       listed++;
     }
-    if(!listed && !data.imdbScore && !rt?.value)labeled(scoreGrid,'Public Ratings','Not Available From Connected Sources');
+    if(!listed && !data.imdbScore && !rt?.value && mcScore===null)
+      labeled(scoreGrid,'Public Ratings','Not Available From Connected Sources');
     if(data.receptionText){
       const text=line(score,'p','mi-reception-text',data.receptionText);
       text.title='Source: '+(data.wiki?.title||'Wikipedia');
