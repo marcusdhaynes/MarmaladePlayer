@@ -2638,11 +2638,29 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     removeMedia();
     state.source='native';
     state.file=null;
-    state.fileUrl=url;
+    // Native HTTP streams are not object URLs. Do not register them for
+    // URL.revokeObjectURL() on the next player reset.
+    state.fileUrl=null;
     state.localFingerprint=null;
     media.crossOrigin='anonymous';
-    media.muted=state.soundMuted||state.volumePercent===0;
+    media.autoplay=false;
     media.src=url;media.preload='auto';media.load();
+    // A previous File/room playback may already have redirected this same
+    // <video> element into a Web Audio graph. Reapply the normal player volume
+    // state and resume that graph on this trusted Play click; otherwise the
+    // picture advances while the existing suspended context outputs silence.
+    applyVolume();
+    if(state.audioSourceNode||state.audioContext){
+      void ensureAudioPlayback().then(ok=>{
+        if(!ok&&state.audioSourceNode&&state.audioContext?.state!=='running'){
+          notify('Audio output is waiting for a playback gesture. Press Play or adjust Volume to enable sound.');
+          needsTapToPlay(true);
+        }
+      }).catch(error=>{
+        console.warn('Native library audio output unavailable',error);
+        needsTapToPlay(true);
+      });
+    }
     el.fileName.textContent=name||'Library Video';
     el.fileInfo.textContent=(name||'Media Library')+' · Served locally by Minternet';
     el.hint.textContent='Locally served video. Hosting guests from this source is not yet supported.';
@@ -2650,7 +2668,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     el.startBroadcast.disabled=true;
     updateRoomPanel();updateTransport();
     const started=media.play();
-    if(started?.catch)void started.catch(()=>needsTapToPlay(true));
+    if(started?.catch)void started.catch(error=>{
+      console.warn('Native library playback requires user activation',error);
+      needsTapToPlay(true);
+    });
     return true;
   }
   // Native and fallback file dialogs start on VIDEO, not "All Files".
