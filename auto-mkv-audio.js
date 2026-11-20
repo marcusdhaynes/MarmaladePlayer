@@ -138,6 +138,8 @@
       if (isCurrent(session) && error?.message !== 'Cancelled') {
         console.error('Automatic MKV audio remux failed', error);
         session.finished = true;
+        if(session.initializing)throw error;
+        bridge()?.notify?.('MKV audio decoding stopped: '+String(error?.message||error));
         bridge()?.el && (bridge().el.fileInfo.textContent += ' · Decoder stopped');
       }
     } finally {
@@ -162,7 +164,8 @@
     }
     const session={file,kind:source.kind,inputUrl:source.url||'',source,
       video:app.media,closed:false,url:'',originalSrc:app.media.currentSrc||app.media.src,
-      wantedTime:app.media.currentTime||0,wasPlaying:!app.media.paused,
+      wantedTime:app.media.currentTime||0,
+      wasPlaying:source.kind==='native'||!app.media.paused,
       remuxer:null,mediaSource:null,buffer:null,interval:0,
       running:false,finished:false,seekTo:null,declaredDuration:0,
       onSeeking:null,onTimeUpdate:null,stage:'Loading local decoder'};
@@ -228,7 +231,9 @@
       await append(session, header.data);
       if (!isCurrent(session)) return false;
       session.stage='Decoding first audio segment';
-      await nextChunk(session);
+      session.initializing=true;
+      try{await nextChunk(session);}
+      finally{session.initializing=false;}
 
       session.onSeeking = () => {
         if (!isCurrent(session)) return;
