@@ -660,14 +660,12 @@
     }else if(target.kind==='item'){
       const {lib,entry}=storedItem(target.item);
       if(!entry)return;
-      action('▶  Play',()=>void play(target.item));
       action('✓  Mark as '+(entry.watched?'Unwatched':'Watched'),
         ()=>void mutateItems([target.item],item=>{item.watched=!item.watched;},'Watch status saved.'));
-      action('★  '+(entry.favorite?'Remove Favorite':'Add to Favorites'),
-        ()=>void mutateItems([target.item],item=>{item.favorite=!item.favorite;},'Favorites updated.'));
       action('☷  '+(entry.watchlist?'Remove from Watchlist':'Add to Watchlist'),
         ()=>void mutateItems([target.item],item=>{item.watchlist=!item.watchlist;},'Watchlist updated.'));
       action('✎  Edit Details',()=>showDetails(target.item));
+      action('▧  Edit Poster',()=>choosePoster(target.item));
       action('＋  Add to Playlist',()=>addToTagGroup(target.item,'playlists'));
       action('＋  Add to Collection',()=>addToTagGroup(target.item,'collections'));
       for(const key of ['playlists','collections']){
@@ -676,14 +674,12 @@
         },'Removed from '+name+'.'));
       }
       sep();
-      action('⌕  Match / Fix Match',()=>void refreshMetadata([target.item],{fix:true}));
-      action('↻  Refresh Metadata',()=>void refreshMetadata([target.item]));
+      action('⌕  Match',()=>void refreshMetadata([target.item],{fix:true}));
       if(entry.metadataSource||entry.poster||entry.overview)
         action('✕  Unmatch Metadata',()=>void mutateItems([target.item],item=>{
           item.poster='';item.overview='';item.metadataSource='';
         },'External metadata cleared. Manually edited title and original file are unchanged.'));
-      action('▤  Analyze',()=>void analyze(target.item));
-      action('ℹ  Get Info',()=>showDetails(target.item,'info'));
+      action('ℹ  Get Info',()=>void openInfo(target.item));
       action('▣  Browse Containing Folder',()=>{
         setSelected(lib.id);state.folderMode=true;
         const parts=entry.path.split('/');
@@ -724,14 +720,8 @@
           item=>{item.show=name.trim().slice(0,180);item.customized=true;},
           'Series renamed.');
       });
-      action('⌕  Fix Series Match',()=>void refreshMetadata(entries.slice(0,1),{fix:true}));
-      action('↻  Refresh Series Metadata',()=>void refreshMetadata(entries.slice(0,1)));
-      action('▤  Analyze Series',()=>void (async()=>{
-        const count=entries.length;
-        notify(count+' episode'+(count===1?'':'s')+' in '+target.show+
-          '. Analyze individual episodes for runtime and file information.');
-      })());
-      action('ℹ  Series Info',()=>notify(entries.length+' episodes in '+target.show+'.'));
+      action('⌕  Match',()=>void refreshMetadata(entries.slice(0,1),{fix:true}));
+      action('ℹ  Get Info',()=>notify(entries.length+' episodes in '+target.show+'. Select an episode to view its analyzed media information.'));
     }else if(target.kind==='folder'){
       action('▤  Open Folder',()=>{
         setSelected(target.libId);state.folderMode=true;
@@ -1105,7 +1095,7 @@
       }
       try{
         const started=bridge.chooseNativeStream({
-          url,name:item.name||item.title||'Library Video',size:item.size
+          url,name:item.name||item.title||'Library Video',size:item.size,id:item.id
         });
         if(started)notify('Opening '+(item.name||item.title)+' · Streamed locally by the Minternet extension.');
       }catch(error){notify('This video cannot be played: '+(error?.message||'unknown error'));}
