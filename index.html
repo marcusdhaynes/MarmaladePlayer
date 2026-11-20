@@ -1115,6 +1115,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(stored&&typeof stored==='object'&&!Array.isArray(stored))watchProgress=stored;
   }catch{}
   function progressKeys(){
+    if(state.role==='host'&&state.source==='native'&&state.nativeMediaKey)
+      return ['library:'+state.nativeMediaKey];
     if(state.role==='host'&&state.source==='file'&&state.file){
       const file=state.file;
       return ['file:'+file.name.toLowerCase()+'|'+file.size,
@@ -1262,7 +1264,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.lastProgressSaveAt=now;
   }
   function restoreWatchPosition(){
-    if(state.role!=='host'||!['file','hosted'].includes(state.source)||
+    if(state.role!=='host'||!['file','native','hosted'].includes(state.source)||
       state.resumeChecked||!Number.isFinite(stableMovieDuration())||stableMovieDuration()<=0)return;
     if(media.currentTime>2||!media.paused){state.resumeChecked=true;return;}
     const record=progressKeys().map(key=>watchProgress[key])
@@ -1427,8 +1429,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   let durationResourceKey = '';
   let durationHighWater = 0;
   function stableMovieDuration() {
-    const localFile = state.role === 'host' && state.source === 'file' &&
-      Boolean(state.fileUrl);
+    const localFile = state.role === 'host' &&
+      (state.source === 'file' && Boolean(state.fileUrl) ||
+       state.source === 'native' && Boolean(state.nativeStreamUrl));
     const key = localFile ? 'file:' + state.fileUrl :
       (state.source || '') + ':' + (media.currentSrc || media.src || '');
     if (key !== durationResourceKey) {
@@ -1459,7 +1462,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       else scheduleControlsFade();
     }
     const duration = stableMovieDuration();
-    const isFile = ['file','hosted'].includes(state.source) && state.fileReady && state.role === 'host';
+    const isFile = ['file','native','hosted'].includes(state.source) && state.fileReady && state.role === 'host';
     const guestConnected = state.role === 'guest' && Boolean(state.guestConn?.open);
     const guestHasTimeline = guestConnected && state.sharedDuration > 0;
     // Live screen shares have no seekable timeline, but a guest may pause/resume their own view.
@@ -1536,9 +1539,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const showSeconds = el.bufferToggle.getAttribute('aria-pressed') === 'true';
     el.bufferReadout.hidden = !showSeconds;
     const seekable = state.localVerified || state.bufferedMode ||
-      state.source === 'file' || state.source === 'hosted' ||
+      state.source === 'file' || state.source === 'native' || state.source === 'hosted' ||
       state.source === 'hosted-guest';
-    const duration = state.role === 'host' && state.source === 'file' ?
+    const duration = state.role === 'host' && ['file','native'].includes(state.source) ?
       stableMovieDuration() : media.duration;
     const track = el.bufferedFill;
     const ranges = [];
@@ -1685,13 +1688,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if (state.role === 'host') broadcast({ type: 'movie-info', payload });
   };
   function hostStatus() {
-    return { type: 'state', name: state.file ? state.file.name : state.source === 'screen' ? 'Shared player window' : 'Waiting for video',
-      playing: !media.paused, time: ['file','hosted'].includes(state.source) ? media.currentTime : 0,
-      duration: ['file','hosted'].includes(state.source) && Number.isFinite(stableMovieDuration()) ? stableMovieDuration() : 0,
+    return { type: 'state', name: state.file ? state.file.name : state.source === 'native' ? state.nativeMediaName : state.source === 'screen' ? 'Shared player window' : 'Waiting for video',
+      playing: !media.paused, time: ['file','native','hosted'].includes(state.source) ? media.currentTime : 0,
+      duration: ['file','native','hosted'].includes(state.source) && Number.isFinite(stableMovieDuration()) ? stableMovieDuration() : 0,
       live: state.broadcasting || state.source === 'hosted', sourceHeight: sourceHeight(), sourceWidth: media.videoWidth || 0,
       revision: state.transportRevision, fingerprint: state.localFingerprint,
       sentAt: performance.now(), seq: ++state.localSnapshotSequence,
-      mediaKind: state.source === 'hosted' ? 'hosted' : state.source,
+      mediaKind: state.source === 'native' ? 'file' : state.source === 'hosted' ? 'hosted' : state.source,
       hostedUrl: state.source === 'hosted' ? state.hostedUrl : '',
       backupUrl: state.source === 'hosted' ? state.backupUrl : '',
       strictSync: state.strictSync, heldForBuffer: !!state.heldForBuffer,
@@ -1748,7 +1751,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // Everyone controls ONE authoritative media clock: the host's local file.
   // Guests never seek their live MediaStream (which has no seekable timeline).
   function applyTransport(action, value, commandPeer = '', commandId = 0) {
-    if (state.role !== 'host' || !['file','hosted'].includes(state.source) || !state.fileReady) return;
+    if (state.role !== 'host' || !['file','native','hosted'].includes(state.source) || !state.fileReady) return;
     if (action === 'toggle') action = media.paused ? 'play' : 'pause';
     if (action === 'play') void media.play().catch(() => notify('Playback blocked. Tap play again.'));
     if (action === 'pause') media.pause();
@@ -2537,6 +2540,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     retireHosted();state.hostedUrl='';state.backupUrl='';
     state.source = null;
     state.nativeStreamUrl = '';
+    state.nativeMediaKey = '';
+    state.nativeMediaName = '';
     state.file = null;
     state.fileReady = false;
     state.peerCache.clear();state.peerCacheBytes=0;
@@ -2629,7 +2634,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // than an expiring browser File handle. Keep it distinct from File hosting:
   // a localhost URL is NOT a portable guest source and must never masquerade
   // as the last File selected for a WebRTC room.
-  function chooseNativeStream({url,name,size}={}){
+  function chooseNativeStream({url,name,size,id:libraryItemId}={}){
     if(state.role!=='host'){
       notify('Only the host can open a media-library video.');return false;
     }
@@ -2639,6 +2644,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     removeMedia();
     state.source='native';
     state.nativeStreamUrl=url;
+    state.nativeMediaName=String(name||'Library Video');
+    state.nativeMediaKey=String(libraryItemId||name||'')+'|'+String(size||0);
     state.file=null;
     // Native HTTP streams are not object URLs. Do not register them for
     // URL.revokeObjectURL() on the next player reset.
@@ -2663,11 +2670,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         needsTapToPlay(true);
       });
     }
-    el.fileName.textContent=name||'Library Video';
+    el.fileName.textContent=state.nativeMediaName;
     el.fileInfo.textContent=(name||'Media Library')+' · Served locally by Minternet';
-    el.hint.textContent='Locally served video. Hosting guests from this source is not yet supported.';
-    showStage(true);
+    el.hint.textContent='Video loaded from your Media Library. All playback controls use the same player.';
+    setStage('Loading your video…','Preparing your library video. Files remain on your device.','LOADING');
     el.startBroadcast.disabled=true;
+    if(!state.peer&&!state.connecting)void createRoom();
+    void restoreSavedSubtitle();
     updateRoomPanel();updateTransport();
     const started=media.play();
     if(started?.catch)void started.catch(error=>{
@@ -4326,7 +4335,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return new MediaStream([track, ...audioTracks].filter(Boolean));
   }
   function autoStartIfPlaying() {
-    if (state.role === 'host' && state.peer?.open && state.source === 'file' && state.fileReady &&
+    if (state.role === 'host' && state.peer?.open && ['file','native'].includes(state.source) && state.fileReady &&
         !media.paused && !state.broadcasting && !state.broadcastStarting) {
       void startBroadcast();
     }
@@ -4334,7 +4343,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   async function startBroadcast() {
     // Only construct Web Audio for hosts lacking native capture or already
     // using a custom speaker-gain graph. Normal movie sound stays native.
-    if(state.role==='host' && state.source==='file' &&
+    if(state.role==='host' && ['file','native'].includes(state.source) &&
        (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio unlock pending',error));
     if(state.role==='host' && state.source==='hosted') {
@@ -4415,7 +4424,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     syncState();
   }
   async function togglePlay(origin='button') {
-    if(state.role==='host'&&state.source==='file' &&
+    if(state.role==='host'&&['file','native'].includes(state.source) &&
        (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio output pending',error));
     if (state.role === 'guest') {
@@ -5323,7 +5332,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
          el.stage.classList.contains('needs-gesture'))) {
       void togglePlay('stage'); return;
     }
-    if (state.role === 'host' && ['file','hosted'].includes(state.source) && state.fileReady)
+    if (state.role === 'host' && ['file','native','hosted'].includes(state.source) && state.fileReady)
       void togglePlay('stage');
   }
   // A single video click remains Play/Pause. Defer it just long enough to
@@ -5708,7 +5717,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // MediaStream and mobile browser paths.
   const revealPlayableVideo = () => {
     if (media.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || media.error) return;
-    if ((state.role === 'host' && ['file','hosted','screen'].includes(state.source)) ||
+    if ((state.role === 'host' && ['file','native','hosted','screen'].includes(state.source)) ||
         (state.role === 'guest' && ['remote','local-guest','hosted-guest'].includes(state.source))) {
       showStage(true);
     }
@@ -5856,7 +5865,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   media.addEventListener('loadedmetadata', () => {
     void restoreSavedSubtitle();
     if(state.role==='guest' && (state.localVerified || state.bufferedMode)){void syncSeekablePlayback(true);return;}
-    if (state.role !== 'host' || !['file','hosted'].includes(state.source)) return;
+    if (state.role !== 'host' || !['file','native','hosted'].includes(state.source)) return;
     state.fileReady = true;
     restoreWatchPosition();
     // Metadata can arrive when a browser has decoded only audio, or while
@@ -5874,7 +5883,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // Some browsers announce decoded frames after metadata (or restore playback
   // following a pause). Keep the picture surface visible in either case.
   for (const event of ['loadeddata','playing']) media.addEventListener(event, () => {
-    if (state.role === 'host' && ['file','hosted'].includes(state.source) &&
+    if (state.role === 'host' && ['file','native','hosted'].includes(state.source) &&
         media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
       state.fileReady = true;
       showStage(true);
@@ -5891,7 +5900,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       void loadHostedPlayback(state.backupUrl,true);
       return;
     }
-    if (state.role !== 'host' || state.source !== 'file') return;
+    if (state.role !== 'host' || !['file','native'].includes(state.source)) return;
     state.fileReady = false;
     el.startBroadcast.disabled = true;
     setStage('Can’t decode this file', 'Click here to choose another video, or use window sharing in Settings.', 'FORMAT NOT SUPPORTED');
