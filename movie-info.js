@@ -748,6 +748,21 @@
   window.addEventListener('marmalade:video-selected', event => {
     if (event.detail?.file) void start(event.detail.file);
   });
+  window.addEventListener('marmalade:library-video-selected', event=>{
+    const name=String(event.detail?.name||'');
+    if(!name||name.length>300)return;
+    // The Minternet extension supplies a real stream, not a File. Use its
+    // filename for the same title/year matching but do not hash/download a
+    // huge movie just to open Movie & Series Information.
+    activeFile=null;displayed=null;
+    const seq=++sequence;
+    const parsed=parseFilename(name);
+    detected={parsed,metadata:null};
+    ui.search.value=parsed.title;ui.kind.value=parsed.kind;
+    openPanel();status('Identifying '+name+'…');
+    clearResult('Looking up video information from the library filename…');
+    void findMovie(parsed,seq);
+  });
   window.addEventListener('marmalade:media-cleared', () => {
     ++sequence;activeFile=null;detected=null;displayed=null;
     ui.matches.replaceChildren();ui.results.replaceChildren();
