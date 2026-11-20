@@ -5,6 +5,10 @@ on:
     paths:
       - 'index.html'
       - 'auto-mkv-audio.js'
+      - 'mkv-decoder-io.js'
+      - 'mkv-asyncify-worker.js'
+      - 'tests/mkv-compatibility.test.cjs'
+      - 'tests/mkv-playback-pipeline.test.cjs'
       - 'scripts/install-mkv-decoder.mjs'
       - 'tests/mkv-audio-compat.mjs'
       - '.github/workflows/mkv-audio-compat.yml'
@@ -13,6 +17,10 @@ on:
     paths:
       - 'index.html'
       - 'auto-mkv-audio.js'
+      - 'mkv-decoder-io.js'
+      - 'mkv-asyncify-worker.js'
+      - 'tests/mkv-compatibility.test.cjs'
+      - 'tests/mkv-playback-pipeline.test.cjs'
       - 'watch-sync-subtitles.js'
       - 'seek-preview.js'
       - 'tests/mkv-audio-compat.mjs'
@@ -39,5 +47,9 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Install streaming MKV audio decoder
         run: node scripts/install-mkv-decoder.mjs
+      - name: Validate pinned decoder and Minternet compatibility contracts
+        run: |
+          node scripts/validate-mkv-decoder-assets.mjs
+          node --test tests/mkv-compatibility.test.cjs tests/mkv-playback-pipeline.test.cjs
       - name: Verify real audible E-AC-3 to AAC video playback and Stop
         run: node tests/mkv-audio-compat.mjs
