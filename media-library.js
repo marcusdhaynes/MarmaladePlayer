@@ -27,7 +27,8 @@
     list:false,folderMode:false,folder:null,series:null,showCount:120,
     editing:null,pending:null,relink:null,scanning:false,scanSeq:0,
     sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
-    artworkBusy:false,storageAvailable:true
+    pendingScans:new Set(),scanProblems:new Map(),artworkBusy:false,storageAvailable:true,
+    menuTarget:null,itemEditing:null,menuOpen:false
   };
   const now=()=>Date.now();
   const id=()=>('ml'+now().toString(36)+Math.random().toString(36).slice(2,9));
@@ -193,6 +194,44 @@
     const info=describe(file.name||path.split('/').pop(),path,kind);
     return {id:folder.id+'|'+path,folderId:folder.id,path,name:file.name,
       size:file.size||0,lastModified:file.lastModified||0,addedAt:now(),...info};
+  }
+  function scanPreview(message){
+    const el=$('mlScanPreview');
+    if(el)el.textContent=message||'';
+  }
+  function indexPendingFolder(folder){
+    const draft=state.pending;
+    if(!draft)return;
+    const promise=(async()=>{
+      scanPreview('Indexing '+folder.name+'…');
+      try{
+        const found=await scanFolder(folder,draft.kind,state.scanSeq,false);
+        if(draft!==state.pending)return;
+        if(found===null){
+          scanPreview('Folder access is not available. Use Reconnect or Other Picker to index its videos.');
+          return;
+        }
+        const previous=new Map((draft.items||[]).map(i=>[i.id,i]));
+        for(const item of found){
+          const old=previous.get(item.id);
+          if(old)Object.assign(item,{...old,id:item.id,path:item.path,folderId:item.folderId,
+            name:item.name,size:item.size,lastModified:item.lastModified});
+        }
+        draft.items=(draft.items||[]).filter(i=>i.folderId!==folder.id).concat(found);
+        scanPreview(found.length+' video'+(found.length===1?'':'s')+
+          ' found in '+folder.name+'. Save Library to display them.');
+      }catch(error){
+        console.warn('Library folder indexing failed',error);
+        scanPreview('Cannot scan '+folder.name+': '+(error?.message||'folder unavailable')+
+          '. Try Other Picker to import its videos.');
+      }
+    })();
+    state.pendingScans.add(promise);
+    ui.save.disabled=true;
+    promise.finally(()=>{
+      state.pendingScans.delete(promise);
+      if(!state.pendingScans.size)ui.save.disabled=false;
+    });
   }
   async function scanLibrary(lib,{ask=false}={}){
     if(!lib||state.scanning){notify('A library scan is already in progress.');return;}
@@ -554,18 +593,22 @@
       name:lib?.name||'',
       kind:lib?.kind||'movie',
       folders:(lib?.folders||[]).map(folder=>({...folder})),
-      items:lib?.items||[],createdAt:lib?.createdAt||now(),lastScan:lib?.lastScan||0
+      items:(lib?.items||[]).slice(),hiddenIds:(lib?.hiddenIds||[]).slice(),
+      createdAt:lib?.createdAt||now(),lastScan:lib?.lastScan||0
     };
     ui.dialogTitle.textContent=lib?'Manage Library':'Create Library';
     ui.name.value=state.pending.name;
     ui.kind.value=state.pending.kind;
     ui.delete.hidden=!lib;
     drawFolders();
+    scanPreview(lib?(lib.items||[]).length+' indexed videos · Edit the name, type or folders, then Save.':
+      'Choose a folder to preview its videos before saving.');
     ui.dialog.hidden=false;
     ui.name.focus();
   }
   function closeEditor(){
     ui.dialog.hidden=true;state.pending=null;state.editing=null;state.relink=null;
+    scanPreview('');
   }
   function addFolder(folder){
     const pending=currentPending();
@@ -577,6 +620,7 @@
     }else pending.folders.push(folder);
     if(!ui.name.value.trim())ui.name.value=folder.name;
     drawFolders();
+    indexPendingFolder(folder);
   }
   function handleFolderSelection(handle){
     if(!handle||handle.kind!=='directory')return;
@@ -602,13 +646,22 @@
     const first=files[0];
     const root=(first.webkitRelativePath||first.name).split('/')[0]||'Video Folder';
     const folder={id:id(),name:root,source:'session',handle:null};
-    addFolder(folder);
-    state.sessionFolderLoaded.add(folder.id);
+    // Populate the session file map BEFORE initiating the same indexer used by
+    // persistent directory handles. Previously fallback imports could look empty.
+    if(state.relink){
+      const prior=pending.folders.find(f=>f.id===state.relink);
+      for(const key of state.sessionFiles.keys())if(key.startsWith(state.relink+'|'))
+        state.sessionFiles.delete(key);
+      if(prior)folder.id=prior.id;
+    }
     for(const file of files){
       const path=(file.webkitRelativePath||file.name).split('/').slice(1).join('/')||file.name;
       if(video(file.name))state.sessionFiles.set(folder.id+'|'+path,file);
     }
-    notify('Folder selected. This browser will require reselecting the folder after it closes.');
+    state.sessionFolderLoaded.add(folder.id);
+    addFolder(folder);
+    scanPreview('Importing '+files.length+' selected files; only videos will appear.');
+    notify('Folder selected. Browser file access may need to be renewed after reopening.');
   }
   async function saveEditor(){
     const pending=currentPending();if(!pending)return;
@@ -619,6 +672,10 @@
       ui.name.setCustomValidity('A library with this name already exists.');
       ui.name.reportValidity();return;
     }
+    // A user can click Save while a selected directory is still indexing.
+    // Wait for its preview scan rather than committing an apparently blank catalog.
+    if(state.pendingScans.size)await Promise.allSettled([...state.pendingScans]);
+    if(state.pending!==pending)return;
     pending.name=name;pending.kind=ui.kind.value;
     pending.items=(pending.items||[]).filter(item=>pending.folders.some(f=>f.id===item.folderId));
     const replacing=state.libraries.findIndex(l=>l.id===pending.id);
@@ -626,9 +683,14 @@
     else state.libraries.push(pending);
     state.selected=pending.id;setLocal('marmalade:media-library:selected',pending.id);
     state.folder=null;state.series=null;state.folderMode=false;
-    await persist(pending);closeEditor();render();
-    if(pending.folders.length)void scanLibrary(pending,{ask:true});
-    else notify('Empty library created. Open Manage to add a media folder.');
+    closeEditor();render();
+    // Persist and publish the preview immediately. Requiring permissions after
+    // await persist() lost user activation and previously left libraries empty.
+    void persist(pending);
+    if(pending.folders.length){
+      if(pending.items.length)notify(countLabel(pending.items.length)+' added to '+pending.name+'.');
+      void scanLibrary(pending,{ask:false});
+    }else notify('Empty library created. Open Edit Library to add a media folder.');
   }
   async function removeLibrary(){
     const lib=state.libraries.find(x=>x.id===state.editing);
