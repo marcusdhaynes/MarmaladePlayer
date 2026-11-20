@@ -116,6 +116,10 @@
     (lib.items||[]).map(item=>({...item,libraryId:lib.id,libraryName:lib.name})):allItems();}
   function setSelected(next){
     state.selected=next;state.series=null;state.folder=null;state.folderMode=false;
+    // Switching shelves must not inherit a hidden search/watch/collection
+    // filter and appear empty after a successful folder scan.
+    state.query='';state.kind='all';state.collection='all';
+    ui.search.value='';ui.filter.value='all';ui.collections.value='all';
     state.showCount=120;setLocal('marmalade:media-library:selected',next);render();
   }
   function setVisibility(enabled){
@@ -1107,13 +1111,23 @@
     // Wait for its preview scan rather than committing an apparently blank catalog.
     if(state.pendingScans.size)await Promise.allSettled([...state.pendingScans]);
     if(state.pending!==pending)return;
+    const priorKind=pending.kind;
     pending.name=name;pending.kind=ui.kind.value;
     pending.items=(pending.items||[]).filter(item=>pending.folders.some(f=>f.id===item.folderId));
+    if(priorKind!==pending.kind){
+      for(const item of pending.items){
+        const parsed=describe(item.name,item.path,pending.kind);
+        item.type=parsed.type;item.show=parsed.show;
+        item.season=parsed.season;item.episode=parsed.episode;
+      }
+    }
     const replacing=state.libraries.findIndex(l=>l.id===pending.id);
     if(replacing>=0)state.libraries[replacing]=pending;
     else state.libraries.push(pending);
     state.selected=pending.id;setLocal('marmalade:media-library:selected',pending.id);
     state.folder=null;state.series=null;state.folderMode=false;
+    state.query='';state.kind='all';state.collection='all';
+    ui.search.value='';ui.filter.value='all';ui.collections.value='all';
     closeEditor();render();
     // Persist and publish the preview immediately. Requiring permissions after
     // await persist() lost user activation and previously left libraries empty.
