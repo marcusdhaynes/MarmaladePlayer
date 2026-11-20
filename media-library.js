@@ -10,25 +10,27 @@
   const ui={
     shelves:$('mlShelves'),cards:$('mlCards'),status:$('mlStatus'),
     title:$('mlCurrentShelf'),count:$('mlCount'),search:$('mlSearch'),
-    filter:$('mlKindFilter'),sort:$('mlSort'),view:$('mlView'),
+    filter:$('mlKindFilter'),collections:$('mlCollectionFilter'),sort:$('mlSort'),view:$('mlView'),
     rescan:$('mlRescan'),manage:$('mlManage'),quickAdd:$('mlQuickAdd'),
     art:$('mlFindArt'),crumbs:$('mlCrumbs'),
     dialog:$('mlDialog'),dialogTitle:$('mlDialogTitle'),name:$('mlLibraryName'),
     kind:$('mlLibraryKind'),folderList:$('mlFolderList'),
     delete:$('mlDeleteLibrary'),pick:$('mlPickFolder'),
-    directoryInput:$('mlDirectoryInput'),save:$('mlDialogSave')
+    directoryInput:$('mlDirectoryInput'),save:$('mlDialogSave'),
+    menu:$('mlContextMenu'),itemDialog:$('mlItemDialog'),itemBody:$('mlItemDialogBody'),
+    itemTitle:$('mlItemDialogTitle'),itemSave:$('mlItemDialogSave')
   };
   const KEY='marmalade:media-library:visible';
   const DB='marmalade:local-library:v1';
   const VIDEO=/\.(3g2|3gp|amv|asf|avi|divx|drc|f4v|flv|gifv|m1v|m2p|m2t|m2ts|m2v|m4v|mjpeg|mjpg|mk3d|mkv|mov|mp4|mpe|mpeg|mpg|mpv|mts|mxf|nsv|ogv|qt|rm|rmvb|roq|rv|ts|vob|webm|wmv|xvid|y4m|yuv)$/i;
   const IGNORE=new Set(['.git','node_modules','$recycle.bin','system volume information','__macosx']);
   const state={
-    db:null,libraries:[],selected:'all',query:'',kind:'all',sort:'title',
+    db:null,libraries:[],selected:'all',query:'',kind:'all',collection:'all',sort:'title',
     list:false,folderMode:false,folder:null,series:null,showCount:120,
     editing:null,pending:null,relink:null,scanning:false,scanSeq:0,
     sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
     pendingScans:new Set(),scanProblems:new Map(),artworkBusy:false,storageAvailable:true,
-    menuTarget:null,itemEditing:null,menuOpen:false
+    menuTarget:null,itemEditing:null,menuOpen:false,playingId:null
   };
   const now=()=>Date.now();
   const id=()=>('ml'+now().toString(36)+Math.random().toString(36).slice(2,9));
@@ -330,21 +332,64 @@
   function renderShelves(){
     ui.shelves.replaceChildren();
     const total=state.libraries.reduce((n,l)=>n+(l.items||[]).length,0);
-    const everything=[{id:'all',name:'All Videos',count:total},
-      ...state.libraries.map(l=>({id:l.id,name:l.name,count:(l.items||[]).length}))];
-    for(const lib of everything){
-      const button=append(ui.shelves,'button','ml-shelf');
-      button.type='button';button.dataset.libraryId=lib.id;
-      button.setAttribute('aria-current',state.selected===lib.id?'page':'false');
-      append(button,'span','',lib.name);
-      append(button,'small','',String(lib.count));
-      button.addEventListener('click',()=>setSelected(lib.id));
+    const everything=append(ui.shelves,'div','ml-shelf-row');
+    const all=append(everything,'button','ml-shelf');
+    all.type='button';all.dataset.libraryId='all';
+    all.setAttribute('aria-current',state.selected==='all'?'page':'false');
+    append(all,'span','','All Videos');append(all,'small','',String(total));
+    all.addEventListener('click',()=>setSelected('all'));
+    for(const [kind,label] of [['movie','MOVIES'],['tv','TV SHOWS'],['mixed','OTHER VIDEOS']]){
+      append(ui.shelves,'div','ml-shelf-category',label);
+      const libraries=state.libraries.filter(lib=>lib.kind===kind);
+      for(const lib of libraries){
+        const row=append(ui.shelves,'div','ml-shelf-row');
+        const button=append(row,'button','ml-shelf');
+        button.type='button';button.dataset.libraryId=lib.id;
+        button.setAttribute('aria-current',state.selected===lib.id?'page':'false');
+        append(button,'span','',lib.name);
+        append(button,'small','',String((lib.items||[]).length));
+        button.addEventListener('click',()=>setSelected(lib.id));
+        button.addEventListener('contextmenu',event=>{
+          event.preventDefault();openMenu({kind:'library',libId:lib.id},event.clientX,event.clientY);
+        });
+        const edit=append(row,'button','ml-shelf-edit','✎');
+        edit.type='button';edit.title='Edit '+lib.name+' library';
+        edit.setAttribute('aria-label','Edit library '+lib.name);
+        edit.addEventListener('click',()=>{setSelected(lib.id);openEditor(lib);});
+      }
+      if(!libraries.length)append(ui.shelves,'div','ml-shelf-none','No '+label.toLowerCase()+' libraries');
     }
+    renderCollectionFilter();
+  }
+  function renderCollectionFilter(){
+    const current=ui.collections.value||state.collection||'all';
+    const tags=new Set();
+    for(const item of shelfItems()){
+      for(const name of item.collections||[])tags.add('collection:'+name);
+      for(const name of item.playlists||[])tags.add('playlist:'+name);
+    }
+    ui.collections.replaceChildren();
+    for(const [value,label] of [['all','All Collections'],
+      ...[...tags].sort().map(key=>[key,key.startsWith('playlist:')?
+        'Playlist: '+key.slice(9):'Collection: '+key.slice(11)])]){
+      const option=create('option');option.value=value;option.textContent=label;
+      ui.collections.append(option);
+    }
+    state.collection=[...ui.collections.options].some(o=>o.value===current)?current:'all';
+    ui.collections.value=state.collection;
   }
   function filteredItems(){
     let items=shelfItems();
     const search=state.query.trim().toLocaleLowerCase();
-    if(state.kind!=='all')items=items.filter(i=>i.type===state.kind);
+    if(state.kind==='movie'||state.kind==='tv')items=items.filter(i=>i.type===state.kind);
+    else if(state.kind==='favorites')items=items.filter(i=>!!i.favorite);
+    else if(state.kind==='watched')items=items.filter(i=>!!i.watched);
+    else if(state.kind==='unwatched')items=items.filter(i=>!i.watched);
+    if(state.collection!=='all'){
+      const key=state.collection.startsWith('playlist:')?'playlists':'collections';
+      const name=state.collection.slice(state.collection.indexOf(':')+1);
+      items=items.filter(i=>(i[key]||[]).includes(name));
+    }
     if(search)items=items.filter(i=>
       [i.title,i.show,i.path,i.name,i.libraryName].some(value=>
         String(value||'').toLocaleLowerCase().includes(search)));
@@ -741,6 +786,7 @@
       searchTimer=setTimeout(()=>{state.query=ui.search.value;state.showCount=120;render();},110);
     });
     ui.filter.addEventListener('change',()=>{state.kind=ui.filter.value;state.showCount=120;render();});
+    ui.collections.addEventListener('change',()=>{state.collection=ui.collections.value;state.showCount=120;renderCards();});
     ui.sort.addEventListener('change',()=>{state.sort=ui.sort.value;render();});
     ui.view.addEventListener('click',()=>{
       state.list=!state.list;ui.view.setAttribute('aria-pressed',String(state.list));
