@@ -212,8 +212,10 @@ try {
     const options=await page.locator('#qualitySelect option').allTextContents();
     assert(options.some(x=>x.includes('480')));
     assert(options.some(x=>x.includes('720')));
-    await page.locator('#settingsBtn').click({force:true});
-    await page.locator('#closeSettingsPanel').click({force:true});
+    // The role change may itself close the floating settings palette.
+    // Close it only if it remains open; never blindly toggle it first.
+    if(await page.locator('#settingsPanel').isVisible())
+      await page.locator('#closeSettingsPanel').click({force:true});
     await page.evaluate(()=>{const el=document.querySelector('#volume');el.value='0';el.dispatchEvent(new Event('input',{bubbles:true}));});
     assert.equal(await page.locator('#player').evaluate(el=>el.muted),true,'0% must hard-mute video element');
     assert.equal(await page.locator('#muteBtn svg.glass-icon').count(),1,
