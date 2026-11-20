@@ -149,7 +149,7 @@ try{
   assert.equal(await page.evaluate(()=>
     window.MarmaladeAdaptiveBrightness.isExternalPlayback()),false);
   const androidSource=readFileSync(resolve(root,'mobile/scripts/patch-native.mjs'),'utf8');
-  assert.match(androidSource,/int width=Math\\.max\\(1,startWidth\\+dx\\)/,
+  assert.match(androidSource,/int width=Math\.max\(1,startWidth\+dx\)/,
     'Android mini-player must not enforce a screen-width maximum');
   await page.close();
   console.log('PASS native video-only PiP: actual frames, subtitles, gamma, controls and exit');

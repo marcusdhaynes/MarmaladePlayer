@@ -1833,8 +1833,11 @@
       if(!ui.menu.hidden&&!ui.menu.contains(event.target)&&
         !event.target.closest('.ml-card-more'))closeMenu();
     },true);
-    window.addEventListener('scroll',()=>{
-      if(!ui.menu.hidden)closeMenu();
+    window.addEventListener('scroll',event=>{
+      // Capture-phase scroll listeners also observe internal scrolling of the
+      // portaled menu. Scrolling through menu actions must not close it.
+      if(!ui.menu.hidden && event.target!==ui.menu &&
+         !ui.menu.contains(event.target))closeMenu();
     },true);
     window.addEventListener('resize',closeMenu);
     window.addEventListener('keydown',event=>{
