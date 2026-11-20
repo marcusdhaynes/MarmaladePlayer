@@ -60,8 +60,8 @@
   // Keep the underlying filename and year unchanged: these helpers only
   // determine what is shown on a poster and what title is matched publicly.
   function posterDisplayTitle(title){
-    return String(title||'').replace(/\\s*\\((?:18|19|20|21)\\d{2}\\)(?=\\s|$)/g,'')
-      .replace(/\\s{2,}/g,' ').trim();
+    return String(title||'').replace(/\s*\((?:18|19|20|21)\d{2}\)(?=\s|$)/g,'')
+      .replace(/\s{2,}/g,' ').trim();
   }
   const posterNormalize=value=>posterDisplayTitle(value).toLocaleLowerCase()
     .replace(/[^a-z0-9]+/g,' ').trim();
@@ -977,7 +977,7 @@
     const copy=append(surface,'span','ml-card-copy');
     const label=append(copy,'span','ml-card-label',posterDisplayTitle(data.title||data.name));
     if(data.watched)append(label,'span','ml-watched-mark','✓').title='Watched';
-    const titleYear=String(data.title||data.name||'').match(/\\(((?:18|19|20|21)\\d{2})\\)/);
+    const titleYear=String(data.title||data.name||'').match(/\(((?:18|19|20|21)\d{2})\)/);
     const sub=String(data.year||titleYear?.[1]||data.detail||'').trim();
     if(sub)append(copy,'span','ml-card-year',sub);
     if(menuTarget?.kind==='item'||menuTarget?.kind==='show'){
