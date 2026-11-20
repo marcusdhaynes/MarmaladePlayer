@@ -279,10 +279,13 @@
     for(const ch of String(text||''))hash=(hash*31+ch.charCodeAt(0))|0;
     return ['#865f65','#6b779a','#9a714b','#80618c','#5f8781','#96745f','#786f9b'][Math.abs(hash)%7];
   }
-  function card(data,action,dir=false){
-    const button=create('button','ml-card');
-    button.type='button';
-    const art=append(button,'span','ml-card-art');
+  function card(data,action,dir=false,menuTarget=null){
+    // Never nest the 3-dot button inside a <button>. Card keyboard handling
+    // gives the card button semantics without invalid interactive markup.
+    const surface=create('div','ml-card');
+    surface.tabIndex=0;surface.setAttribute('role','button');
+    surface.setAttribute('aria-label',String(data.title||data.name||'Video'));
+    const art=append(surface,'span','ml-card-art');
     art.style.setProperty('--ml-glow',cleanHash(data.title||data.name));
     if(/^https:\/\//i.test(data.poster||'')){
       const image=append(art,'img','ml-art-poster');
@@ -290,15 +293,44 @@
       image.referrerPolicy='no-referrer';
       image.addEventListener('error',()=>image.remove(),{once:true});
     }
-    append(art,'span','ml-art-type',dir?(data.type==='tv'?'SERIES':'FOLDER'):data.type==='tv'?'EPISODE':'VIDEO');
+    append(art,'span','ml-art-type',dir?(data.type==='tv'?'SERIES':'FOLDER'):data.type==='tv'?'EPISODE':'MOVIE');
     const mark=String(data.title||data.name||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase();
     append(art,'span','ml-art-mark',dir?'▤':mark);
     append(art,'span','ml-play-symbol',dir?'›':'▶');
-    append(button,'span','ml-card-label',data.title||data.name);
-    append(button,'span','ml-card-detail',data.detail||'');
-    button.title=String(data.title||data.name);
-    button.addEventListener('click',action);
-    return button;
+    const label=append(surface,'span','ml-card-label',data.title||data.name);
+    if(data.watched){append(label,'span','ml-watched-mark','✓').title='Watched';}
+    if(data.favorite){append(label,'span','ml-favorite-mark','★').title='Favorite';}
+    append(surface,'span','ml-card-detail',data.detail||'');
+    surface.title=String(data.title||data.name);
+    surface.addEventListener('click',event=>{
+      if(event.target.closest('.ml-card-more'))return;
+      action();
+    });
+    surface.addEventListener('keydown',event=>{
+      if(event.target!==surface)return;
+      if(event.key==='Enter'||event.key===' '){
+        event.preventDefault();action();
+      }else if((event.key==='F10'&&event.shiftKey)||event.key==='ContextMenu'){
+        event.preventDefault();
+        const r=surface.getBoundingClientRect();
+        openMenu(menuTarget,r.right-10,r.bottom-5,surface);
+      }
+    });
+    if(menuTarget){
+      const more=append(surface,'button','ml-card-more','···');
+      more.type='button';more.title='More options for '+(data.title||data.name);
+      more.setAttribute('aria-label','More options for '+(data.title||data.name));
+      more.addEventListener('click',event=>{
+        event.preventDefault();event.stopPropagation();
+        const r=more.getBoundingClientRect();
+        openMenu(menuTarget,r.right,r.bottom,more);
+      });
+      surface.addEventListener('contextmenu',event=>{
+        event.preventDefault();event.stopPropagation();
+        openMenu(menuTarget,event.clientX,event.clientY,surface);
+      });
+    }
+    return surface;
   }
   function empty(title,explanation,actionLabel,action){
     const box=append(ui.cards,'div','ml-empty');
@@ -430,11 +462,11 @@
     }
     for(const value of roots.slice(0,state.showCount)){
       if(value.item)ui.cards.append(card({...value.item,detail:formatItemDetail(value.item)},
-        ()=>void play(value.item)));
+        ()=>void play(value.item),false,{kind:'item',item:value.item}));
       else ui.cards.append(card(value,()=>{
         state.folder={folderId:value.folderId,path:value.path,label:value.name};
         state.showCount=120;render();
-      },true));
+      },true,{kind:'folder',libId:lib.id,folderId:value.folderId,path:value.path}));
     }
     if(!roots.length)empty('No Videos Here','This folder has no indexed videos. Try scanning again.','Rescan Library',
       ()=>void scanLibrary(lib,{ask:true}));
@@ -456,6 +488,7 @@
   }
   function renderCards(){
     ui.cards.replaceChildren();
+    $('mlLibrarySections').replaceChildren();
     ui.cards.classList.toggle('ml-list',state.list);
     const lib=selectedLibrary();
     const items=filteredItems();
@@ -470,7 +503,8 @@
     if(state.series){
       const episodes=items.filter(i=>i.libraryId===state.series.libId&&i.show===state.series.show);
       for(const item of episodes.slice(0,state.showCount))
-        ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item)));
+        ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item),false,
+          {kind:'item',item}));
       if(!episodes.length)empty('No Episodes Found','Try changing the filters or rescanning this folder.');
       more(episodes.length);return;
     }
@@ -492,17 +526,46 @@
     if(state.sort==='year')visible.sort((a,b)=>
       (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.year||0),0)-
       (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.year||0),0));
-    for(const entity of visible.slice(0,state.showCount)){
+    const renderEntity=entity=>{
       if(entity.kind==='show'){
         const entry={title:entity.show,type:'tv',detail:entity.items.length+' Episodes',
-          poster:entity.items.find(item=>item.poster)?.poster||''};
+          poster:entity.items.find(item=>item.poster)?.poster||'',
+          favorite:entity.items.some(item=>item.favorite),
+          watched:entity.items.every(item=>item.watched)};
         ui.cards.append(card(entry,()=>{
           state.series={libId:entity.libId,show:entity.show};state.showCount=120;render();
-        },true));
+        },true,{kind:'show',libId:entity.libId,show:entity.show}));
       }else{
         ui.cards.append(card({...entity.item,detail:formatItemDetail(entity.item)},
-          ()=>void play(entity.item)));
+          ()=>void play(entity.item),false,{kind:'item',item:entity.item}));
       }
+    };
+    const sections=$('mlLibrarySections');
+    const movies=visible.filter(entity=>entity.kind==='file'&&entity.item.type!=='tv');
+    const shows=visible.filter(entity=>entity.kind==='show'||
+      (entity.kind==='file'&&entity.item.type==='tv'));
+    sections.replaceChildren();
+    const totalMovies=items.filter(item=>item.type!=='tv').length;
+    const totalShows=items.filter(item=>item.type==='tv').length;
+    for(const [kind,label,num] of [['movie','Movies',totalMovies],['tv','TV Shows',totalShows]]){
+      const b=append(sections,'button','ml-section-pill',label+' · '+num);
+      b.type='button';b.setAttribute('aria-pressed',String(state.kind===kind));
+      b.addEventListener('click',()=>{
+        state.kind=state.kind===kind?'all':kind;
+        ui.filter.value=state.kind;state.showCount=120;render();
+      });
+    }
+    const grouped=state.kind==='all'&&!state.collection.startsWith('playlist:')&&
+      !state.collection.startsWith('collection:');
+    if(grouped){
+      for(const [name,entries] of [['MOVIES',movies],['TV SHOWS',shows]]){
+        const heading=append(ui.cards,'div','ml-media-divider');
+        append(heading,'strong','',name);
+        append(heading,'small','',countLabel(entries.length));
+        for(const entity of entries.slice(0,state.showCount))renderEntity(entity);
+      }
+    }else{
+      for(const entity of visible.slice(0,state.showCount))renderEntity(entity);
     }
     if(!visible.length){
       if(state.query)empty('No Matches','Try another title, show, or folder name.');
