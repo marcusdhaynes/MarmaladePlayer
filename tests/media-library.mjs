@@ -15,6 +15,7 @@ const importRoot=mkdtempSync(join(tmpdir(),'marmalade-real-folder-'));
 mkdirSync(join(importRoot,'Movies'),{recursive:true});
 mkdirSync(join(importRoot,'TV Shows','Season 01'),{recursive:true});
 writeFileSync(join(importRoot,'Movies','Blade Runner (1982).mkv'),'movie');
+writeFileSync(join(importRoot,'A Single Movie (2025).mp4'),'root-level MP4');
 writeFileSync(join(importRoot,'TV Shows','Season 01','Some.Show.S01E01.mp4'),'episode 1');
 writeFileSync(join(importRoot,'TV Shows','Season 01','Some.Show.S01E02.mp4'),'episode 2');
 const emptyRoot=mkdtempSync(join(tmpdir(),'marmalade-no-media-'));
@@ -308,13 +309,15 @@ try{
   // The user selected this folder containing a .mp4 and nested video files.
   await page.locator('#mlDirectoryInput').setInputFiles(importRoot);
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
-    l.name==='Test'&&l.count===3&&l.folders.length===1));
+    l.name==='Test'&&l.count===4&&l.folders.length===1));
   await page.waitForFunction(()=>document.querySelector('#mlDialog')?.hidden===true);
-  assert.equal(await page.locator('#mlCards .ml-card').count(),2,
-    'The import automatically shows one movie card and one grouped series');
+  assert.equal(await page.locator('#mlCards .ml-card').count(),3,
+    'The import automatically shows two movie cards and one grouped series');
   assert.equal(await page.locator('#mlCards .ml-media-divider').count(),2,
     'Imported movies and TV shows display in separate sections');
   assert.equal(await page.locator('#mlCards').getByText('Blade Runner',{exact:false}).count(),1);
+  assert.equal(await page.locator('#mlCards').getByText('A Single Movie',{exact:false}).count(),1,
+    'A root-level .mp4 must appear without nested folders');
   assert.equal(await page.locator('#mlCards').getByText('Some Show',{exact:false}).count(),1);
   await page.waitForFunction(()=>/indexed in Test/.test(
     document.getElementById('mlStatus')?.textContent||''));
@@ -322,7 +325,7 @@ try{
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
   await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
   assert(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
-    l.name==='Test'&&l.count===3&&l.folders.length===1)),
+    l.name==='Test'&&l.count===4&&l.folders.length===1)),
     'One-click import must be saved to IndexedDB and survive reload');
 
   // The toolbar folder action must also attach directly to an existing shelf,
@@ -331,7 +334,7 @@ try{
   await page.locator('#mlQuickAdd').click();
   await page.locator('#mlDirectoryInput').setInputFiles(fallbackRoot);
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
-    l.name==='Test'&&l.count===4&&l.folders.length===2));
+    l.name==='Test'&&l.count===5&&l.folders.length===2));
   assert.equal(await page.locator('#mlDialog').isVisible(),false,
     'Toolbar folder import does not require another Save click');
   // A previous mock directory handle is not cloneable to IndexedDB and will
@@ -346,14 +349,14 @@ try{
         .objectStore('libraries').getAll();
       req.onerror=()=>resolve(false);
       req.onsuccess=()=>resolve(req.result.some(lib=>
-        lib.name==='Test'&&lib.items?.length===4&&lib.folders?.length===2));
+        lib.name==='Test'&&lib.items?.length===5&&lib.folders?.length===2));
     };
   }));
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
   await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
   assert(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
-    l.name==='Test'&&l.count===4&&l.folders.length===2)),
+    l.name==='Test'&&l.count===5&&l.folders.length===2)),
     'Both folder-picker modes durably save the attached folder catalog');
 
   assert.deepEqual(errors,[],'Library and player must initialize without JavaScript errors');
