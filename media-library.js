@@ -1832,12 +1832,16 @@
       if(!ui.menu.hidden&&!ui.menu.contains(event.target)&&
         !event.target.closest('.ml-card-more'))closeMenu();
     },true);
-    window.addEventListener('scroll',event=>{
-      // Capture-phase scroll listeners also observe internal scrolling of the
-      // portaled menu. Scrolling through menu actions must not close it.
-      if(!ui.menu.hidden && event.target!==ui.menu &&
-         !ui.menu.contains(event.target))closeMenu();
-    },true);
+    // The popover is fixed and portaled to body. Programmatic scrolling
+    // (including browser scrollIntoView for an action) must never detach its
+    // buttons during activation. Close on actual outside wheel/touch input
+    // instead; internal menu scrolling remains fully usable.
+    window.addEventListener('wheel',event=>{
+      if(!ui.menu.hidden&&!ui.menu.contains(event.target))closeMenu();
+    },{passive:true,capture:true});
+    window.addEventListener('touchmove',event=>{
+      if(!ui.menu.hidden&&!ui.menu.contains(event.target))closeMenu();
+    },{passive:true,capture:true});
     window.addEventListener('resize',closeMenu);
     window.addEventListener('keydown',event=>{
       if(event.key==='Escape'&&!ui.menu.hidden){event.preventDefault();closeMenu();return;}
