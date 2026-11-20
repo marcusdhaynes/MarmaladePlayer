@@ -161,7 +161,7 @@ try{
   await page.locator('#mlContextMenu').getByText('Edit Poster').click();
   const filePicker=await chooser;
   await filePicker.setFiles({name:'cover.png',mimeType:'image/png',
-    buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y3lLd8AAAAASUVORK5CYII=','base64')});
+    buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAwAAAASCAIAAADgy6hbAAAAGUlEQVR4nGNcEDCNgRBgIqhiVNGoIiorAgAlRAGq0hp+tgAAAABJRU5ErkJggg==','base64')});
   await page.waitForFunction(()=>Boolean(document.querySelector('#mlCards .ml-card img.ml-art-poster')));
   assert((await arrival().locator('img.ml-art-poster').getAttribute('src')).startsWith('data:image/'),
     'Compressed uploaded poster must appear on the card');
