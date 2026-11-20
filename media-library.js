@@ -441,7 +441,7 @@
     ui.itemDialog.hidden=false;
     ui.itemBody.replaceChildren();
     const isEdit=mode==='edit';
-    ui.itemTitle.textContent=isEdit?'Edit Movie or Episode':mode==='info'?'Media File Info':'Video Analysis';
+    ui.itemTitle.textContent=isEdit?'Edit Movie or Episode':'Get Info';
     ui.itemSave.hidden=!isEdit;
     $('mlItemDialogCancel').textContent=isEdit?'Cancel':'Close';
     if(!isEdit){
@@ -462,6 +462,13 @@
         append(line,'strong','',name);
         append(line,'span','',value||'Not Available');
       }
+      const analyzeAgain=append(ui.itemBody,'button','ml-info-analyze','Re-analyze File');
+      analyzeAgain.type='button';
+      analyzeAgain.title='Read local media duration and technical information again';
+      analyzeAgain.addEventListener('click',()=>{
+        analyzeAgain.disabled=true;
+        void analyze(item).finally(()=>{analyzeAgain.disabled=false;});
+      });
       return;
     }
     itemField(ui.itemBody,'Display Title',entry.title,'mlEditTitle');
