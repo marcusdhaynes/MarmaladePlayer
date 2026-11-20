@@ -854,8 +854,10 @@
       /^data:image\/(?:webp|jpeg|png);base64,/i.test(picture)||
       /^http:\/\/127\.0\.0\.1:18761\/poster\/[a-f0-9]{64}\.(?:webp|jpg)\?key=[a-f0-9]{64}$/.test(picture)){
       const image=append(art,'img','ml-art-poster');
-      image.src=picture;image.loading='lazy';image.alt='';
+      if(picture.startsWith('http://127.0.0.1:18761/poster/'))
+        image.crossOrigin='anonymous'; // The native server requires an approved Origin header.
       image.referrerPolicy='no-referrer';
+      image.src=picture;image.loading='lazy';image.alt='';
       image.addEventListener('error',()=>image.remove(),{once:true});
     }
     const mark=String(data.title||data.name||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase();
