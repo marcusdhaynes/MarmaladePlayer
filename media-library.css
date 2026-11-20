@@ -53,6 +53,10 @@
 .ml-card-art{position:relative;display:flex;flex:1;min-height:101px;align-items:center;justify-content:center;overflow:hidden;
  background:radial-gradient(circle at 25% 14%,var(--ml-glow,#ad7869),transparent 64%),linear-gradient(140deg,#352a35,#161923 80%);
  border:1px solid #ffffff16;border-radius:7px;color:#fff}
+.ml-art-poster{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;z-index:1}
+.ml-art-poster~.ml-art-mark{opacity:0}
+.ml-card-art:has(.ml-art-poster) .ml-art-type,
+.ml-card-art:has(.ml-art-poster) .ml-play-symbol{background:#130d19bb;padding:2px 4px;border-radius:4px}
 .ml-card-art:after{content:"";position:absolute;inset:0;opacity:.16;background:repeating-linear-gradient(118deg,transparent 0 11px,#ffffff15 11px 12px)}
 .ml-card-art .ml-art-mark{font-size:22px;font-family:Georgia,serif;font-weight:800;position:relative;z-index:1;letter-spacing:-1px;text-shadow:0 2px 9px #0009}
 .ml-card-art .ml-art-type{position:absolute;top:5px;left:5px;background:#13101abe;color:#ffce9f;border-radius:3px;
