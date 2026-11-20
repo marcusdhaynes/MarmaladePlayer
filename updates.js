@@ -53,29 +53,47 @@
     window.location.reload();
   }
 
-  function renderSection(el, info, status) {
-    el.innerHTML = '';
-    var title = document.createElement('h2'); title.textContent = 'Updates'; el.appendChild(title);
-    var cur = document.createElement('p'); cur.textContent = 'Current version: v' + CURRENT_VERSION; el.appendChild(cur);
-    var avail = document.createElement('p');
-    avail.textContent = 'Available version: ' + (info ? 'v' + info.version : '—'); el.appendChild(avail);
-    if (info && info.notes) {
-      var h = document.createElement('h3'); h.textContent = "What's New"; el.appendChild(h);
-      var pre = document.createElement('pre'); pre.style.whiteSpace = 'pre-wrap'; pre.textContent = info.notes; el.appendChild(pre);
+  function renderSection(el,info,status){
+    el.replaceChildren();el.className='updates-card';
+    var heading=document.createElement('div');heading.className='updates-heading';
+    var caption=document.createElement('strong');caption.textContent='Updates';
+    var statusText=document.createElement('span');
+    statusText.className='updates-state';
+    statusText.setAttribute('role','status');
+    statusText.textContent=status||(info?'Update Available':'');
+    if(status==='Checking…')statusText.dataset.state='checking';
+    else if(info)statusText.dataset.state='available';
+    else if(status==='You are up to date.')statusText.dataset.state='current';
+    else if(status)statusText.dataset.state='error';
+    heading.append(caption,statusText);el.append(heading);
+    var versions=document.createElement('div');versions.className='updates-versions';
+    for(var entry of [['Installed','v'+CURRENT_VERSION],['Latest',info?'v'+info.version:'—']]){
+      var item=document.createElement('div');item.className='updates-version';
+      var label=document.createElement('small');label.textContent=entry[0];
+      var value=document.createElement('strong');value.textContent=entry[1];
+      item.append(label,value);versions.append(item);
     }
-    if (status) { var s = document.createElement('p'); s.setAttribute('role', 'status'); s.textContent = status; el.appendChild(s); }
-    var row = document.createElement('div');
-    var check = document.createElement('button'); check.type = 'button'; check.textContent = 'Check for updates';
-    check.addEventListener('click', function () { mountSection(el); });
-    row.appendChild(check);
-    if (info) {
-      var upd = document.createElement('button'); upd.type = 'button';
-      upd.textContent = 'Update to v' + info.version;
-      upd.addEventListener('click', function () { applyUpdate(info); });
-      row.appendChild(upd);
+    el.append(versions);
+    if(info&&info.notes){
+      var notes=document.createElement('details');notes.className='updates-notes';
+      var toggle=document.createElement('summary');toggle.textContent="What's New";
+      var content=document.createElement('pre');content.textContent=info.notes;
+      notes.append(toggle,content);el.append(notes);
     }
-    el.appendChild(row);
+    var actions=document.createElement('div');actions.className='updates-actions';
+    var check=document.createElement('button');check.type='button';
+    check.className='updates-check';check.textContent='Check for Updates';
+    check.addEventListener('click',function(){mountSection(el);});
+    actions.append(check);
+    if(info){
+      var update=document.createElement('button');update.type='button';
+      update.className='updates-install';update.textContent='Get v'+info.version;
+      update.addEventListener('click',function(){applyUpdate(info);});
+      actions.append(update);
+    }
+    el.append(actions);
   }
+
   function mountSection(el) {
     renderSection(el, null, 'Checking…');
     checkForUpdate().then(function (info) {
@@ -125,7 +143,7 @@
         var created = document.createElement('section');
         created.id = 'updatesSection';
         created.setAttribute('aria-label', 'Updates');
-        panel.appendChild(created);
+        panel.insertBefore(created,panel.querySelector('.settings-footer'));
       }
     }
     var section = document.getElementById('updatesSection');

@@ -429,3 +429,36 @@
   .ml-panel .ml-filters #mlSearch{flex:1 1 110px}
   .ml-panel .ml-filters .ml-view-controls{margin-left:auto}
 }
+
+/* Library-level settings: top-right gear, no duplicate controls in the global palette. */
+.ml-panel .ml-header-actions{display:flex;align-items:center;gap:4px;margin-left:auto}
+.ml-panel .ml-settings-gear{display:grid;place-items:center;flex:none;width:32px;min-width:32px;height:32px;padding:4px!important}
+.ml-panel .ml-settings-gear svg{width:18px;height:18px}
+.ml-panel .ml-settings-gear[aria-expanded="true"]{color:#ffc998!important;background:#ffffff12!important}
+.ml-panel .ml-settings-panel{margin:-4px 0 12px;padding:11px;border:1px solid #a9856659;
+  background:linear-gradient(150deg,#29222e,#161720);border-radius:10px;box-shadow:0 12px 26px #0005}
+.ml-panel .ml-settings-panel[hidden]{display:none!important}
+.ml-panel .ml-settings-heading{display:flex;align-items:center;justify-content:space-between;
+  gap:8px;margin-bottom:8px;color:#ffe1c4;font-size:12px}
+.ml-panel .ml-settings-heading button{width:27px;min-height:27px;border:0;background:transparent;
+  color:#e6c9b8;font-size:22px;cursor:pointer}
+.ml-panel .ml-setting-control{display:flex;align-items:center;justify-content:space-between;
+  gap:9px;min-height:37px;padding:6px 8px;border:1px solid #ffffff12;
+  border-radius:6px;margin-bottom:5px;font-size:11px;color:#f2e4dd}
+.ml-panel .ml-setting-control input[type=checkbox]{width:17px;height:17px;accent-color:#c38b66}
+.ml-panel .ml-settings-panel p{margin:6px 2px 0;font-size:9px;line-height:1.5;color:#aaa0ac}
+/* All search/sort/filter controls occupy exactly one row. Selects are
+   intrinsically sized to their longest option, shrinking only when needed. */
+.ml-panel .ml-main{min-width:0;container-type:inline-size}
+.ml-panel .ml-filters{display:flex!important;flex-wrap:nowrap!important;gap:3px!important;min-width:0}
+.ml-panel .ml-filters input{flex:1 1 68px!important;width:68px!important;min-width:27px!important;
+  max-width:none!important;font-size:clamp(7px,2.5cqw,10px)!important;padding:3px 4px!important}
+.ml-panel .ml-filters select{flex:0 1 auto!important;width:max-content!important;
+  min-width:0!important;max-width:35%!important;font-size:clamp(7px,2.3cqw,10px)!important;
+  padding:3px 2px!important;text-overflow:ellipsis}
+.ml-panel .ml-view-controls{flex:0 0 auto;margin-left:4px}
+@container(max-width:300px){
+ .ml-panel .ml-filters{gap:2px!important}
+ .ml-panel .ml-filters select{font-size:7px!important;padding:2px 0!important;max-width:33%!important}
+ .ml-panel .ml-filters input{font-size:7px!important}
+}

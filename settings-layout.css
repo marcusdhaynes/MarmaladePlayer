@@ -140,3 +140,10 @@
 
 .settings-popover .settings-row[hidden],.settings-popover .settings-hint[hidden],
 .settings-popover .settings-monitor[hidden],.settings-popover .stability-info[hidden]{display:none!important}
+
+/* Natural intrinsic width: each dropdown expands to its widest option only. */
+.settings-popover .settings-row select,.settings-popover .settings-background-row select{
+  width:max-content!important;flex:0 1 auto!important;min-width:0!important;
+  max-width:57%!important
+}
+@media(max-width:380px){.settings-popover .settings-row select{width:max-content!important;flex-basis:auto!important}}

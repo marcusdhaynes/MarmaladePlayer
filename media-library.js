@@ -268,48 +268,47 @@
   }
   function addSetting(){
     const stack=document.querySelector('#settingsPageVideo .settings-stack');
-    if(!stack)return;
-    const label=create('label','settings-row settings-toggle-row ml-setting-row');
-    label.id='mlVisibilitySetting';
-    append(label,'span','','Media Library');
-    const check=append(label,'input');
-    check.type='checkbox';check.id='mlVisibilityToggle';
-    check.setAttribute('aria-label','Show media library beside movie and series information');
-    check.checked=readLocal(KEY,'false')==='true';
-    check.addEventListener('change',()=>setVisibility(check.checked));
-    stack.append(label);
-    const hint=append(stack,'p','settings-hint',
-      'Show your named, on-device movie and TV libraries beside Movie & Series Information.');
-    hint.id='mlSettingHint';
-    const posterRow=create('label','settings-row settings-toggle-row ml-setting-row');
-    posterRow.id='mlAutomaticPostersSetting';
-    append(posterRow,'span','','Automatically Load Posters');
-    const posterToggle=append(posterRow,'input');
-    posterToggle.type='checkbox';posterToggle.id='mlAutomaticPostersToggle';
+    if(stack&&!$('mlVisibilitySetting')){
+      const label=create('label','settings-row settings-toggle-row ml-setting-row');
+      label.id='mlVisibilitySetting';
+      append(label,'span','','Media Library');
+      const check=append(label,'input');
+      check.type='checkbox';check.id='mlVisibilityToggle';
+      check.setAttribute('aria-label','Show Media Library');
+      check.checked=readLocal(KEY,'false')==='true';
+      check.addEventListener('change',()=>setVisibility(check.checked));
+      stack.append(label);
+    }
+    const setting=$('mlSettingsBtn'),settingsPanel=$('mlSettingsPanel');
+    const close=()=>{
+      settingsPanel.hidden=true;
+      setting.setAttribute('aria-expanded','false');
+    };
+    setting.addEventListener('click',()=>{
+      const opening=settingsPanel.hidden;
+      settingsPanel.hidden=!opening;
+      setting.setAttribute('aria-expanded',String(opening));
+    });
+    $('mlSettingsClose').addEventListener('click',close);
+    document.addEventListener('pointerdown',event=>{
+      if(!settingsPanel.hidden&&!settingsPanel.contains(event.target)&&
+         !setting.contains(event.target))close();
+    },true);
+    window.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&!settingsPanel.hidden)close();
+    });
+    const posterToggle=$('mlAutomaticPostersToggle');
     posterToggle.checked=autoPostersEnabled();
     posterToggle.addEventListener('change',()=>{
       setLocal(AUTO_POSTERS_KEY,posterToggle.checked?'true':'false');
       posterSeen.clear();
       if(posterToggle.checked)render();
     });
-    stack.append(posterRow);
-    append(stack,'p','settings-hint',
-      'Automatically look up missing artwork using only movie or series titles and years. Video files and folder paths stay on your device.');
-    const columnsRow=create('label','settings-row ml-setting-row');
-    columnsRow.id='mlPosterColumnsSetting';
-    append(columnsRow,'span','','Poster Columns');
-    const columns=append(columnsRow,'input');
-    columns.type='number';columns.min=String(MIN_POSTER_COLUMNS);
-    columns.max=String(MAX_POSTER_COLUMNS);columns.step='1';
-    columns.id='mlPosterColumnsInput';
-    columns.value=String(state.posterColumns);
+    const columns=$('mlPosterColumnsInput');
     columns.setAttribute('aria-label','Number of posters per row (default four)');
     columns.addEventListener('change',()=>{setPosterColumns(columns.value);render();});
     ui.posterColumnsSetting=columns;
-    stack.append(columnsRow);
-    append(stack,'p','settings-hint',
-      'Default: 4 posters per row. Use − and + beside Poster View to adjust directly. Changes are remembered.');
-    setVisibility(check.checked);
+    setVisibility(readLocal(KEY,'false')==='true');
   }
   function permissions(folder,ask){
     if(!folder?.handle)return Promise.resolve(false);
