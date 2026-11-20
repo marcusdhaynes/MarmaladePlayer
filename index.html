@@ -658,12 +658,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         </div>
         <div id="mediaHint" hidden aria-hidden="true"></div>
         <div class="local-copy-feedback" id="localCopyPanel" hidden role="status" aria-live="polite"><small id="localCopyStatus">Waiting for Host Video…</small></div>
-        <input id="localCopyInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg" hidden>
+        <input id="localCopyInput" type="file" accept="video/*,.3g2,.3gp,.asf,.avi,.divx,.f4v,.flv,.m2t,.m2ts,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.mts,.ogv,.ts,.vob,.webm,.wmv" hidden>
  
 
         <div class="movie-info-reopen-row"><button id="mediaInfoReopen" type="button" class="movie-info-reopen" title="Show Movie &amp; Series Information" aria-label="Show Movie &amp; Series Information" aria-controls="mediaInfoPanel" aria-expanded="false"><span aria-hidden="true">i</span></button></div>
         <section class="media-info" id="mediaInfoPanel" aria-label="Movie and TV information" hidden>
-          <div class="mi-header"><strong>Movie &amp; Series Information</strong><div class="mi-header-right"><span id="miStatus" class="mi-muted" role="status" aria-live="polite">No Video Selected</span><button type="button" id="miClose" aria-label="Close movie information">✕</button></div></div>
+          <div class="mi-header"><strong>Movie &amp; Series Information</strong><div class="mi-header-right"><span id="miStatus" class="mi-muted" role="status" aria-live="polite">No Video Selected</span></div></div>
           <form id="miSearchForm" class="mi-search-row" role="search">
             <input id="miSearch" type="search" aria-label="Search Title" placeholder="Movie or Series Title" autocomplete="off" maxlength="160">
             <select id="miKind" aria-label="Movie or TV Series"><option value="movie">Movie</option><option value="tv">TV</option></select>
@@ -716,7 +716,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         <div class="role-tabs"><button id="hostTab" type="button">Host</button><button id="joinTab" type="button">Join</button></div>
         <div id="hostPanel">
           <button id="chooseFile" type="button">Choose Video</button>
-          <input id="fileInput" type="file" accept="video/*,audio/*,.mkv,.avi,.mov,.m4v,.ts,.m2ts,.flv,.wmv,.mp4,.webm,.mp3,.flac,.wav,.ogg">
+          <input id="fileInput" type="file" accept="video/*,.3g2,.3gp,.asf,.avi,.divx,.f4v,.flv,.m2t,.m2ts,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.mts,.ogv,.ts,.vob,.webm,.wmv">
           <span id="fileInfo"></span>
           <button id="createRoom" type="button">Create Room</button>
           <button id="startBroadcast" type="button">Start Broadcast</button>
@@ -2559,13 +2559,39 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     chooseVideo(file);
     updateRoomPanel();
   }
+  // Native and fallback file dialogs start on VIDEO, not "All Files".
+  // The explicit extensions cover formats that operating systems often fail
+  // to recognize as video/* (including MKV, AVI, TS and legacy containers).
+  // Other files remain selectable via the native All Files option; playback
+  // support still depends on the decoder installed on the device.
+  const VIDEO_FILE_EXTENSIONS = [
+    '.3g2','.3gp','.amv','.asf','.avi','.divx','.drc','.f4v','.flv',
+    '.gifv','.m1v','.m2p','.m2t','.m2ts','.m2v','.m4v','.mjpeg',
+    '.mjpg','.mk3d','.mkv','.mov','.mp4','.mpe','.mpeg','.mpg',
+    '.mpv','.mts','.mxf','.nsv','.ogv','.qt','.rm','.rmvb','.roq',
+    '.rv','.ts','.vob','.webm','.wmv','.xvid','.y4m','.yuv'
+  ];
+  const VIDEO_FILE_ACCEPT = ['video/*', ...VIDEO_FILE_EXTENSIONS].join(',');
+  el.fileInput.accept = VIDEO_FILE_ACCEPT;
+  el.localCopyInput.accept = VIDEO_FILE_ACCEPT;
+  const VIDEO_PICKER_TYPES = [
+    { description: 'Video Files', accept: { 'video/*': VIDEO_FILE_EXTENSIONS } },
+    { description: 'Audio Files', accept: { 'audio/*': [
+      '.aac','.aif','.aiff','.alac','.flac','.m4a','.mp3','.ogg',
+      '.opus','.wav','.wma'
+    ] } }
+  ];
   function openMoviePicker() {
     if(performance.now() < (state.stopPickerUntil||0))return;
     if ((state.source && !(state.source === 'file' && media.error)) || state.connecting) return;
     if (state.role !== 'host') selectRole('host');
     if(typeof window.showOpenFilePicker==='function'){
       // This gesture can retain a persistent, permission-checked file handle.
-      void window.showOpenFilePicker({multiple:false}).then(async handles=>{
+      void window.showOpenFilePicker({
+        multiple:false,
+        types:VIDEO_PICKER_TYPES,
+        excludeAcceptAllOption:false
+      }).then(async handles=>{
         const handle=handles?.[0];if(!handle)return;
         const file=await handle.getFile();
         if(!isVideoFile(file)){notify('Choose a video or audio file.');return;}
@@ -2604,7 +2630,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     updateRoomPanel();
   }
   function isVideoFile(file) {
-    return !!file && (file.type.startsWith('video/') || file.type.startsWith('audio/') || /\.(mkv|avi|mov|m4v|ts|m2ts|flv|wmv|mp4|webm|mp3|flac|wav|ogg)$/i.test(file.name));
+    return !!file && (file.type.startsWith('video/') || file.type.startsWith('audio/') ||
+      /\.(3g2|3gp|amv|asf|avi|divx|drc|f4v|flv|gifv|m1v|m2p|m2t|m2ts|m2v|m4v|mjpeg|mjpg|mk3d|mkv|mov|mp4|mpe|mpeg|mpg|mpv|mts|mxf|nsv|ogv|qt|rm|rmvb|roq|rv|ts|vob|webm|wmv|xvid|y4m|yuv|aac|aif|aiff|alac|flac|m4a|mp3|ogg|opus|wav|wma)$/i.test(file.name));
   }
   function chooseVideo(file) {
     if (state.role !== 'host') { notify('Only the host selects a video.'); return; }
