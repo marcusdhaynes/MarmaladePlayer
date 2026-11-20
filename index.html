@@ -706,7 +706,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <select id="mlLibraryKind"><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="mixed">Other Videos</option></select>
                 <div class="ml-dialog-label">Media Folders</div>
                 <div id="mlFolderList" class="ml-folder-list" aria-label="Folders belonging to this library"></div>
-                <button type="button" class="ml-pick-folder" id="mlPickFolder">+ Choose Folder</button>
+                <div class="ml-folder-pickers">
+                  <button type="button" class="ml-pick-folder" id="mlPickFolder">+ Choose Folder</button>
+                  <button type="button" class="ml-compat-folder" id="mlCompatibilityFolder" title="Use a compatible folder picker for Safari, Firefox, or restricted WebViews">Other Picker</button>
+                </div>
                 <p class="ml-help">Only the folder's video files are indexed. Videos stay on this device and are never uploaded. You can add more folders or change them later.</p>
                 <div class="ml-dialog-bottom"><button id="mlDeleteLibrary" type="button" class="ml-danger" hidden>Remove Library</button><span class="ml-dialog-spacer"></span><button id="mlDialogCancel" type="button">Cancel</button><button id="mlDialogSave" type="button" class="ml-primary">Save Library</button></div>
               </div>
