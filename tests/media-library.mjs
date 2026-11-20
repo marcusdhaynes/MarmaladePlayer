@@ -131,11 +131,41 @@ try{
   assert.equal(await page.locator('.ml-tool-icon svg.glass-icon').count(),5,
     'Library tool buttons have the player SVG style');
   const arrival=()=>page.locator('#mlCards .ml-card').filter({hasText:'Arrival'});
+  const aspect=await arrival().locator('.ml-card-art').evaluate(art=>{
+    const bounds=art.getBoundingClientRect();
+    return bounds.width/bounds.height;
+  });
+  assert(Math.abs(aspect-2/3)<.04,'Poster artwork must be a portrait 2:3 aspect ratio');
+  assert.equal(await arrival().locator('.ml-art-type').count(),0,'Movie label is removed from artwork');
+  assert.equal(await arrival().locator('.ml-card-star').getAttribute('aria-pressed'),'false');
+  await arrival().locator('.ml-card-star').click();
+  assert.equal(await arrival().locator('.ml-card-star').getAttribute('aria-pressed'),'true',
+    'The top-right star toggles favorites without opening playback');
   await arrival().locator('.ml-card-more').click();
+  const contextLabels=await page.locator('#mlContextMenu .ml-menu-action').allTextContents();
+  for(const forbidden of ['▶  Play','Add to Favorites','Remove Favorite',
+    'Analyze','Refresh Metadata','Match / Fix Match']){
+    assert(!contextLabels.some(label=>label.includes(forbidden)),
+      'Removed menu action must remain absent: '+forbidden);
+  }
+  for(const required of ['Match','Get Info','Edit Poster']){
+    assert(contextLabels.some(label=>label.includes(required)),
+      'Unified menu action must exist: '+required);
+  }
   assert.equal(await page.locator('#mlContextMenu').isVisible(),true,
     'Three-dot control must open the custom video options menu');
   assert(await page.locator('#mlContextMenu').getByText('Edit Details').isVisible());
   assert(await page.locator('#mlContextMenu').getByText('Mark as Watched').isVisible());
+  // Uploading a poster must use the user's own image, not fetch a metadata API.
+  const chooser=page.waitForEvent('filechooser');
+  await page.locator('#mlContextMenu').getByText('Edit Poster').click();
+  const filePicker=await chooser;
+  await filePicker.setFiles({name:'cover.png',mimeType:'image/png',
+    buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y3lLd8AAAAASUVORK5CYII=','base64')});
+  await page.waitForFunction(()=>Boolean(document.querySelector('#mlCards .ml-card img.ml-art-poster')));
+  assert((await arrival().locator('img.ml-art-poster').getAttribute('src')).startsWith('data:image/'),
+    'Compressed uploaded poster must appear on the card');
+  await arrival().locator('.ml-card-more').click();
   await page.locator('#mlContextMenu').getByText('Mark as Watched').click();
   await arrival().click({button:'right'});
   assert.equal(await page.locator('#mlContextMenu').isVisible(),true,
