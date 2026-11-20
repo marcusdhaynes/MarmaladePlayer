@@ -635,7 +635,8 @@
       }
     });
     if(menuTarget){
-      const more=append(surface,'button','ml-card-more','···');
+      const more=append(surface,'button','ml-card-more');
+      more.innerHTML='<svg class="glass-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
       more.type='button';more.title='More options for '+(data.title||data.name);
       more.setAttribute('aria-label','More options for '+(data.title||data.name));
       more.addEventListener('click',event=>{
@@ -702,8 +703,9 @@
         button.addEventListener('contextmenu',event=>{
           event.preventDefault();openMenu({kind:'library',libId:lib.id},event.clientX,event.clientY);
         });
-        const edit=append(row,'button','ml-shelf-edit','✎');
+        const edit=append(row,'button','ml-shelf-edit icon-btn');
         edit.type='button';edit.title='Edit '+lib.name+' library';
+        edit.innerHTML='<svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m4 20 4-.9L20 7l-3-3L5 16.1zM14.5 6.5l3 3"/></svg>';
         edit.setAttribute('aria-label','Edit library '+lib.name);
         edit.addEventListener('click',()=>{setSelected(lib.id);openEditor(lib);});
       }
