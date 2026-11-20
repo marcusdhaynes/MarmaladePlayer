@@ -15,9 +15,14 @@
   const bridge = () => window.MarmaladeAddonBridge;
   const supported = () => typeof MediaSource !== 'undefined' &&
     typeof MediaSource.isTypeSupported === 'function';
-  const isCurrent = session => current === session && !session.closed &&
-    bridge()?.state?.file === session.file &&
-    bridge()?.state?.source === 'file';
+  const isCurrent = session => {
+    const state=bridge()?.state;
+    return current===session&&!session.closed&&!!state&&(
+      session.kind==='native'
+        ? state.source==='native'&&state.nativeStreamUrl===session.inputUrl
+        : state.source==='file'&&state.file===session.file
+    );
+  };
 
   function cleanup() {
     const session = current;
@@ -144,69 +149,85 @@
     }
   }
 
-  async function handle(file) {
+  async function handleSource(source, file=null) {
     cleanup();
-    const app = bridge();
-    if (!file || app?.state?.file !== file || app.state.role !== 'host' ||
-        !supported()) return false;
-
-    const session = { file, video: app.media, closed: false, url: '',
-      remuxer: null, mediaSource: null, buffer: null, interval: 0,
-      running: false, finished: false, seekTo: null, declaredDuration: 0,
-      onSeeking: null, onTimeUpdate: null };
-    current = session;
-
+    const app=bridge();
+    if(!app||!source||app.state.role!=='host')return false;
+    if(source.kind==='file'&&app.state.file!==file)return false;
+    if(source.kind==='native'&&
+       (app.state.source!=='native'||app.state.nativeStreamUrl!==source.url))return false;
+    if(!supported()){
+      app.notify?.('This device does not expose MediaSource playback, required for MKV audio conversion.');
+      return false;
+    }
+    const session={file,kind:source.kind,inputUrl:source.url||'',source,
+      video:app.media,closed:false,url:'',originalSrc:app.media.currentSrc||app.media.src,
+      wantedTime:app.media.currentTime||0,wasPlaying:!app.media.paused,
+      remuxer:null,mediaSource:null,buffer:null,interval:0,
+      running:false,finished:false,seekTo:null,declaredDuration:0,
+      onSeeking:null,onTimeUpdate:null,stage:'Loading local decoder'};
+    current=session;
     try {
       // Dynamic import only after detecting incompatible audio; ordinary
       // videos never download the decoder or incur background CPU overhead.
+      // Keep the decoder lazy: ordinary videos do not load WASM at startup.
+      // This path is also used for Minternet's HTTP range-backed MKV streams.
       const module = await import('./vendor/libav-wasm/index.js');
+      if(typeof module.makeRemuxer!=='function')
+        throw new Error('The packaged libav-wasm module has no makeRemuxer export.');
       if (!isCurrent(session)) return false;
       const base = new URL('./vendor/libav-wasm/', document.baseURI).href;
+      session.stage='Initializing FFmpeg audio worker / WebAssembly';
       session.remuxer = await module.makeRemuxer({
         publicPath: base,
         workerUrl: new URL('worker.js', base).href,
         workerOptions: { type: 'module' },
-        length: file.size,
+        length: source.length,
         bufferSize: 1024 * 1024,
-        audioCodecs: ['aac', 'opus', 'flac'],
-        read: (offset, size) =>
-          file.slice(offset, Math.min(offset + size, file.size)).arrayBuffer()
+        read: source.read
       });
       if (!isCurrent(session)) return false;
-      const header = await session.remuxer.init();
+      session.stage='Reading MKV audio and video tracks';
+      const header=await session.remuxer.init();
       if (!isCurrent(session)) return false;
       const tracks = [header.info?.output?.videoMimeType,
         header.info?.output?.audioMimeType].filter(Boolean);
       const mime = 'video/mp4; codecs="' + tracks.join(',') + '"';
+      if(!header.info?.output?.audioMimeType)
+        throw new Error('The decoder did not produce a playable audio track for this MKV.');
       if (!tracks.length || !MediaSource.isTypeSupported(mime))
         throw new Error('This browser cannot play the remuxed video format: ' + mime);
 
-      const source = new MediaSource();
-      session.mediaSource = source;
+      session.stage='Opening MediaSource stream';
+      const mediaSource = new MediaSource();
+      session.mediaSource = mediaSource;
       const opened = new Promise((resolve, reject) => {
-        source.addEventListener('sourceopen', resolve, { once: true });
-        source.addEventListener('sourceclose', () => reject(new Error('MediaSource closed')), { once: true });
+        mediaSource.addEventListener('sourceopen', resolve, { once: true });
+        mediaSource.addEventListener('sourceclose', () => reject(new Error('MediaSource closed')), { once: true });
       });
       // The video and audio are in the SAME MSE timeline: host, guests, and
       // subtitles remain synchronized; no separate audio player is necessary.
       app.media.pause();
       app.state.fileReady = false;
-      session.url = URL.createObjectURL(source);
+      session.url = URL.createObjectURL(mediaSource);
       app.media.src = session.url;
       app.media.load();
       await opened;
       if (!isCurrent(session)) return false;
-      session.buffer = source.addSourceBuffer(mime);
+      session.stage='Opening decoded audio/video buffer';
+      session.buffer = mediaSource.addSourceBuffer(mime);
       session.buffer.mode = 'segments';
       session.buffer.timestampOffset = header.timestampOffset || 0;
       const duration = Number(header.info?.input?.duration);
       if (Number.isFinite(duration) && duration > 0) {
         session.declaredDuration = duration;
-        source.duration = duration;
+        mediaSource.duration = duration;
       }
 
+      session.stage='Appending MKV media initialization segment';
       await append(session, header.data);
       if (!isCurrent(session)) return false;
+      session.stage='Decoding first audio segment';
       await nextChunk(session);
 
       session.onSeeking = () => {
@@ -222,26 +243,65 @@
       app.media.addEventListener('seeking', session.onSeeking);
       app.media.addEventListener('timeupdate', session.onTimeUpdate);
       session.interval = setInterval(() => void nextChunk(session), 300);
-      app.el.fileInfo.textContent = file.name + ' · Compatible AAC audio (automatic)';
+      // A native stream was already playing when conversion was requested.
+      // Retain that intent and timeline after moving to fragmented MP4.
+      if(session.wantedTime>0){
+        try{app.media.currentTime=session.wantedTime;}catch{}
+      }
+      if(session.wasPlaying){
+        const resume=app.media.play();
+        if(resume?.catch)void resume.catch(()=>app.notify?.(
+          'Compatible audio is ready. Press Play once to enable sound.'));
+      }
+      app.el.fileInfo.textContent = source.name +
+        ' · MKV sound converted to compatible AAC locally';
       return true;
     } catch (error) {
-      console.warn('Automatic MKV audio compatibility unavailable', error);
+      console.warn('Automatic MKV audio compatibility failed at '+session.stage,error);
       if (isCurrent(session)) {
+        const wasUsingMSE=!!session.url&&app.media.src===session.url;
+        const original=session.originalSrc;
         cleanup();
-        // Do not claim sound is fixed when the fallback could not initialize.
-        app.el.fileInfo.textContent = file.name + ' · Automatic audio decode unavailable';
-        const toast = app.el.toast;
-        if (toast) {
-          toast.textContent = 'Could not initialize the built-in MKV audio decoder on this device. This movie may play without sound.';
-          toast.hidden = false;
+        if(wasUsingMSE&&original){
+          try{app.media.src=original;app.media.load();}catch{}
+        }
+        const reason=String(error?.message||error||'unknown error').slice(0,220);
+        const message='MKV audio conversion failed ('+session.stage+'): '+reason;
+        app.el.fileInfo.textContent=source.name+' · Audio conversion unavailable';
+        app.notify?.(message);
+        // Keep the native file or loopback stream playable when the optional
+        // decoder fails. Never leave the <video> element on a dead MSE blob.
+        if(wasUsingMSE&&session.wasPlaying){
+          const resume=app.media.play();
+          if(resume?.catch)void resume.catch(()=>{});
         }
       }
       return false;
     }
   }
+  async function handle(file){
+    try{
+      const source=window.MarmaladeMkvIO?.fromFile(file);
+      if(!source)throw new Error('MKV decoder source adapter was not bundled.');
+      return await handleSource(source,file);
+    }catch(error){
+      bridge()?.notify?.('MKV audio setup failed: '+String(error?.message||error));
+      return false;
+    }
+  }
+  async function handleNative({url,name,size}={}){
+    try{
+      const source=window.MarmaladeMkvIO?.fromNativeStream({url,name,size});
+      if(!source)throw new Error('Minternet MKV media-range adapter was not bundled.');
+      return await handleSource(source);
+    }catch(error){
+      bridge()?.notify?.('Minternet MKV audio setup failed: '+String(error?.message||error));
+      return false;
+    }
+  }
 
   window.MarmaladeMkvAudio = {
-    handle, cleanup,
+    handle,handleNative,cleanup,
     getDuration: () => current && isCurrent(current) &&
       Number.isFinite(current.declaredDuration) && current.declaredDuration > 0 ?
       current.declaredDuration : 0
