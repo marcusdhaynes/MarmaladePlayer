@@ -321,3 +321,72 @@
 }
 .ml-panel .ml-info-analyze:hover:not(:disabled){background:#503646;border-color:#ffca9f}
 .ml-panel .ml-info-analyze:disabled{opacity:.45;cursor:progress}
+
+
+/* Poster refinements: artwork is the card (no extra tile frame).
+   Star and ellipsis are small glyphs directly on the image, not buttons
+   drawn inside visible boxes. Their transparent hit areas remain clickable. */
+.ml-panel .ml-cards:not(.ml-list) .ml-card,
+.ml-panel .ml-cards:not(.ml-list) .ml-card:hover{
+  padding:0;background:transparent;border:0;border-radius:0;
+  box-shadow:none;overflow:visible;
+}
+.ml-panel .ml-cards:not(.ml-list) .ml-card-art{
+  border:0;box-shadow:none;border-radius:6px;
+}
+.ml-panel .ml-card-art::after{
+  border:0;box-shadow:none;
+  background:linear-gradient(112deg,#ffffff1b 0%,transparent 22%,transparent 80%,#ffffff06 100%);
+}
+.ml-panel .ml-card .ml-art-mark{display:none!important}
+.ml-panel .ml-card .ml-card-star,
+.ml-panel .ml-card .ml-card-star[aria-pressed="true"]{
+  top:5px;right:5px;width:26px;min-width:26px;height:26px;min-height:26px;
+  padding:0!important;border:0!important;border-radius:0!important;
+  background:transparent!important;box-shadow:none!important;
+  backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+  font-size:16px!important;line-height:1!important;
+  color:#fff8e9!important;text-shadow:0 2px 5px #000f,0 0 2px #000;
+}
+.ml-panel .ml-card .ml-card-star[aria-pressed="true"]{
+  color:#ffca70!important;
+}
+.ml-panel .ml-card .ml-card-star:hover,
+.ml-panel .ml-card .ml-card-star:focus-visible{
+  background:transparent!important;border:0!important;
+  box-shadow:none!important;filter:brightness(1.2);
+}
+.ml-panel .ml-card .ml-card-more,
+.ml-panel .ml-card .ml-card-more:hover,
+.ml-panel .ml-card .ml-card-more:focus-visible{
+  right:5px;bottom:5px;width:26px;min-width:26px;
+  height:26px;min-height:26px;padding:2px!important;
+  border:0!important;border-radius:0!important;
+  background:transparent!important;box-shadow:none!important;
+  backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+  color:#fff9f0!important;
+  filter:drop-shadow(0 2px 3px #000d);
+}
+.ml-panel .ml-card .ml-card-more svg{width:17px;height:17px}
+.ml-panel .ml-card .ml-card-star:focus-visible,
+.ml-panel .ml-card .ml-card-more:focus-visible{
+  outline:2px solid #ffd298;outline-offset:1px;
+}
+.ml-panel .ml-cards.ml-list .ml-card,
+.ml-panel .ml-cards.ml-list .ml-card:hover{
+  background:transparent;border:0;box-shadow:none;border-radius:0;
+}
+.ml-panel .ml-cards.ml-list .ml-card-art{border:0;box-shadow:none}
+.ml-panel .ml-cards.ml-list .ml-card-star{
+  top:5px;right:42px;width:25px;min-width:25px;height:25px;min-height:25px;
+  font-size:15px!important;
+}
+.ml-panel .ml-cards.ml-list .ml-card-more{
+  right:4px;top:50%;bottom:auto;transform:translateY(-50%);
+}
+@media(max-width:480px){
+  .ml-panel .ml-card .ml-card-star{top:4px;right:4px}
+  .ml-panel .ml-card .ml-card-more{right:4px;bottom:4px}
+  .ml-panel .ml-cards.ml-list .ml-card-more{top:50%;bottom:auto}
+  .ml-panel .ml-cards.ml-list .ml-card-star{top:4px;right:40px}
+}
