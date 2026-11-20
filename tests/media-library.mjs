@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {readFileSync} from 'node:fs';
-import {resolve,extname,sep} from 'node:path';
+import {readFileSync,mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {resolve,extname,sep,join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 
 const root=resolve(fileURLToPath(new URL('../',import.meta.url)));
+const fallbackRoot=mkdtempSync(join(tmpdir(),'marmalade-library-'));
+mkdirSync(join(fallbackRoot,'Nested'));
+writeFileSync(join(fallbackRoot,'Nested','The Prestige (2006).mp4'),'fixture video');
+writeFileSync(join(fallbackRoot,'Notes.txt'),'not a video');
 const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css',
  '.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
 const server=createServer((req,res)=>{
@@ -161,9 +166,30 @@ try{
   assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().length),1,
     'Deleting a catalog leaves the other library intact');
 
+  // Safari/Firefox and restricted WebViews can use the directory input without
+  // silent access after a browser restart. The indexed catalog still survives.
+  await page.evaluate(()=>{window.showDirectoryPicker=undefined;});
+  await page.locator('#mlNewLibrary').click();
+  await page.locator('#mlLibraryName').fill('Fallback Folder');
+  await page.locator('#mlDirectoryInput').setInputFiles(fallbackRoot);
+  await page.waitForFunction(()=>document.querySelectorAll('#mlFolderList .ml-folder-entry').length===1);
+  await page.locator('#mlDialogSave').click();
+  await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
+    l.name==='Fallback Folder'&&l.count===1));
+  await page.waitForFunction(()=>document.querySelector('#mlCurrentShelf')?.textContent==='Fallback Folder');
+  assert.equal(await page.locator('#mlCards .ml-card').count(),1,
+    'Directory fallback includes nested videos, but not text files');
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
+  await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
+  assert(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
+    l.name==='Fallback Folder'&&l.count===1)),
+    'Session-only source catalogs survive reopening without retaining raw video files');
+
   assert.deepEqual(errors,[],'Library and player must initialize without JavaScript errors');
   console.log('PASS Plex-style named libraries, recursive scan, search, TV grouping, player, persistence, rename, delete, split UI');
 }finally{
   await browser.close();
   await new Promise(resolve=>server.close(resolve));
+  rmSync(fallbackRoot,{recursive:true,force:true});
 }
