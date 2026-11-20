@@ -380,7 +380,7 @@
     ui.manage.disabled=!lib||state.scanning;
     ui.quickAdd.disabled=!lib||state.scanning;
     ui.art.disabled=state.scanning||state.artworkBusy||!items.length;
-    ui.rescan.disabled=!lib||state.scanning;
+    ui.rescan.disabled=!state.libraries.length||state.scanning;
     breadcrumbs();
     if(state.folderMode){renderFolders(items);return;}
     if(state.series){
@@ -654,7 +654,12 @@
     });
     ui.name.addEventListener('input',()=>ui.name.setCustomValidity(''));
     ui.rescan.addEventListener('click',()=>{
-      const lib=selectedLibrary();if(lib)void scanLibrary(lib,{ask:true});
+      const lib=selectedLibrary();
+      if(lib){void scanLibrary(lib,{ask:true});return;}
+      void (async()=>{
+        for(const shelf of state.libraries)await scanLibrary(shelf,{ask:true});
+        notify('All libraries have finished scanning.');
+      })();
     });
     ui.quickAdd.addEventListener('click',()=>{
       const lib=selectedLibrary();
@@ -727,6 +732,9 @@
     state.list=readLocal('marmalade:media-library:list','false')==='true';
     ui.view.setAttribute('aria-pressed',String(state.list));
     state.ready=true;render();
+    const chosen=selectedLibrary();
+    if(chosen&&chosen.folders.some(f=>f.handle)&&
+      now()-(chosen.lastScan||0)>20*60*1000)void scanLibrary(chosen);
     return true;
   })();
   window.MarmaladeMediaLibrary={
