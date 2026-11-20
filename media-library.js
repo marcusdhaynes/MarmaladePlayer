@@ -798,8 +798,6 @@
         item=>{item.watched=true;},'Series marked watched.'));
       action('✓  Mark All Episodes Unwatched',()=>void mutateItems(entries,
         item=>{item.watched=false;},'Series marked unwatched.'));
-      action('★  Favorite Series',()=>void mutateItems(entries,
-        item=>{item.favorite=true;},'Series added to favorites.'));
       action('☷  Add Series to Watchlist',()=>void mutateItems(entries,
         item=>{item.watchlist=true;},'Series added to watchlist.'));
       action('＋  Add Series to Collection',()=>{
@@ -875,7 +873,7 @@
     if(data.watched)append(label,'span','ml-watched-mark','✓').title='Watched';
     const sub=String(data.year||data.detail||'').trim();
     if(sub)append(copy,'span','ml-card-year',sub);
-    if(menuTarget?.kind==='item'){
+    if(menuTarget?.kind==='item'||menuTarget?.kind==='show'){
       const star=append(surface,'button','ml-card-star',data.favorite?'★':'☆');
       star.type='button';
       star.setAttribute('aria-pressed',String(!!data.favorite));
@@ -883,7 +881,14 @@
       star.title=data.favorite?'Remove from Favorites':'Add to Favorites';
       star.addEventListener('click',event=>{
         event.preventDefault();event.stopPropagation();
-        void mutateItems([menuTarget.item],item=>{item.favorite=!item.favorite;},'Favorites updated.');
+        if(menuTarget.kind==='show'){
+          const episodes=showItems(menuTarget);
+          const mark=!episodes.every(episode=>episode.favorite);
+          void mutateItems(episodes,item=>{item.favorite=mark;},
+            mark?'Series added to Favorites.':'Series removed from Favorites.');
+        }else{
+          void mutateItems([menuTarget.item],item=>{item.favorite=!item.favorite;},'Favorites updated.');
+        }
       });
     }
     surface.title=String(data.title||data.name);
@@ -1120,7 +1125,7 @@
         const entry={title:entity.show,type:'tv',detail:entity.items.length+' Episodes',
           year:entity.items.map(item=>Number(item.year)).find(year=>year>=1880&&year<=2100)||null,
           poster:entity.items.find(item=>item.poster)?.poster||'',
-          favorite:entity.items.some(item=>item.favorite),
+          favorite:entity.items.every(item=>item.favorite),
           watched:entity.items.every(item=>item.watched)};
         ui.cards.append(card(entry,()=>{
           state.series={libId:entity.libId,show:entity.show};state.showCount=120;render();
