@@ -13,6 +13,10 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  // FFmpeg's worker and WASM engine are large, version-sensitive binaries.
+  // Never serve an obsolete decoder from the offline app shell or double-store
+  // dozens of MB in WebView2's more limited service-worker cache.
+  if(new URL(req.url).pathname.includes('/vendor/libav-wasm/'))return;
   event.respondWith(fetch(req).then(response => {
     if (response.ok) {
       const copy = response.clone();
