@@ -68,8 +68,12 @@ try{
     };
     const wrap=(name,files)=>({
       kind:'directory',name,
-      queryPermission:async()=> 'granted',
-      requestPermission:async()=> 'granted',
+      queryPermission:async()=> name==='Films'&&!window.__filmAccessApproved?'prompt':'granted',
+      requestPermission:async()=>{
+        window.__permissionRequests=(window.__permissionRequests||0)+1;
+        if(name==='Films')window.__filmAccessApproved=true;
+        return 'granted';
+      },
       async *entries(){
         for(const [entryName,item] of Object.entries(files))
           yield [entryName,item.kind?item:wrap(entryName,item)];
@@ -98,6 +102,8 @@ try{
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('3 videos'));
   assert((await page.locator('#mlScanPreview').textContent()).includes('3 videos'),
     'Selected video folder should index its actual video files before saving');
+  assert.equal(await page.evaluate(()=>window.__permissionRequests),1,
+    'Newly selected folder in prompt state must request access instead of silently staying empty');
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
     l.name==='My Movies'&&l.count===3));

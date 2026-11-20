@@ -211,12 +211,18 @@
     const promise=(async()=>{
       scanPreview('Indexing '+folder.name+'…');
       try{
-        const found=await scanFolder(folder,draft.kind,state.scanSeq,false);
+        // Request access while the folder-selection gesture is still active.
+        // Newly chosen handles often report "prompt", not "granted", and a
+        // silent scan with ask=false previously produced an empty library.
+        const found=await scanFolder(folder,draft.kind,state.scanSeq,true);
         if(draft!==state.pending)return;
         if(found===null){
-          scanPreview('Folder access is not available. Use Reconnect or Other Picker to index its videos.');
+          state.scanProblems.set(folder.id,'Folder access not granted');
+          scanPreview('No access to '+folder.name+'. Click Reconnect and allow folder access, or use Other Picker.');
+          notify('Folder permission needed. Reconnect '+folder.name+' and allow read access.');
           return;
         }
+        state.scanProblems.delete(folder.id);
         const previous=new Map((draft.items||[]).map(i=>[i.id,i]));
         for(const item of found){
           const old=previous.get(item.id);
@@ -1138,6 +1144,13 @@
     // Wait for its preview scan rather than committing an apparently blank catalog.
     if(state.pendingScans.size)await Promise.allSettled([...state.pendingScans]);
     if(state.pending!==pending)return;
+    const failed=pending.folders.filter(folder=>state.scanProblems.has(folder.id));
+    if(failed.length&&!(pending.items||[]).length){
+      scanPreview('Videos were not indexed. Reconnect '+failed.map(f=>f.name).join(', ')+
+        ', approve read access, then Save. Your library was not overwritten.');
+      notify('Folder scan incomplete. Reconnect and approve access before saving.');
+      return;
+    }
     const priorKind=pending.kind;
     pending.name=name;pending.kind=ui.kind.value;
     pending.items=(pending.items||[]).filter(item=>pending.folders.some(f=>f.id===item.folderId));
