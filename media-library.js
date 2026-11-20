@@ -256,19 +256,26 @@
           for(const item of found){
             const previous=prior.get(item.id);
             if(previous){
-              item.addedAt=previous.addedAt||item.addedAt;
-              if(previous.poster)item.poster=previous.poster;
+              Object.assign(item,{...previous,id:item.id,path:item.path,folderId:item.folderId,
+                name:item.name,size:item.size,lastModified:item.lastModified,
+                addedAt:previous.addedAt||item.addedAt});
             }
           }
-          items.push(...found);
-        }else accessIssues++;
+          const blocked=new Set(lib.hiddenIds||[]);
+          items.push(...found.filter(item=>!blocked.has(item.id)));
+          state.scanProblems.delete(folder.id);
+        }else{
+          accessIssues++;
+          state.scanProblems.set(folder.id,'Permission needed. Use Edit Library → Reconnect.');
+        }
       }
       if(seq!==state.scanSeq)return;
       lib.items=items;
       lib.lastScan=now();
       await persist(lib);
-      if(folderIssues)notify('Some folders could not be scanned. Their last catalog was preserved.');
-      else if(accessIssues)notify('Folder access needed. Open Manage to reconnect folders; saved titles remain visible.');
+      if(folderIssues)notify('Some folders failed to scan. Edit Library to reconnect; previously indexed titles are kept.');
+      else if(accessIssues)notify(accessIssues+' folder'+(accessIssues===1?' needs':'s need')+
+        ' access. Click the pencil next to '+lib.name+' and reconnect. Indexed titles remain visible.');
       else notify(countLabel(items.length)+' indexed in '+lib.name+'.');
     }finally{
       if(seq===state.scanSeq){state.scanning=false;ui.rescan.disabled=false;render();}
@@ -1053,7 +1060,10 @@
         return;
       }catch(error){
         if(error?.name==='AbortError')return;
-        console.warn('Native directory picker unavailable, trying folder input:',error);
+        console.warn('Native directory picker unavailable:',error);
+        scanPreview('Persistent folder picker unavailable. Click Other Picker to import videos.');
+        notify('Use Other Picker to select a directory in this browser.');
+        return;
       }
     }
     ui.directoryInput.value='';
