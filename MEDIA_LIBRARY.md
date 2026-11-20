@@ -88,10 +88,22 @@ app imports the extension catalog with
 in the extension's library page.
 
 For **Minternet** (Marcus's own browser), the guarantee is stronger by
-design: a native module (`extension/minternet/media_library.rs`) stores
-folder **paths** in Minternet's app data and rescans them natively on
-startup — no handles, no permission prompts, **no reconnect, ever**.
-Route analysis (why WebView2 extension loading was rejected) is in
+design — and it is NOT built into Minternet for Marmalade alone. Minternet
+ships a general-purpose **Local Media Library add-on** (a Minternet add-on
+any granted site can use; Marmalade is its first consumer). The add-on
+stores folder **paths** in its own add-on data and rescans them natively
+on startup — no handles, no permission prompts, **no reconnect, ever**.
+System webviews (WebView2/WKWebView/WebKitGTK) give web pages no working
+`showDirectoryPicker` and no usable `webkitdirectory` folder return, which
+is why web-only fixes could never work inside Minternet: the folder must
+be chosen in the add-on's native dialog. When the add-on's bridge
+(`window.MinternetMediaLibrary`) is present, Marmalade's Choose Folder
+routes through it, the catalog appears automatically on load, and cards
+play through the add-on's scoped asset serving. Without the add-on,
+Minternet shows an honest message instead of silently indexing 0 videos.
+The add-on lives in the Minternet repo under `addons/local-media-library/`
+with the generic add-on host documented in `addons/README.md`; the older
+prototype analysis (why WebView2 extension loading was rejected) is in
 `extension/minternet/README.md`. Honest per-browser limits for
 Firefox/Safari are documented in `extension/targets/` — their catalogs
 persist, but those engines offer no persistent folder access to any

@@ -111,6 +111,23 @@
     try{await dbOperation('readwrite','delete',idToRemove);}catch{notify('Could not remove saved library data.');}
   }
   function selectedLibrary(){return state.libraries.find(l=>l.id===state.selected)||null;}
+  // Generic Minternet "Local Media Library" add-on API. Any granted site
+  // can use this bridge; Marmalade is simply its first consumer. The older
+  // MarmaladeNativeLibrary name is accepted for compatibility.
+  function nativeLibraryApi(){
+    const api=window.MinternetMediaLibrary||window.MarmaladeNativeLibrary;
+    return api&&typeof api.getCatalog==='function'?api:null;
+  }
+  // A folder is "dead" when this page can no longer read it: a session
+  // folder from a previous visit (its File objects are gone after reload),
+  // or a handle folder whose handle did not survive IndexedDB storage.
+  // Dead folders are why a saved library can sit at 0 videos forever:
+  // nothing ever rescans them. They must be reconnected by re-picking.
+  function folderIsDead(folder){
+    if(!folder||folder.source==='extension'||folder.source==='native')return false;
+    if(folder.source==='session')return !state.sessionFolderLoaded.has(folder.id);
+    return !folder.handle;
+  }
   function allItems(){return state.libraries.flatMap(l=>(l.items||[]).map(item=>({...item,libraryId:l.id,libraryName:l.name})));}
   function shelfItems(){const lib=selectedLibrary();return lib?
     (lib.items||[]).map(item=>({...item,libraryId:lib.id,libraryName:lib.name})):allItems();}
@@ -294,9 +311,9 @@
     try{
       for(const folder of lib.folders){
         if(seq!==state.scanSeq)break;
-        // Extension-held folders are rescanned by the extension itself;
-        // the web app must never overwrite their catalog from here.
-        if(folder.source==='extension')continue;
+        // Extension-held and Minternet add-on folders are rescanned by
+        // their owners; the web app must never overwrite their catalogs.
+        if(folder.source==='extension'||folder.source==='native')continue;
         let found=null;
         try{found=await scanFolder(folder,lib.kind,seq,ask);}
         catch(error){
@@ -984,8 +1001,9 @@
       else if(!items.length&&lib&&lib.folders.length===0)
         empty('Add a Media Folder','Choose a folder to populate '+lib.name+'. Videos will be added automatically.',
           '+ Choose Folder',()=>chooseAndAttachFolder(lib));
-      else if(lib)empty('No Videos Indexed','Rescan your media folders or reconnect folder access.',
-        'Manage Library',()=>openEditor(lib));
+      else if(lib)empty('No Videos Indexed',
+        'The folders in '+lib.name+' returned no videos — they may be disconnected after a reload, or the scan found no supported files. Choose the folder again and its videos will appear here as cards.',
+        '+ Choose Folder',()=>chooseAndAttachFolder(lib));
       else empty('No Videos Yet','Add folders to a library to build your collection.',
         '+ Add Library',()=>openEditor(null));
     }
@@ -1016,10 +1034,29 @@
     return {file,handle};
   }
   async function play(item){
-    // Extension-held items play in the extension library page, which owns
-    // the stored folder handles. The web page never receives handles/bytes.
     const ownerLib=state.libraries.find(l=>l.id===item.libraryId);
     const ownerFolder=ownerLib?.folders.find(f=>f.id===item.folderId);
+    // Minternet add-on items stream from the add-on's scoped asset serving.
+    // Playback is local to this player (watch-together hosting still needs
+    // a File picked through the ordinary Choose Video flow).
+    if(ownerFolder?.source==='native'){
+      const url=item.url;
+      if(!url){notify('Minternet did not provide a playable address for this video. Rescan in Minternet\u2019s Local Media Library add-on.');return;}
+      const bridge=window.MarmaladeAddonBridge;
+      const media=bridge?.media;
+      if(!media){notify('Player is not ready to open library videos.');return;}
+      try{
+        media.src=url;media.preload='auto';media.load();
+        if(bridge.el?.fileName)bridge.el.fileName.textContent=item.name||item.title||'';
+        if(bridge.el?.fileInfo)bridge.el.fileInfo.textContent=(item.name||'')+' · via Minternet';
+        const started=media.play?.();
+        if(started&&typeof started.catch==='function')started.catch(()=>{});
+        notify('Playing '+(item.name||item.title)+' · Streamed locally by Minternet.');
+      }catch(error){notify('This video cannot be played: '+(error?.message||'unknown error'));}
+      return;
+    }
+    // Extension-held items play in the extension library page, which owns
+    // the stored folder handles. The web page never receives handles/bytes.
     if(ownerFolder?.source==='extension'){
       window.postMessage({source:'marmalade-web',type:'play',itemId:item.id},location.origin);
       notify('Opening in the Marmalade Library extension… If nothing opens, click the extension icon and choose Open Library.');
@@ -1101,7 +1138,9 @@
       const found=(pending.items||[]).filter(i=>i.folderId===folder.id).length;
       const problem=state.scanProblems.get(folder.id);
       const label=problem?('▣ '+folder.name+' · Not scanned — '+problem):
-        ('▣ '+folder.name+' · '+countLabel(found)+(folder.source==='handle'?' · Remembered':' · This session only'));
+        ('▣ '+folder.name+' · '+countLabel(found)+
+          (folder.source==='handle'?(folder.handle?' · Remembered':' · Needs reconnect'):
+           folder.source==='native'?' · Via Minternet':' · This session only'));
       const text=append(wrap,'span','',label);
       text.title=folder.name;
       const controls=append(wrap,'div');
@@ -1134,7 +1173,9 @@
     ui.kind.value=state.pending.kind;
     ui.delete.hidden=!lib;
     drawFolders();
-    scanPreview(lib?(lib.items||[]).length+' indexed videos · Edit the name, type or folders, then Save.':
+    scanPreview(lib?((lib.items||[]).length+' indexed videos'+
+      ((lib.folders||[]).some(folderIsDead)?' · A folder is disconnected — press Reconnect next to it, or + Add Folder, and choose it again.':'')+
+      ' · Edit the name, type or folders, then Save.'):
       'Choose a folder to preview its videos before saving.');
     ui.dialog.hidden=false;
     ui.name.focus();
@@ -1149,6 +1190,12 @@
     openEditor(lib);
     if(!state.pending)return;
     state.autoAttachDraft=state.pending;
+    // Repopulate IN PLACE: if this EMPTY library has a dead folder (the
+    // classic saved-at-0 library), the next pick replaces that folder
+    // instead of piling a duplicate onto it. A library whose catalog
+    // survived (items > 0) keeps its folders — this button ADDs a folder.
+    const dead=(lib.items||[]).length===0?(lib.folders||[]).find(folderIsDead):null;
+    if(dead)state.relink=dead.id;
     notify('Choose a folder. Its videos will be added to '+lib.name+' automatically.');
     // This must run in the original click handler, preserving browser file-picker
     // user activation. The editor is only a fallback if access fails.
@@ -1193,6 +1240,17 @@
       notify('Choose or create a library before selecting a media folder.');
       return;
     }
+    // Minternet (and any browser shipping the generic Local Media Library
+    // add-on): the add-on owns a REAL native folder dialog and stores the
+    // folder path itself, rescanning on every launch. System webviews give
+    // pages no working showDirectoryPicker and no usable directory-input
+    // folder return, so routing through the add-on is the only flow that
+    // can work there — and it never needs a reconnect.
+    const addon=nativeLibraryApi();
+    if(addon&&typeof addon.addFolder==='function'){
+      void pickAddonFolder(addon);
+      return;
+    }
     if(typeof window.showDirectoryPicker==='function'){
       void pickNativeFolder();
       return;
@@ -1228,6 +1286,25 @@
   async function pickPersistentFolder(){
     pickFolder();
   }
+  async function pickAddonFolder(api){
+    scanPreview('Choose a folder in the native dialog. Minternet\u2019s Local Media Library add-on stores it and rescans it on every launch — no reconnect, ever.');
+    let catalog=null;
+    try{catalog=await api.addFolder();}catch{/* read the catalog below */}
+    if(!catalog&&typeof api.getCatalog==='function'){
+      try{catalog=await api.getCatalog();}catch{/* handled below */}
+    }
+    const libraries=Array.isArray(catalog)?catalog:(catalog?.libraries||[]);
+    const result=await importAddonCatalog(libraries);
+    state.autoAttachDraft=null;
+    if(result.count>0){
+      closeEditor();
+      if(result.libId)setSelected(result.libId);
+      notify(countLabel(result.count)+' available from Minternet. The folder is stored by the add-on and rescanned on every launch.');
+    }else{
+      scanPreview('Minternet returned no videos. If you cancelled the folder dialog, press + Add Folder and choose the folder again. If the folder does contain videos, open Minternet\u2019s Local Media Library add-on panel and confirm the folder is listed there.');
+      notify('No videos came from Minternet yet. Nothing was saved over your existing libraries.');
+    }
+  }
   function fallbackFiles(files){
     const pending=currentPending();
     if(!pending||!files.length)return;
@@ -1250,13 +1327,30 @@
       if(prior)folder.id=prior.id;
     }
     for(const file of files){
+      if(!video(file.name))continue;
       const rel=file.webkitRelativePath||'';
       const parts=rel.split('/').filter(Boolean);
       // Strip only the shared root segment; a file sitting directly in the
       // chosen folder keeps its bare filename, nested files keep their
       // subfolder path. Files with no relative path keep their filename.
-      const path=(parts.length>1?parts.slice(1).join('/'):file.name)||file.name;
-      if(video(file.name))state.sessionFiles.set(folder.id+'|'+path,file);
+      let path=(parts.length>1?parts.slice(1).join('/'):file.name)||file.name;
+      // Pickers that return bare files (empty webkitRelativePath, e.g.
+      // Android/WebView folder pickers) can deliver the SAME filename from
+      // different subfolders — Season 1 and Season 2 copies of one episode
+      // name are the classic case. Keying the session map by path alone
+      // silently overwrote all but one of them, so real movies vanished
+      // from the count. Keep every file by uniquifying its catalog path;
+      // the displayed title still comes from the real filename.
+      if(state.sessionFiles.has(folder.id+'|'+path)){
+        const slash=path.lastIndexOf('/'),dot=path.lastIndexOf('.');
+        let n=2,unique=path;
+        while(state.sessionFiles.has(folder.id+'|'+unique)){
+          unique=(dot>slash?path.slice(0,dot):path)+' ('+n+')'+(dot>slash?path.slice(dot):'');
+          n++;
+        }
+        path=unique;
+      }
+      state.sessionFiles.set(folder.id+'|'+path,file);
     }
     state.sessionFolderLoaded.add(folder.id);
     const matching=files.filter(file=>video(file.name));
@@ -1370,7 +1464,11 @@
       const chosen=[...event.target.files||[]];
       event.target.value='';
       if(!chosen.length){
-        scanPreview('No files selected. The library has not been changed.');
+        // Honest failure for system webviews (Minternet without its add-on,
+        // app WebViews): the picker can appear to work yet return nothing
+        // to the page. Say so plainly instead of silently indexing 0.
+        scanPreview('No files were received from the folder picker — the library has not been changed. If you are in Minternet or another app webview, its built-in picker cannot return folders to web pages: enable Minternet\u2019s Local Media Library add-on, or open Marmalade in Chrome, Edge or Firefox instead.');
+        state.autoAttachDraft=null;
         return;
       }
       fallbackFiles(chosen);
@@ -1385,6 +1483,18 @@
     ui.name.addEventListener('input',()=>ui.name.setCustomValidity(''));
     ui.rescan.addEventListener('click',()=>{
       const lib=selectedLibrary();
+      if(lib&&String(lib.id).startsWith('addon:')){
+        const api=nativeLibraryApi();
+        if(api&&typeof api.rescan==='function'){
+          void (async()=>{
+            try{await api.rescan();}catch{/* sync below reports state */}
+            const result=await syncFromNative();
+            notify(result.count?countLabel(result.count)+' available from Minternet after rescan.':
+              'Minternet\u2019s add-on returned no videos on rescan.');
+          })();
+          return;
+        }
+      }
       if(lib){void scanLibrary(lib,{ask:true});return;}
       void (async()=>{
         for(const shelf of state.libraries)await scanLibrary(shelf,{ask:true});
@@ -1461,6 +1571,18 @@
     state.list=readLocal('marmalade:media-library:list','false')==='true';
     ui.view.setAttribute('aria-pressed',String(state.list));
     state.ready=true;render();
+    // A saved library whose folders all died with the last session (the
+    // reported "refreshed, looks exactly the same, 0 indexed videos" state)
+    // must say what to do instead of sitting silently at zero.
+    const deadLib=state.libraries.find(l=>(l.items||[]).length===0&&
+      (l.folders||[]).some(folderIsDead));
+    if(deadLib)notify(deadLib.name+' has 0 indexed videos because its folder is disconnected. Open it and press + Choose Folder — choosing the folder once repopulates it.');
+    // Minternet add-on: folders were chosen ONCE in Minternet and are
+    // rescanned natively on every launch, so the catalog simply appears.
+    if(nativeLibraryApi()){
+      const synced=await syncFromNative();
+      if(synced.count)notify(countLabel(synced.count)+' available from Minternet\u2019s Local Media Library add-on.');
+    }
     const chosen=selectedLibrary();
     if(chosen&&chosen.folders.some(f=>f.handle)&&
       now()-(chosen.lastScan||0)>20*60*1000)void scanLibrary(chosen);
@@ -1511,11 +1633,57 @@
     if(imported)render();
     return imported;
   }
+  // ---- Generic Local Media Library add-on (Minternet first) ------------
+  // The add-on (window.MinternetMediaLibrary) is a general Minternet
+  // add-on: it stores folder PATHS in its own add-on data, rescans them
+  // natively on startup, and serves files through scoped asset URLs.
+  // Per-origin grants are the add-on's own store; Marmalade only reads the
+  // catalog it is granted. Items arrive with an asset `url` for playback.
+  async function importAddonCatalog(libraries){
+    let imported=0,firstLibId=null;
+    for(const extLib of libraries||[]){
+      if(!extLib?.id||!Array.isArray(extLib.items))continue;
+      const libId='addon:'+extLib.id;
+      const folders=(extLib.folders||[]).map(f=>({id:f.id,name:f.name,source:'native',handle:null}));
+      const items=extLib.items.map(item=>{
+        const copy={...item};delete copy.libraryId;
+        if(!copy.type||copy.title===undefined){
+          const parsed=describe(copy.name||'',copy.path||'',extLib.kind||'movie');
+          if(!copy.type){copy.type=parsed.type;copy.show=parsed.show;
+            copy.season=parsed.season;copy.episode=parsed.episode;}
+          if(copy.title===undefined)copy.title=parsed.title;
+          if(copy.year===undefined)copy.year=parsed.year;
+        }
+        return copy;
+      });
+      const existing=state.libraries.find(l=>l.id===libId);
+      const record={id:libId,name:extLib.name||'Minternet Library',kind:extLib.kind||'movie',
+        folders,items,hiddenIds:existing?.hiddenIds||[],createdAt:existing?.createdAt||now(),
+        lastScan:extLib.lastScan||now()};
+      if(existing)state.libraries[state.libraries.indexOf(existing)]=record;
+      else state.libraries.push(record);
+      await persist(record);
+      imported+=items.length;
+      if(!firstLibId)firstLibId=libId;
+    }
+    if(imported)render();
+    return {count:imported,libId:firstLibId};
+  }
+  async function syncFromNative(preloaded){
+    const api=nativeLibraryApi();
+    if(!api&&preloaded===undefined)return {count:0,libId:null};
+    let catalog=preloaded;
+    if(catalog===undefined){
+      try{catalog=await api.getCatalog();}catch{return {count:0,libId:null};}
+    }
+    const libraries=Array.isArray(catalog)?catalog:(catalog?.libraries||[]);
+    return importAddonCatalog(libraries);
+  }
   async function syncFromExtension(){
     const nativeLib=window.MarmaladeNativeLibrary;
     if(nativeLib&&typeof nativeLib.getCatalog==='function'){
-      // Minternet native module: paths are native-owned, rescanned on
-      // Minternet startup; this is a pure catalog read, no reconnect step.
+      // Legacy Marmalade-named bridge: paths are native-owned, rescanned on
+      // startup; this is a pure catalog read, no reconnect step.
       try{
         const catalog=await nativeLib.getCatalog();
         const count=await importExtensionCatalog(catalog?.libraries||catalog||[]);
@@ -1535,7 +1703,8 @@
     return count;
   }
   window.MarmaladeMediaLibrary={
-    ready,show:setVisibility,select:setSelected,syncFromExtension,
+    ready,show:setVisibility,select:setSelected,syncFromExtension,syncFromNative,
+    hasNativeLibrary:()=>!!nativeLibraryApi(),
     getLibraries:()=>state.libraries.map(l=>({id:l.id,name:l.name,kind:l.kind,
       folders:l.folders.map(f=>({id:f.id,name:f.name,source:f.source})),
       count:l.items.length})),
