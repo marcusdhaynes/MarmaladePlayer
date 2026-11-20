@@ -2536,6 +2536,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.localVerified=false;state.localFingerprint=null;
     retireHosted();state.hostedUrl='';state.backupUrl='';
     state.source = null;
+    state.nativeStreamUrl = '';
     state.file = null;
     state.fileReady = false;
     state.peerCache.clear();state.peerCacheBytes=0;
@@ -2637,6 +2638,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     removeMedia();
     state.source='native';
+    state.nativeStreamUrl=url;
     state.file=null;
     // Native HTTP streams are not object URLs. Do not register them for
     // URL.revokeObjectURL() on the next player reset.
@@ -2672,6 +2674,19 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       console.warn('Native library playback requires user activation',error);
       needsTapToPlay(true);
     });
+    // WebView2 may render the MKV picture but cannot decode its Dolby/DTS
+    // soundtrack. Unlike Firefox, Minternet streams a native HTTP URL rather
+    // than a File: feed its byte ranges into the SAME FFmpeg/WASM remuxer.
+    if(/\.mkv$/i.test(name||'')){
+      if(typeof window.MarmaladeMkvAudio?.handleNative==='function'){
+        void window.MarmaladeMkvAudio.handleNative({url,name,size}).then(ok=>{
+          if(!ok&&state.source==='native'&&state.nativeStreamUrl===url)
+            notify('This MKV audio track could not be converted. The decoder reported its precise failure above.');
+        });
+      }else{
+        notify('MKV audio support was not loaded. Reload Marmaladeum to install the decoder resources.');
+      }
+    }
     return true;
   }
   // Native and fallback file dialogs start on VIDEO, not "All Files".
@@ -2779,8 +2794,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         if(state.file!==file)return;
         const probe=new TextDecoder('latin1').decode(buffer);
         const match=/A_(EAC3|AC3|DTS(?:\/[^\x00\s]+)?|TRUEHD|MLP)/i.exec(probe);
-        if(!match)return;
-        const label=match[1].toUpperCase().replace('EAC3','E-AC-3');
+        // WebView2's audio codec set differs from Firefox and depends on
+        // Windows. Prefer the bundled decoder for ALL local MKV files inside
+        // Minternet, even when an unfamiliar Matroska codec string did not
+        // appear in the first two megabytes.
+        if(!match&&!window.MinternetMediaLibrary)return;
+        const label=match?match[1].toUpperCase().replace('EAC3','E-AC-3'):'MKV';
         el.fileInfo.textContent += ' · Preparing '+label+' audio automatically';
         if(window.MarmaladeMkvAudio?.handle)
           void window.MarmaladeMkvAudio.handle(file);
