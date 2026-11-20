@@ -207,3 +207,101 @@
 .ml-panel .ml-shelf-edit svg{width:18px;height:18px;stroke:currentColor}
 .ml-panel .ml-card-more svg{width:19px;height:19px;stroke:none;fill:currentColor}
 .ml-panel .ml-card-more:hover:not(:disabled) svg{fill:#fff}
+
+
+/* Media Library poster cards — vertical movie-art proportions, glossy glass
+   treatment, full-image title/year and actions in the requested corners. */
+.ml-panel .ml-cards:not(.ml-list) .ml-card{
+  display:block;min-height:0;padding:5px;isolation:isolate;
+  border-radius:12px;box-shadow:0 7px 18px #05040955,0 1px 0 #ffffff10 inset;
+}
+.ml-panel .ml-cards:not(.ml-list) .ml-card-art{
+  display:block;flex:none;aspect-ratio:2 / 3;width:100%;min-height:0;height:auto;
+  position:relative;border-radius:8px;overflow:hidden;
+  background:radial-gradient(circle at 24% 12%,var(--ml-glow,#986a82),transparent 65%),
+    linear-gradient(150deg,#35303e,#171622 78%);
+}
+.ml-panel .ml-card-art::before{
+  content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
+  background:linear-gradient(180deg,#ffffff18 0%,transparent 17%,transparent 38%,
+    #0c081311 50%,#08060cbf 88%,#08060cec 100%);
+}
+.ml-panel .ml-card-art::after{
+  content:"";position:absolute;inset:0;z-index:3;pointer-events:none;opacity:1;
+  background:linear-gradient(118deg,#ffffff25 0%,#ffffff08 12%,transparent 35%,transparent 70%,#ffffff0a 100%);
+  border:1px solid #ffffff20;border-radius:inherit;
+  box-shadow:inset 0 1px 0 #ffffff36,inset 0 -6px 14px #0003;
+}
+.ml-panel .ml-card .ml-card-copy{
+  position:absolute;z-index:5;left:12px;right:43px;bottom:12px;
+  display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+  min-width:0;pointer-events:none;text-shadow:0 2px 7px #000d,0 1px 2px #000f;
+}
+.ml-panel .ml-card .ml-card-label{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  overflow:hidden;padding:0;max-width:100%;min-height:0;
+  color:#fffaf6;font-weight:780;font-size:11px;line-height:1.24;
+  overflow-wrap:anywhere;
+}
+.ml-panel .ml-card .ml-card-year{
+  display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:9px;font-weight:620;letter-spacing:.15px;color:#ebd8cd;
+}
+.ml-panel .ml-card .ml-card-art .ml-art-mark{
+  font-size:clamp(18px,2.3vw,29px);opacity:.75;text-shadow:0 3px 12px #000a;
+}
+.ml-panel .ml-card .ml-card-art:has(.ml-art-poster) .ml-art-mark{opacity:0}
+.ml-panel .ml-card .ml-play-symbol{
+  position:absolute;top:46%;left:50%;right:auto;bottom:auto;
+  transform:translate(-50%,-50%) scale(.85);
+  font-size:22px;z-index:4;opacity:0;transition:opacity .15s,transform .15s;
+  color:#fff9f5;text-shadow:0 2px 12px #000;
+  background:#120d1b8c;border:1px solid #ffffff60;border-radius:50%;
+  display:grid;place-items:center;width:41px;height:41px;
+}
+.ml-panel .ml-card:hover .ml-play-symbol,
+.ml-panel .ml-card:focus-visible .ml-play-symbol{
+  opacity:1;transform:translate(-50%,-50%) scale(1);
+}
+.ml-panel .ml-card .ml-card-star{
+  position:absolute;top:11px;right:11px;z-index:8;display:grid;place-items:center;
+  width:32px;min-width:32px;height:32px;min-height:32px;padding:0!important;
+  border:1px solid #ffffff70!important;border-radius:9px;
+  background:#1c1420af!important;color:#fff4e6!important;
+  font:700 23px/1 system-ui,sans-serif!important;text-shadow:0 1px 9px #000d;
+  backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
+  box-shadow:0 3px 12px #0008;cursor:pointer;
+}
+.ml-panel .ml-card .ml-card-star[aria-pressed="true"]{
+  color:#ffc36e!important;background:#553423cf!important;border-color:#ffcb92aa!important;
+}
+.ml-panel .ml-card .ml-card-star:hover,.ml-panel .ml-card .ml-card-star:focus-visible{
+  transform:scale(1.06);border-color:#ffe0af!important;outline:2px solid #ffcf89;outline-offset:1px;
+}
+.ml-panel .ml-card .ml-card-more{
+  position:absolute;bottom:10px;right:10px;z-index:8;
+  background:#130e1cc2!important;border-color:#ffffff50!important;
+  color:#fff6e9!important;backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
+}
+.ml-panel .ml-card .ml-watched-mark{color:#b3f2c8;vertical-align:middle;margin-left:4px}
+.ml-panel .ml-cards.ml-list .ml-card{
+  min-height:76px;display:flex;align-items:center;gap:10px;padding-right:43px;
+  isolation:isolate;
+}
+.ml-panel .ml-cards.ml-list .ml-card-art{
+  display:block;min-height:0;height:65px;aspect-ratio:2/3;width:43px;flex:0 0 43px;
+}
+.ml-panel .ml-cards.ml-list .ml-card-copy{
+  position:static;display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;
+  text-shadow:none;pointer-events:none;
+}
+.ml-panel .ml-cards.ml-list .ml-card-star{top:6px;right:43px;width:27px;min-width:27px;height:27px;min-height:27px;font-size:19px!important}
+.ml-panel .ml-cards.ml-list .ml-card-more{right:6px;bottom:50%;transform:translateY(50%)}
+.ml-panel .ml-cards.ml-list .ml-play-symbol{display:none}
+@media(max-width:480px){
+  .ml-panel .ml-card .ml-card-copy{left:10px;right:39px;bottom:10px}
+  .ml-panel .ml-card .ml-card-label{font-size:10px}
+  .ml-panel .ml-card .ml-card-year{font-size:9px}
+  .ml-panel .ml-card .ml-card-star{top:9px;right:9px}
+  .ml-panel .ml-card .ml-card-more{bottom:8px;right:8px}
+}
