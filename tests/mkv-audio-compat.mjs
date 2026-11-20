@@ -147,6 +147,90 @@ try{
   assert.equal(await page.locator('#stageTitle').textContent(),'Choose a movie.');
   assert.equal(await page.locator('#player').getAttribute('src'),null);
   console.log('PASS E-AC-3 AAC automatic playback and Stop without opening file picker');
+
+  // Minternet-specific second half: the SAME synthetic E-AC-3 MKV is now
+  // served over the loopback HTTP Range API, not selected as a browser File.
+  // This reproduces the extension path that previously displayed video with
+  // no audio, while leaving the real browser codec/audio graph intact.
+  const nativeBytes=readFileSync(source);
+  const nativeKey='a'.repeat(64);
+  const rangeServer=createServer((req,res)=>{
+    const target=new URL(req.url,'http://127.0.0.1:18761');
+    const headers={
+      'Access-Control-Allow-Origin':'http://127.0.0.1:'+port,
+      'Access-Control-Allow-Private-Network':'true',
+      'Access-Control-Allow-Methods':'GET, OPTIONS',
+      'Access-Control-Allow-Headers':'Range',
+      'Access-Control-Expose-Headers':'Content-Range, Content-Length, Accept-Ranges',
+      'Cache-Control':'no-store',
+      'Accept-Ranges':'bytes'
+    };
+    if(req.method==='OPTIONS'){res.writeHead(204,headers);res.end();return;}
+    if(target.pathname!=='/video/0'||target.searchParams.get('key')!==nativeKey){
+      res.writeHead(403,headers);res.end();return;
+    }
+    const match=/^bytes=(\d+)-(\d*)$/.exec(req.headers.range||'');
+    const start=match?Number(match[1]):0;
+    const end=match&&match[2]?Math.min(nativeBytes.length-1,Number(match[2])):
+      nativeBytes.length-1;
+    if(!Number.isSafeInteger(start)||start<0||start>end||start>=nativeBytes.length){
+      res.writeHead(416,{...headers,'Content-Range':'bytes */'+nativeBytes.length});
+      res.end();return;
+    }
+    const payload=nativeBytes.subarray(start,end+1);
+    res.writeHead(match?206:200,{
+      ...headers,
+      'Content-Type':'video/x-matroska',
+      'Content-Length':payload.length,
+      ...(match?{'Content-Range':`bytes ${start}-${end}/${nativeBytes.length}`}:{})
+    });
+    res.end(payload);
+  });
+  await new Promise(resolve=>rangeServer.listen(18761,'127.0.0.1',resolve));
+  try{
+    const result=await page.evaluate(({url,size})=>
+      window.MarmaladeAddonBridge.chooseNativeStream({
+        url,name:'marmalade-eac3-test.mkv',size
+      }),{
+      url:'http://127.0.0.1:18761/video/0?key='+nativeKey,
+      size:nativeBytes.length
+    });
+    assert.equal(result,true,'Minternet native stream must start in the host player');
+    await page.waitForFunction(()=>
+      document.querySelector('#fileInfo').textContent.includes('Compatible AAC audio'),
+      null,{timeout:60000}).catch(async error=>{
+        console.error('NATIVE MKV AUDIO ERROR',JSON.stringify(await page.evaluate(()=>({
+          fileInfo:document.querySelector('#fileInfo')?.textContent,
+          toast:document.querySelector('#toast')?.textContent,
+          source:window.MarmaladeAddonBridge?.state?.source
+        }))));
+        throw error;
+      });
+    await page.waitForFunction(()=>document.querySelector('#player').currentTime>1,
+      null,{timeout:20000});
+    const nativeSound=await page.evaluate(async()=>{
+      const video=document.querySelector('#player');
+      const audioTracks=video.captureStream().getAudioTracks();
+      if(!audioTracks.length)return {audioTracks:0,energy:0};
+      const stream=video.captureStream();
+      const ctx=new AudioContext();
+      const src=ctx.createMediaStreamSource(stream);
+      const analyser=ctx.createAnalyser();analyser.fftSize=2048;
+      src.connect(analyser);
+      await ctx.resume();
+      await new Promise(done=>setTimeout(done,600));
+      const samples=new Float32Array(analyser.fftSize);
+      analyser.getFloatTimeDomainData(samples);
+      const energy=Math.sqrt(samples.reduce((sum,v)=>sum+v*v,0)/samples.length);
+      await ctx.close();
+      return {audioTracks:audioTracks.length,energy};
+    });
+    assert(nativeSound.audioTracks>0,'Minternet HTTP Range remux must contain an audio track');
+    assert(nativeSound.energy>.001,'Minternet HTTP Range E-AC-3 conversion must produce audible PCM');
+    console.log('PASS: Minternet native HTTP Range MKV audio',JSON.stringify(nativeSound));
+  }finally{
+    await new Promise(resolve=>rangeServer.close(resolve));
+  }
   if(errors.length)console.log('Non-fatal browser diagnostics:',JSON.stringify(errors.slice(0,5)));
   await page.close();
 }finally{
