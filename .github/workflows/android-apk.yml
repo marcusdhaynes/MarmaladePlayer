@@ -92,4 +92,24 @@ jobs:
           set -euo pipefail
           TAG="android-preview-${GITHUB_SHA:0:10}"
           cp mobile/android/app/build/outputs/apk/debug/app-debug.apk MarmaladePlayer-Android.apk
-          gh release create "$TAG" MarmaladePlayer-Android.apk --title "MarmaladePlayer Android Preview ${GITHUB_SHA:0:10}" --notes "Installable debug-signed Android preview. WebRTC hosting and local file playback require device testing. Android 8+; not a Play Store-signed release." --prerelease --target "$GITHUB_SHA"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" MarmaladePlayer-Android.apk --clobber
+          else
+            gh release create "$TAG" MarmaladePlayer-Android.apk --title "MarmaladePlayer Android Preview ${GITHUB_SHA:0:10}" --notes "Installable debug-signed Android preview. WebRTC hosting and local file playback require device testing. Android 8+; not a Play Store-signed release." --prerelease --target "$GITHUB_SHA"
+          fi
+      - name: Preserve Android APK beside the web and desktop version backups
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA:0:12}"
+          TAG="marmalade-backup-${SHORT}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" \
+              --title "Marmaladeum Version Backup ${SHORT}" \
+              --notes "Commit-pinned version backup. Successful platform packages are attached separately." \
+              --prerelease || gh release view "$TAG" >/dev/null
+          fi
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk "Marmaladeum-Android-${SHORT}.apk"
+          gh release upload "$TAG" "Marmaladeum-Android-${SHORT}.apk" --clobber

@@ -1,0 +1,70 @@
+name: Marmaladeum Permanent Version Backup
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: marmaladeum-version-backup-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout complete Git history and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Prepare version-identical web runtime
+        run: |
+          python -m pip install --quiet pillow
+          python scripts/build_icon_assets.py
+          node scripts/install-mkv-decoder.mjs
+          test -s index.html
+          test -s vendor/libav-wasm/libav.wasm
+      - name: Preserve full history and deployable web bundle
+        id: backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA:0:12}"
+          OUT="$RUNNER_TEMP/marmaladeum-version-${SHORT}"
+          mkdir -p "$OUT"
+          git bundle create "$OUT/Marmaladeum-Git-History-${SHORT}.bundle" --all
+          git bundle verify "$OUT/Marmaladeum-Git-History-${SHORT}.bundle"
+          tar -czf "$OUT/Marmaladeum-Web-${SHORT}.tar.gz" \
+            --exclude='./.git' \
+            --exclude='./node_modules' \
+            --exclude='./test-artifacts' \
+            --exclude='./desktop' \
+            --exclude='./mobile' \
+            --exclude='./.marmalade-decoder-install' \
+            .
+          (cd "$OUT" && sha256sum Marmaladeum-Web-*.tar.gz Marmaladeum-Git-History-*.bundle > "SHA256SUMS-${SHORT}.txt")
+          echo "tag=marmalade-backup-${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+      - name: Store recoverable, non-expiring release assets on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.backup.outputs.tag }}
+          OUT: ${{ steps.backup.outputs.out }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA:0:12}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "Marmaladeum Version Backup ${SHORT}" \
+              --notes "Permanent rollback snapshot of commit $GITHUB_SHA. Web tarball includes deployable web files and the installed pinned decoder; Git bundle retains complete reachable Git history and all preceding source versions. Native artifacts are attached by successful native workflows. Use the SHA256SUMS asset to verify downloads. Debug/mobile builds are not production-signed." \
+              --prerelease || gh release view "$TAG" >/dev/null
+          fi
+          gh release upload "$TAG" "$OUT"/*.tar.gz "$OUT"/*.bundle "$OUT"/SHA256SUMS-*.txt --clobber
+          gh release view "$TAG" --json tagName,assets,url

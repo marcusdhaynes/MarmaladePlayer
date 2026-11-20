@@ -20,7 +20,7 @@ on:
       - '.github/workflows/ios-native.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   ios:
     runs-on: macos-latest
@@ -68,3 +68,19 @@ jobs:
           path: mobile/MarmaladePlayer-iOS-Simulator.zip
           if-no-files-found: error
           retention-days: 30
+      - name: Save iOS simulator build to permanent GitHub version backup
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA:0:12}"
+          TAG="marmalade-backup-${SHORT}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" \
+              --title "Marmaladeum Version Backup ${SHORT}" \
+              --notes "Commit-pinned version backup. Successful platform packages are attached separately." \
+              --prerelease || gh release view "$TAG" >/dev/null
+          fi
+          cp mobile/MarmaladePlayer-iOS-Simulator.zip "Marmaladeum-iOS-Simulator-${SHORT}.zip"
+          gh release upload "$TAG" "Marmaladeum-iOS-Simulator-${SHORT}.zip" --clobber

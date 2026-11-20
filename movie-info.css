@@ -87,7 +87,7 @@
 .mi-rt-rating .mi-user-rating-stars{color:#e94a50!important;font-size:15px!important;line-height:1!important}
 .mi-rt-rating .mi-user-rating-head{color:#f7b0aa!important}
 .mi-rating-cards .mi-user-rating-note{font-size:9px!important}
-.mi-rating-cards{display:grid!important;grid-template-columns:repeat(2,minmax(0,138px));align-items:stretch!important;gap:8px!important}
+.mi-rating-cards{display:grid!important;grid-template-columns:repeat(3,minmax(0,138px));align-items:stretch!important;gap:8px!important}
 .mi-rating-cards .mi-user-rating,.mi-rating-cards .mi-rt-rating{
 box-sizing:border-box!important;display:flex!important;flex-direction:column!important;
 align-items:center!important;justify-content:center!important;gap:3px!important;
@@ -103,3 +103,15 @@ aspect-ratio:auto!important;padding:7px 5px!important;overflow:hidden!important;
 .mi-financial-top .mi-stat{padding:9px 7px;border:1px solid #ffffff1d;border-radius:8px;background:#ffffff08;min-width:0}
 .mi-financial-top .mi-stat strong{font-size:11px;overflow-wrap:anywhere}
 @media(max-width:420px){.mi-financial-top{gap:4px}.mi-financial-top .mi-stat{padding:6px 4px}.mi-financial-top .mi-stat strong{font-size:10px}}
+
+/* Three independent, equally sized source cards: IMDb, Rotten Tomatoes, Metacritic. */
+.mi-mc-rating{cursor:default!important;border-color:#6b6251!important}
+.mi-mc-rating .mi-user-rating-head{color:#f0deb0!important;font-size:11px!important}
+.mi-mc-rating .mi-user-rating-stars{color:#e2be68!important;font-size:12px!important;font-weight:900!important}
+.mi-mc-rating .mi-user-rating-number{color:#f2e6c3!important}
+@media(max-width:420px){
+  .mi-rating-cards{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:5px!important}
+  .mi-rating-cards .mi-user-rating{padding:7px 3px!important}
+  .mi-rating-cards .mi-user-rating-head{font-size:11px!important}
+  .mi-rating-cards .mi-user-rating-note{font-size:8px!important}
+}
