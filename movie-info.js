@@ -47,10 +47,12 @@
   // A missing or malformed value is never guessed or shown as a real score.
   function metacriticScore(data){
     const record=(data.ratings||[]).find(r=>/^Metacritic$/i.test(String(r?.source||'')));
-    const raw=data.metacritic||record?.value||'';
-    const match=String(raw).trim().match(/^(\d{1,3})(?:\s*\/\s*100)?$/);
-    const value=match?Number(match[1]):NaN;
-    return Number.isInteger(value)&&value>=0&&value<=100?value:null;
+    for(const raw of [data.metacritic,record?.value]){
+      const match=String(raw??'').trim().match(/^(\d{1,3})(?:\s*\/\s*100)?$/);
+      const value=match?Number(match[1]):NaN;
+      if(Number.isInteger(value)&&value>=0&&value<=100)return value;
+    }
+    return null;
   }
   function imdbRatingUrl(data){
     const episode=data.kind==='tv'&&Number(data.season)>0&&Number(data.episode)>0;
@@ -573,8 +575,7 @@
     line(rtCard,'span','mi-user-rating-number',rt?.value||'N/A');
     line(rtCard,'span','mi-user-rating-note','Rotten Tomatoes ↗');
     const mcScore=metacriticScore(data);
-    const mcFromOmdb=data.metacritic!==undefined&&data.metacritic!==null&&
-      String(data.metacritic).trim()!==''&&mcScore!==null;
+    const mcFromOmdb=metacriticScore({...data,ratings:[]})!==null;
     const mcCard=line(ratingCards,'div','mi-user-rating mi-mc-rating');
     mcCard.setAttribute('aria-label',
       'Metacritic Metascore: '+(mcScore===null?'Not Available':mcScore+' out of 100'));
