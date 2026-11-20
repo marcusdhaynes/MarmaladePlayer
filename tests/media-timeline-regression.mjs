@@ -70,7 +70,7 @@ function section(text, from, until) {
   };
   const nextChunk=vm.runInNewContext(
     section(mkv,'  async function nextChunk(session) {',
-      '  async function handle(file) {')+'\n nextChunk;',context);
+      '  async function handleSource(source, file=null) {')+'\n nextChunk;',context);
   await nextChunk(session);
   assert.equal(session.finished,true);
   assert.equal(ends,0,'The first half of the movie is not the end of the whole movie');
