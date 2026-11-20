@@ -51,7 +51,7 @@
     const raw=normalizeTitle(name);
     const episode=raw.match(/\bS(\d{1,2})\s*E(\d{1,3})\b/i)||raw.match(/\b(\d{1,2})x(\d{1,3})\b/i);
     const show=episode?(raw.slice(0,episode.index).replace(/[\s(._-]+$/,'').trim()||
-      path.split('/').filter(Boolean).slice(-2,-1)[0]||'TV Series'):'';
+      path.split('/').filter(Boolean)[0]||'TV Series'):'';
     const episodeName=episode?raw.slice(episode.index+episode[0].length).replace(/^[-\s._]+/,'').trim():'';
     const y=raw.match(/\b(19\d{2}|20\d{2})\b/);
     const type=episode?'tv':libraryKind==='tv'?'tv':'movie';
@@ -160,7 +160,7 @@
         const path=key.slice(folder.id.length+1);
         matches.push(makeItem(folder,path,file,kind));
       }
-      return matches.length?matches:null;
+      return matches.length||[...state.sessionFiles.keys()].some(key=>key.startsWith(folder.id+'|'))?matches:null;
     }
     if(!folder.handle)return null;
     if(!await permissions(folder,ask))return null;
@@ -233,7 +233,7 @@
     button.type='button';
     const art=append(button,'span','ml-card-art');
     art.style.setProperty('--ml-glow',cleanHash(data.title||data.name));
-    append(art,'span','ml-art-type',dir?'FOLDER':data.type==='tv'?'SERIES':'VIDEO');
+    append(art,'span','ml-art-type',dir?(data.type==='tv'?'SERIES':'FOLDER'):data.type==='tv'?'EPISODE':'VIDEO');
     const mark=String(data.title||data.name||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase();
     append(art,'span','ml-art-mark',dir?'▤':mark);
     append(art,'span','ml-play-symbol',dir?'›':'▶');
@@ -384,11 +384,11 @@
     if(state.sort==='title')visible.sort((a,b)=>
       (a.kind==='show'?a.show:a.item.title).localeCompare(b.kind==='show'?b.show:b.item.title));
     if(state.sort==='recent')visible.sort((a,b)=>
-      Math.max(...(b.items||[b.item]).map(i=>i.lastModified||0))-
-      Math.max(...(a.items||[a.item]).map(i=>i.lastModified||0)));
+      (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.lastModified||0),0)-
+      (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.lastModified||0),0));
     if(state.sort==='year')visible.sort((a,b)=>
-      Math.max(...(b.items||[b.item]).map(i=>i.year||0))-
-      Math.max(...(a.items||[a.item]).map(i=>i.year||0)));
+      (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.year||0),0)-
+      (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.year||0),0));
     for(const entity of visible.slice(0,state.showCount)){
       if(entity.kind==='show'){
         const entry={title:entity.show,type:'tv',detail:entity.items.length+' Episodes'};
