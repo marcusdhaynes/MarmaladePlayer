@@ -685,7 +685,12 @@
     if(!entry||!lib){notify('This media item is unavailable.');return;}
     const input=document.createElement('input');
     input.type='file';input.accept='image/jpeg,image/png,image/webp,image/avif';
-    input.hidden=true;document.body.append(input);
+    // Some embedded Chromium/WebView2 builds suppress the OS picker for a
+    // display:none/hidden file input. Keep it in the document and visually
+    // offscreen instead, while invoking it directly in the trusted click.
+    input.style.cssText='position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    input.tabIndex=-1;input.setAttribute('aria-label','Choose Poster Image');
+    document.body.append(input);
     const cleanup=()=>{input.remove();};
     input.addEventListener('cancel',cleanup,{once:true});
     input.addEventListener('change',()=>{
