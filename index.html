@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png?v=20261104-fullbleed-v1">
   <link rel="manifest" href="manifest.webmanifest?v=20261104-fullbleed-v1">
   <link rel="stylesheet" href="./movie-info.css?v=20261119-metacritic-card-v1">
-  <link rel="stylesheet" href="./media-library.css?v=20261120-unboxed-posters-v16">
+  <link rel="stylesheet" href="./media-library.css?v=20261120-adjustable-poster-grid-v1">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <style>
@@ -690,7 +690,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                   <select id="mlKindFilter" aria-label="Filter by content type"><option value="all">All Videos</option><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="favorites">Favorites</option><option value="watchlist">Watchlist</option><option value="unwatched">Unwatched</option><option value="watched">Watched</option></select>
                   <select id="mlCollectionFilter" aria-label="Filter by collection or playlist"><option value="all">All Collections</option></select>
                   <select id="mlSort" aria-label="Sort library"><option value="title">Title A–Z</option><option value="recent">Recently Added</option><option value="year">Year</option></select>
-                  <button id="mlView" class="icon-btn ml-tool-icon" type="button" aria-pressed="false" title="Toggle poster and list views" aria-label="Toggle library view"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></button>
+                  <div class="ml-view-controls" id="mlViewControls">
+                    <button id="mlView" class="icon-btn ml-tool-icon" type="button" aria-pressed="false" title="Toggle poster and list views" aria-label="Toggle library view"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></button>
+                    <span class="ml-poster-zoom" id="mlPosterZoom" role="group" aria-label="Poster size controls">
+                      <button id="mlPosterSmaller" type="button" aria-label="Smaller posters; show one more per row" title="Smaller posters · More per row">−</button>
+                      <button id="mlPosterLarger" type="button" aria-label="Larger posters; show one fewer per row" title="Larger posters · Fewer per row">+</button>
+                    </span>
+                  </div>
                 </div>
                 <div id="mlCrumbs" class="ml-crumbs" aria-label="Library navigation"></div>
                 <div id="mlStatus" class="ml-status" role="status" aria-live="polite"></div>
@@ -6012,10 +6018,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 
 </script>
 <script src="./mkv-decoder-io.js?v=20261120-webview-range-audio-v2"></script>
-<script src="./auto-mkv-audio.js?v=20261120-webview-range-audio-v2"></script>
-<script src="./public-movie-info.js?v=20261103-imdb-score-v3" defer></script>
-<script src="./movie-info.js?v=20261120-native-library-parity-v15" defer></script>
-<script src="./media-library.js?v=20261120-auto-posters-v18" defer></script>
+<script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
+<script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
+<script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
+<script src="./media-library.js?v=20261120-adjustable-poster-grid-v1" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>

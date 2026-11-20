@@ -15,6 +15,43 @@
   const bridge = () => window.MarmaladeAddonBridge;
   const supported = () => typeof MediaSource !== 'undefined' &&
     typeof MediaSource.isTypeSupported === 'function';
+  function compatibleOutput(header){
+    const video=header.info?.output?.videoMimeType||'';
+    const audio=header.info?.output?.audioMimeType||'';
+    if(!audio)throw new Error('The decoder did not produce a playable audio track for this MKV.');
+    const mime=codecs=>'video/mp4; codecs="'+codecs.filter(Boolean).join(',')+'"';
+    const original=mime([video,audio]);
+    if(MediaSource.isTypeSupported(original))return {mime:original,data:header.data};
+    // Chrome/Edge/Safari can differ on whether hev1 or hvc1 sample entries
+    // are accepted. Only retag when the init segment includes the HEVC
+    // hvcC configuration inside the same ISO-BMFF video sample entry.
+    if(/^hev1(?:\.|$)/i.test(video)){
+      const hvc1=mime([video.replace(/^hev1/i,'hvc1'),audio]);
+      if(MediaSource.isTypeSupported(hvc1)){
+        const bytes=header.data instanceof Uint8Array?
+          header.data:new Uint8Array(header.data||[]);
+        const rewritten=bytes.slice();
+        let changed=0;
+        for(let i=4;i+86<rewritten.length;i++){
+          if(rewritten[i]!==104||rewritten[i+1]!==101||
+             rewritten[i+2]!==118||rewritten[i+3]!==49)continue;
+          const start=i-4;
+          const size=((rewritten[start]*0x1000000)+
+            (rewritten[start+1]<<16)+(rewritten[start+2]<<8)+rewritten[start+3])>>>0;
+          if(size<86||start+size>rewritten.length)continue;
+          let config=false;
+          for(let p=i+4;p+4<start+size;p++){
+            if(rewritten[p]===104&&rewritten[p+1]===118&&
+               rewritten[p+2]===99&&rewritten[p+3]===67){config=true;break;}
+          }
+          if(config){rewritten.set([104,118,99,49],i);changed++;}
+        }
+        if(changed===1)return {mime:hvc1,data:rewritten};
+      }
+      throw new Error('HEVC/H.265 video is unsupported by this browser or device. Audio conversion alone cannot decode HEVC video; use an HEVC-capable browser/device or an H.264 copy.');
+    }
+    throw new Error('This browser cannot play the remuxed video format: '+original);
+  }
   const isCurrent = session => {
     const state=bridge()?.state;
     return current===session&&!session.closed&&!!state&&(
@@ -216,13 +253,8 @@
       }
       if(!header)throw new Error('Both MKV decoding engines failed. '+failures.join(' | '));
       if(!isCurrent(session))return false;
-      const tracks = [header.info?.output?.videoMimeType,
-        header.info?.output?.audioMimeType].filter(Boolean);
-      const mime = 'video/mp4; codecs="' + tracks.join(',') + '"';
-      if(!header.info?.output?.audioMimeType)
-        throw new Error('The decoder did not produce a playable audio track for this MKV.');
-      if (!tracks.length || !MediaSource.isTypeSupported(mime))
-        throw new Error('This browser cannot play the remuxed video format: ' + mime);
+      const compatible=compatibleOutput(header);
+      const mime=compatible.mime;
 
       session.stage='Opening MediaSource stream';
       const mediaSource = new MediaSource();
@@ -251,7 +283,7 @@
       }
 
       session.stage='Appending MKV media initialization segment';
-      await append(session, header.data);
+      await append(session, compatible.data);
       if (!isCurrent(session)) return false;
       session.stage='Decoding first audio segment';
       session.initializing=true;

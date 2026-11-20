@@ -11,6 +11,7 @@
     shelves:$('mlShelves'),cards:$('mlCards'),status:$('mlStatus'),
     title:$('mlCurrentShelf'),count:$('mlCount'),search:$('mlSearch'),
     filter:$('mlKindFilter'),collections:$('mlCollectionFilter'),sort:$('mlSort'),view:$('mlView'),
+    posterZoom:$('mlPosterZoom'),posterSmaller:$('mlPosterSmaller'),posterLarger:$('mlPosterLarger'),
     rescan:$('mlRescan'),manage:$('mlManage'),quickAdd:$('mlQuickAdd'),
     art:$('mlFindArt'),crumbs:$('mlCrumbs'),
     dialog:$('mlDialog'),dialogTitle:$('mlDialogTitle'),name:$('mlLibraryName'),
@@ -26,7 +27,7 @@
   const IGNORE=new Set(['.git','node_modules','$recycle.bin','system volume information','__macosx']);
   const state={
     db:null,libraries:[],selected:'all',query:'',kind:'all',collection:'all',sort:'title',
-    list:false,folderMode:false,folder:null,series:null,showCount:120,
+    list:false,posterColumns:4,folderMode:false,folder:null,series:null,showCount:120,
     editing:null,pending:null,relink:null,autoAttachDraft:null,scanning:false,scanSeq:0,
     sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
     pendingScans:new Set(),scanProblems:new Map(),artworkBusy:false,storageAvailable:true,
@@ -49,6 +50,8 @@
 
   const AUTO_POSTERS_KEY='marmalade:media-library:auto-posters';
   const POSTER_MISSES_KEY='marmalade:media-library:poster-misses';
+  const POSTER_COLUMNS_KEY='marmalade:media-library:poster-columns';
+  const MIN_POSTER_COLUMNS=1,MAX_POSTER_COLUMNS=12;
   const posterQueue=[],posterQueued=new Set(),posterSeen=new Set();
   let posterWorker=false;
   const posterMisses=(()=>{
@@ -245,6 +248,24 @@
     setLocal(KEY,value?'true':'false');
     if(value)render();
   }
+  function setPosterColumns(value,persist=true){
+    const numeric=Number(value);
+    const count=Number.isFinite(numeric)?
+      Math.max(MIN_POSTER_COLUMNS,Math.min(MAX_POSTER_COLUMNS,Math.round(numeric))):4;
+    state.posterColumns=count;
+    if(persist)setLocal(POSTER_COLUMNS_KEY,count);
+    // Changing column count changes the actual grid, not only a CSS zoom.
+    // Artwork, text and overlaid controls use the same responsive size factor.
+    ui.cards.style.setProperty('--ml-poster-columns',String(count));
+    ui.cards.style.setProperty('--ml-poster-gap',Math.max(3,Math.round(8*Math.min(1,4/count)))+'px');
+    ui.cards.style.setProperty('--ml-card-ui-scale',String(Math.max(.55,Math.min(1.45,4/count))));
+    ui.posterSmaller.disabled=count>=MAX_POSTER_COLUMNS;
+    ui.posterLarger.disabled=count<=MIN_POSTER_COLUMNS;
+    ui.posterSmaller.title='Smaller posters · '+Math.min(MAX_POSTER_COLUMNS,count+1)+' per row';
+    ui.posterLarger.title='Larger posters · '+Math.max(MIN_POSTER_COLUMNS,count-1)+' per row';
+    ui.posterZoom.hidden=state.list;
+    if(ui.posterColumnsSetting)ui.posterColumnsSetting.value=String(count);
+  }
   function addSetting(){
     const stack=document.querySelector('#settingsPageVideo .settings-stack');
     if(!stack)return;
@@ -274,6 +295,20 @@
     stack.append(posterRow);
     append(stack,'p','settings-hint',
       'Automatically look up missing artwork using only movie or series titles and years. Video files and folder paths stay on your device.');
+    const columnsRow=create('label','settings-row ml-setting-row');
+    columnsRow.id='mlPosterColumnsSetting';
+    append(columnsRow,'span','','Poster Columns');
+    const columns=append(columnsRow,'input');
+    columns.type='number';columns.min=String(MIN_POSTER_COLUMNS);
+    columns.max=String(MAX_POSTER_COLUMNS);columns.step='1';
+    columns.id='mlPosterColumnsInput';
+    columns.value=String(state.posterColumns);
+    columns.setAttribute('aria-label','Number of posters per row (default four)');
+    columns.addEventListener('change',()=>{setPosterColumns(columns.value);render();});
+    ui.posterColumnsSetting=columns;
+    stack.append(columnsRow);
+    append(stack,'p','settings-hint',
+      'Default: 4 posters per row. Use − and + beside Poster View to adjust directly. Changes are remembered.');
     setVisibility(check.checked);
   }
   function permissions(folder,ask){
@@ -1210,6 +1245,7 @@
     ui.cards.replaceChildren();
     $('mlLibrarySections').replaceChildren();
     ui.cards.classList.toggle('ml-list',state.list);
+    setPosterColumns(state.posterColumns,false);
     const lib=selectedLibrary();
     const items=filteredItems();
     ui.count.textContent=countLabel(items.length);
@@ -1870,7 +1906,17 @@
     ui.sort.addEventListener('change',()=>{state.sort=ui.sort.value;render();});
     ui.view.addEventListener('click',()=>{
       state.list=!state.list;ui.view.setAttribute('aria-pressed',String(state.list));
-      setLocal('marmalade:media-library:list',String(state.list));render();
+      setLocal('marmalade:media-library:list',String(state.list));
+      setPosterColumns(state.posterColumns,false);render();
+    });
+    // Minus reduces the actual card size; plus increases it.
+    ui.posterSmaller.addEventListener('click',()=>{
+      if(state.list)return;
+      setPosterColumns(state.posterColumns+1);renderCards();
+    });
+    ui.posterLarger.addEventListener('click',()=>{
+      if(state.list)return;
+      setPosterColumns(state.posterColumns-1);renderCards();
     });
     panel.addEventListener('dragover',event=>{
       if(!state.ready)return;
@@ -1923,6 +1969,7 @@
       state.selected='all';
     state.list=readLocal('marmalade:media-library:list','false')==='true';
     ui.view.setAttribute('aria-pressed',String(state.list));
+    setPosterColumns(readLocal(POSTER_COLUMNS_KEY,'4'),false);
     state.ready=true;render();
     // A saved library whose folders all died with the last session (the
     // reported "refreshed, looks exactly the same, 0 indexed videos" state)

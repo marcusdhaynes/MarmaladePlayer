@@ -390,3 +390,42 @@
   .ml-panel .ml-cards.ml-list .ml-card-more{top:50%;bottom:auto}
   .ml-panel .ml-cards.ml-list .ml-card-star{top:4px;right:40px}
 }
+
+/* Configurable poster density. A smaller/larger grid scales artwork, labels
+   and its overlay buttons together. Never change the list-view geometry. */
+.ml-panel .ml-filters #mlView{display:grid!important}
+.ml-panel .ml-view-controls{display:flex;align-items:center;justify-content:flex-end;gap:3px;min-width:0}
+.ml-panel .ml-poster-zoom{display:inline-flex;align-items:center;gap:1px}
+.ml-panel .ml-poster-zoom[hidden]{display:none!important}
+.ml-panel .ml-poster-zoom button{
+  appearance:none;width:24px;min-width:24px;height:29px;min-height:29px;
+  padding:0!important;background:transparent!important;border:0!important;
+  box-shadow:none!important;color:#f3dfd1;font-size:18px!important;
+  font-weight:500;line-height:1;cursor:pointer;border-radius:4px
+}
+.ml-panel .ml-poster-zoom button:hover:not(:disabled){color:#ffbd87!important;background:#ffffff0d!important}
+.ml-panel .ml-poster-zoom button:disabled{color:#766b73!important;cursor:default}
+.ml-panel .ml-poster-zoom button:focus-visible{outline:2px solid #ffd298;outline-offset:1px}
+.ml-panel .ml-cards:not(.ml-list){
+  grid-template-columns:repeat(var(--ml-poster-columns,4),minmax(0,1fr))!important;
+  gap:var(--ml-poster-gap,8px)!important
+}
+.ml-panel .ml-cards:not(.ml-list) .ml-card-copy{bottom:calc(8px * var(--ml-card-ui-scale,1));left:calc(8px * var(--ml-card-ui-scale,1));right:calc(30px * var(--ml-card-ui-scale,1))}
+.ml-panel .ml-cards:not(.ml-list) .ml-card-label{font-size:calc(11px * var(--ml-card-ui-scale,1));line-height:1.15}
+.ml-panel .ml-cards:not(.ml-list) .ml-card-year{font-size:calc(9px * var(--ml-card-ui-scale,1))}
+.ml-panel .ml-cards:not(.ml-list) .ml-card-star,
+.ml-panel .ml-cards:not(.ml-list) .ml-card-more{
+  width:calc(26px * var(--ml-card-ui-scale,1));
+  min-width:calc(26px * var(--ml-card-ui-scale,1));
+  height:calc(26px * var(--ml-card-ui-scale,1));
+  min-height:calc(26px * var(--ml-card-ui-scale,1))
+}
+.ml-panel .ml-cards:not(.ml-list) .ml-card-star{font-size:calc(16px * var(--ml-card-ui-scale,1))!important}
+.ml-panel .ml-cards:not(.ml-list) .ml-card-more svg{width:calc(17px * var(--ml-card-ui-scale,1));height:calc(17px * var(--ml-card-ui-scale,1))}
+.ml-panel #mlPosterColumnsInput{width:64px;max-width:72px;min-width:48px;min-height:30px;
+  background:#17141d;color:#f2e0d3;border:1px solid #56414b;border-radius:6px;padding:3px 6px;text-align:center}
+@media(max-width:700px){
+  .ml-panel .ml-filters{display:flex;flex-wrap:wrap}
+  .ml-panel .ml-filters #mlSearch{flex:1 1 110px}
+  .ml-panel .ml-filters .ml-view-controls{margin-left:auto}
+}

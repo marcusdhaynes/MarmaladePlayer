@@ -145,7 +145,10 @@
       if(rotten&&Number(rotten[1])<=100&&!ratings.some(x=>x.source==='Rotten Tomatoes')){
         ratings.push({source:'Rotten Tomatoes',value:rotten[1]+'%',via:'Wikipedia'});
       }
-      const meta=p.match(/Metacritic[\s\S]{0,260}?(?:score of|average of|score of a|score)\s*(\d{1,3})\s*(?:out of|\/)\s*100/i);
+      // Editorial wording varies: "gave it 75 out of 100", "weighted
+      // average of 75/100" and "assigned a score of 75 out of 100".
+      // Require Metacritic in the same paragraph and a 100-point denominator.
+      const meta=p.match(/\bMetacritic\b[\s\S]{0,500}?\b(\d{1,3})\s*(?:out of|\/)\s*100\b/i);
       if(meta&&Number(meta[1])<=100&&!ratings.some(x=>x.source==='Metacritic')){
         ratings.push({source:'Metacritic',value:meta[1]+'/100',via:'Wikipedia'});
       }
@@ -181,7 +184,7 @@
     if(imdb.status==='fulfilled'&&imdb.value)details.imdbId=imdb.value;
     if(sectionList.status==='fulfilled'){
       const sections=sectionList.value.parse?.sections||[];
-      const reception=sections.find(x=>/^(?:Reception|Critical Reception|Critical Response|Reviews)$/i
+      const reception=sections.find(x=>/^(?:Reception|Critical Reception|Critical Response|Reviews|Critical and Commercial Reception)$/i
         .test(String(x.line||'').trim()));
       if(reception?.index!==undefined){
         try{

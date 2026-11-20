@@ -11,7 +11,7 @@ const code=original.replace(
 );
 const NATIVE='http://127.0.0.1:18761/video/5?key='+'a'.repeat(64);
 
-function createRuntime(failures=1){
+function createRuntime(failures=1,codecOptions={}){
   let lastSource=null,plays=0;
   const attempts=[],notifications=[];
   class URLShim extends URL {
@@ -21,19 +21,23 @@ function createRuntime(failures=1){
   class BufferShim {
     constructor(){
       this.listeners=new Map();this.updating=false;this.mode='segments';
-      this.count=0;
+      this.count=0;this.appends=[];
       this.buffered={length:0,start:()=>0,end:()=>42};
     }
     addEventListener(type,fn){this.listeners.set(type,[...(this.listeners.get(type)||[]),fn]);}
     removeEventListener(type,fn){this.listeners.set(type,(this.listeners.get(type)||[]).filter(x=>x!==fn));}
     dispatch(type){for(const fn of this.listeners.get(type)||[])fn();}
-    appendBuffer(){this.count++;if(this.count>1)this.buffered.length=1;
+    appendBuffer(data){this.count++;this.appends.push(data);if(this.count>1)this.buffered.length=1;
       queueMicrotask(()=>this.dispatch('updateend'));}
     remove(){queueMicrotask(()=>this.dispatch('updateend'));}
   }
   class MediaSourceShim {
     constructor(){this.listeners=new Map();this.readyState='open';this.duration=42;}
-    static isTypeSupported(){return true;}
+    static isTypeSupported(type){
+      if(type.includes('hev1'))return codecOptions.hev1Supported!==false;
+      if(type.includes('hvc1'))return codecOptions.hvc1Supported!==false;
+      return true;
+    }
     addEventListener(type,fn){this.listeners.set(type,[...(this.listeners.get(type)||[]),fn]);}
     open(){for(const fn of this.listeners.get('sourceopen')||[])fn();}
     addSourceBuffer(){this.buffer=new BufferShim();return this.buffer;}
@@ -57,8 +61,9 @@ function createRuntime(failures=1){
     attempts.push(workerUrl);
     if(attempts.length<=failures)throw new Error('Simulated WebView2 worker failure');
     return {
-      init:async()=>({timestampOffset:0,data:new Uint8Array([1]),
-        info:{input:{duration:42},output:{videoMimeType:'avc1.42E01E',audioMimeType:'mp4a.40.2'}}}),
+      init:async()=>({timestampOffset:0,
+        data:codecOptions.initData||new Uint8Array([1]),
+        info:{input:{duration:42},output:{videoMimeType:codecOptions.videoCodec||'avc1.42E01E',audioMimeType:'mp4a.40.2'}}}),
       read:async()=>({data:new Uint8Array([2]),finished:false}),
       seek:async()=>({data:new Uint8Array([2]),finished:false}),
       destroy:async()=>{}
@@ -67,7 +72,7 @@ function createRuntime(failures=1){
   vm.runInNewContext(code,{window,document:{baseURI:'https://marmaladeum.com/'},
     URL:URLShim,MediaSource:MediaSourceShim,clearInterval(){},setInterval:()=>1,
     __fakeImport:async()=>({makeRemuxer}),console:{warn(){},error(){}}});
-  return {window,app,attempts,notifications,get plays(){return plays}};
+  return {window,app,attempts,notifications,get mediaSource(){return lastSource},get plays(){return plays}};
 }
 
 test('WebView2 MKV audio recovers from failed Asyncify worker using upstream worker',async()=>{
@@ -95,4 +100,36 @@ test('Both worker failures report the actual errors and leave original video URL
   assert.equal(env.attempts.length,2);
   assert.equal(env.app.media.src,NATIVE);
   assert.ok(env.notifications.some(x=>x.includes('Both MKV decoding engines failed')));
+});
+
+function hevcInit(){
+  // One 120-byte HEVC sample-entry box with hvcC decoder configuration.
+  const data=new Uint8Array(120);
+  data[3]=120;data.set([104,101,118,49],4);
+  data.set([104,118,99,67],90);
+  return data;
+}
+test('HEVC uses supported hvc1 sample-entry variant when hev1 is rejected',async()=>{
+  const env=createRuntime(0,{
+    videoCodec:'hev1.2.4.L120.90',hev1Supported:false,hvc1Supported:true,
+    initData:hevcInit()
+  });
+  assert.equal(await env.window.MarmaladeMkvAudio.handleNative({
+    url:NATIVE,name:'HEVC.mkv',size:1024
+  }),true);
+  const appended=env.mediaSource.buffer.appends[0];
+  assert.equal(String.fromCharCode(...appended.slice(4,8)),'hvc1');
+  assert.equal(env.plays,1);
+  env.window.MarmaladeMkvAudio.cleanup();
+});
+test('HEVC reports true device incompatibility instead of switching to dead MSE',async()=>{
+  const env=createRuntime(0,{
+    videoCodec:'hev1.2.4.L120.90',hev1Supported:false,hvc1Supported:false,
+    initData:hevcInit()
+  });
+  assert.equal(await env.window.MarmaladeMkvAudio.handleNative({
+    url:NATIVE,name:'HEVC.mkv',size:1024
+  }),false);
+  assert.equal(env.app.media.src,NATIVE);
+  assert.ok(env.notifications.some(x=>x.includes('HEVC/H.265 video is unsupported')));
 });

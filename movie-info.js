@@ -426,7 +426,7 @@
   }
   async function enhanceMissingTmdbFields(record,parsed,seq){
     if(record.kind!=='movie'||!window.MarmaladePublicMovieInfo||
-        (record.budget>0&&record.revenue>0&&record.score>0))return;
+        (record.budget>0&&record.revenue>0&&record.score>0&&metacriticScore(record)!==null))return;
     try{
       const source=window.MarmaladePublicMovieInfo;
       const {record:wiki}=await source.lookup({kind:'movie',title:record.title,
