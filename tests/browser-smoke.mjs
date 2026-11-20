@@ -115,17 +115,32 @@ try {
     assert.equal(await page.locator('#chooseFile').isVisible(),false,'File picker belongs in the video');
     assert.equal(await page.locator('.panel-intro').count(),0,'Remove decorative sidebar intro');
     const openedFilePicker = await page.locator('#dropZone').evaluate(async stage => {
-      let clicks=0,pickerInvocations=0;
+      let clicks=0,pickerInvocations=0,options=null;
       const f=document.getElementById('fileInput');
       f.addEventListener('click', e=>{clicks++; e.preventDefault();},{once:true});
       const original=window.showOpenFilePicker;
-      window.showOpenFilePicker=async()=>{pickerInvocations++;return [];};
+      window.showOpenFilePicker=async opts=>{pickerInvocations++;options=opts;return [];};
       stage.click();
       await Promise.resolve();
       window.showOpenFilePicker=original;
-      return clicks+pickerInvocations;
+      return {count:clicks+pickerInvocations,options,
+        hostAccept:f.accept,guestAccept:document.getElementById('localCopyInput').accept};
     });
-    assert.equal(openedFilePicker,1,'Clicking empty video must open a native or input file picker');
+    assert.equal(openedFilePicker.count,1,'Clicking empty video must open a native or input file picker');
+    assert(openedFilePicker.hostAccept.startsWith('video/*,') &&
+      !openedFilePicker.hostAccept.includes('audio/*'),'Host picker defaults to videos');
+    assert.equal(openedFilePicker.hostAccept,openedFilePicker.guestAccept,
+      'Host and guest file pickers both default to videos');
+    for (const ext of ['.mp4','.mkv','.avi','.webm','.mov','.m2ts','.flv','.wmv','.3gp','.ogv'])
+      assert(openedFilePicker.hostAccept.includes(ext),'Missing common video container '+ext);
+    if(openedFilePicker.options){
+      assert.equal(openedFilePicker.options.types[0].description,'Video Files',
+        'Native picker must default to the video filter rather than All Files');
+      assert.equal(openedFilePicker.options.types[1].description,'Audio Files',
+        'Native picker retains a separate audio filter');
+      assert.equal(openedFilePicker.options.excludeAcceptAllOption,false,
+        'User can still override the default filter when needed');
+    }
     assert.deepEqual(await page.locator('.stage-quick-actions button').evaluateAll(buttons=>buttons.map(b=>b.id)),
       ['broadcastToggle','localCopyButton','copyLink'],'Broadcast, Local, Share order');
     assert.equal(await page.locator('#mediaInfoToggle').count(),1,'Information available via movie title');
@@ -141,14 +156,36 @@ try {
     assert.deepEqual(await page.locator('#backgroundTheme option').evaluateAll(list=>list.map(x=>x.value)),['cosmic01','cosmic02','none']);
     assert.equal(await page.locator('#rotationLockToggle').getAttribute('aria-pressed'),'true',
       'Orientation starts locked');
-    await page.locator('#miClose').click();
+    assert.equal(await page.locator('#miClose').count(),0,
+      'Movie & Series Information has no X close button');
+    await page.locator('#mediaInfoToggle').evaluate(button=>button.click());
     assert.equal(await page.locator('#mediaInfoPanel').isVisible(),false,
-      'Close button hides the drawer');
+      'Information toggle still allows the drawer to be collapsed');
     assert.equal(await page.locator('#mediaInfoReopen').isVisible(),true,
-      'Circular information button replaces the closed drawer');
+      'Circular information button remains available to reopen the drawer');
     await page.locator('#mediaInfoReopen').click();
     assert.equal(await page.locator('#mediaInfoPanel').isVisible(),true,
       'Circular information button reopens movie details');
+    const infoFixture={title:'Metacritic Test Movie',kind:'movie',year:2025,
+      overview:'Test metadata',genres:['Drama'],score:7.5,votes:100,
+      imdbId:'tt1234567',imdbScore:'8.1',metacritic:'82',
+      ratings:[{source:'Rotten Tomatoes',value:'91%'},{source:'Metacritic',value:'82/100'}],
+      budget:0,revenue:0,companies:[],networks:[],countries:[],cast:[],crew:[]};
+    await page.evaluate(data=>window.MarmaladeInfoReceive(data),infoFixture);
+    assert.equal(await page.locator('.mi-rating-cards > .mi-user-rating').count(),3,
+      'IMDb, Rotten Tomatoes and Metacritic are three independent cards');
+    assert.equal((await page.locator('.mi-mc-rating .mi-user-rating-number').textContent()).trim(),
+      '82/100','Metacritic score is drawn from verified metadata');
+    assert.equal(await page.locator('.mi-stat small').filter({hasText:'Metacritic'}).count(),0,
+      'Metacritic is not duplicated below the cards');
+    await page.evaluate(data=>window.MarmaladeInfoReceive(data),
+      {...infoFixture,metacritic:'',ratings:[{source:'Metacritic',value:'77/100'}]});
+    assert.equal((await page.locator('.mi-mc-rating .mi-user-rating-number').textContent()).trim(),
+      '77/100','Verified Wikipedia Metacritic score is accepted as a fallback');
+    await page.evaluate(data=>window.MarmaladeInfoReceive(data),
+      {...infoFixture,metacritic:'',ratings:[]});
+    assert.equal((await page.locator('.mi-mc-rating .mi-user-rating-number').textContent()).trim(),
+      'N/A','Missing Metacritic scores must never be fabricated');
     // No dependence on browser autoplay or a remote network for UI tests.
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     await page.locator('#settingsBtn').click({force:true});
