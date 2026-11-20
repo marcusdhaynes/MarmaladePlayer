@@ -33,7 +33,7 @@ jobs:
         run: node scripts/install-mkv-decoder.mjs
       - name: Test native-stream MKV audio decoding contracts
         run: |
-          node --test tests/mkv-compatibility.test.cjs
+          node --test tests/mkv-compatibility.test.cjs tests/mkv-playback-pipeline.test.cjs
           node scripts/validate-mkv-decoder-assets.mjs
           node --check auto-mkv-audio.js
           node --check mkv-decoder-io.js
