@@ -316,6 +316,7 @@ try{
 
   // The toolbar folder action must also attach directly to an existing shelf,
   // including the Safari/Firefox-compatible directory input fallback.
+  await page.evaluate(()=>{window.showDirectoryPicker=undefined;});
   await page.locator('#mlQuickAdd').click();
   await page.locator('#mlDirectoryInput').setInputFiles(fallbackRoot);
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
