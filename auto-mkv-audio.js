@@ -180,19 +180,42 @@
         throw new Error('The packaged libav-wasm module has no makeRemuxer export.');
       if (!isCurrent(session)) return false;
       const base = new URL('./vendor/libav-wasm/', document.baseURI).href;
-      session.stage='Initializing FFmpeg audio worker / WebAssembly';
-      session.remuxer = await module.makeRemuxer({
-        publicPath: base,
-        workerUrl: new URL('worker.js', base).href,
-        workerOptions: { type: 'module' },
-        length: source.length,
-        bufferSize: 1024 * 1024,
-        read: source.read
-      });
-      if (!isCurrent(session)) return false;
-      session.stage='Reading MKV audio and video tracks';
-      const header=await session.remuxer.init();
-      if (!isCurrent(session)) return false;
+      // libav-wasm bundles a fast JSPI build plus a universal Asyncify build.
+      // WebView2 is Chromium-derived, but JSPI can fail on some embedded
+      // runtimes. Try Asyncify first in Minternet; if it cannot load, retry
+      // the normal upstream worker. The reverse order applies elsewhere.
+      const normalWorker=new URL('worker.js',base).href;
+      const compatibilityWorker=new URL('./mkv-asyncify-worker.js',document.baseURI).href;
+      const preferCompat=source.kind==='native'||!!window.MinternetMediaLibrary;
+      const workers=preferCompat?
+        [compatibilityWorker,normalWorker]:[normalWorker,compatibilityWorker];
+      const failures=[];
+      let header=null;
+      for(const workerUrl of workers){
+        if(!isCurrent(session))return false;
+        const mode=workerUrl===compatibilityWorker?'Asyncify compatibility':'JSPI/automatic';
+        session.stage='Initializing '+mode+' FFmpeg audio worker';
+        try{
+          session.remuxer=await module.makeRemuxer({
+            publicPath:base,workerUrl,workerOptions:{type:'module'},
+            length:source.length,bufferSize:1024*1024,read:source.read
+          });
+          if(!isCurrent(session)){
+            void session.remuxer?.destroy?.().catch(()=>{});
+            return false;
+          }
+          session.stage='Reading MKV tracks with '+mode;
+          header=await session.remuxer.init();
+          if(!header?.info?.output)throw new Error('Decoder returned no track metadata');
+          break;
+        }catch(error){
+          failures.push(mode+': '+String(error?.message||error));
+          try{await session.remuxer?.destroy?.();}catch{}
+          session.remuxer=null;
+        }
+      }
+      if(!header)throw new Error('Both MKV decoding engines failed. '+failures.join(' | '));
+      if(!isCurrent(session))return false;
       const tracks = [header.info?.output?.videoMimeType,
         header.info?.output?.audioMimeType].filter(Boolean);
       const mime = 'video/mp4; codecs="' + tracks.join(',') + '"';
