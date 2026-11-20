@@ -515,31 +515,38 @@
     notify('Analyzing '+entry.name+'…');
     let duration=null;
     try{
-      const {file}=await getPlayable(item);
-      if(file.type.startsWith('video/')||video(file.name)){
-        const url=URL.createObjectURL(file);
-        try{
-          duration=await new Promise(resolve=>{
-            const media=document.createElement('video');
-            media.preload='metadata';media.muted=true;
-            let done=false;
-            const finish=value=>{
-              if(done)return;done=true;
-              clearTimeout(timeout);media.removeAttribute('src');media.load();
-              resolve(value);
-            };
-            const timeout=setTimeout(()=>finish(null),6000);
-            media.onloadedmetadata=()=>finish(
-              Number.isFinite(media.duration)&&media.duration>0?media.duration:null);
-            media.onerror=()=>finish(null);
-            media.src=url;
-          });
-        }finally{URL.revokeObjectURL(url);}
+      let url,owned=false;
+      if(lib?.id?.startsWith('addon:')){
+        if(!entry.url)throw Error('Native media server has no stream URL for this video.');
+        url=entry.url;
+      }else{
+        const {file}=await getPlayable(item);
+        if(!file.type.startsWith('video/')&&!video(file.name))throw Error('Unsupported video');
+        url=URL.createObjectURL(file);owned=true;
       }
-    }catch(error){notify('File access needed for analysis: '+(error?.message||''));return;}
+      try{
+        duration=await new Promise(resolve=>{
+          const media=document.createElement('video');
+          media.preload='metadata';media.muted=true;
+          if(!owned)media.crossOrigin='anonymous';
+          let done=false;
+          const finish=value=>{
+            if(done)return;done=true;
+            clearTimeout(timeout);media.removeAttribute('src');media.load();
+            resolve(value);
+          };
+          const timeout=setTimeout(()=>finish(null),7000);
+          media.onloadedmetadata=()=>finish(
+            Number.isFinite(media.duration)&&media.duration>0?media.duration:null);
+          media.onerror=()=>finish(null);
+          media.src=url;
+        });
+      }finally{if(owned)URL.revokeObjectURL(url);}
+    }catch(error){notify('Media analysis failed: '+(error?.message||''));return;}
     entry.runtimeSec=duration;
     entry.analyzedAt=now();
-    await persist(lib);
+    try{await persistNativeItem(lib,entry);await persist(lib);}
+    catch(error){notify('Could not save analysis to extension: '+(error?.message||error));return;}
     showDetails(item,'info');
     notify(duration?'Duration analyzed: '+Math.round(duration)+' seconds.':
       'File analyzed. This browser cannot decode duration for this container.');
