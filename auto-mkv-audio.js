@@ -282,7 +282,7 @@
           'Compatible audio is ready. Press Play once to enable sound.'));
       }
       app.el.fileInfo.textContent = source.name +
-        ' · MKV sound converted to compatible AAC locally';
+        ' · Compatible AAC audio (automatic; local FFmpeg)';
       return true;
     } catch (error) {
       console.warn('Automatic MKV audio compatibility failed at '+session.stage,error);
