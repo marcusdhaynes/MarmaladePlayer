@@ -151,6 +151,7 @@ try{
   await page.locator('#mlLibraryName').fill('Series & Shows');
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.name==='Series & Shows'));
+  await page.waitForFunction(()=>document.querySelector('#mlCurrentShelf')?.textContent==='Series & Shows');
   assert.equal(await page.locator('#mlCurrentShelf').textContent(),'Series & Shows',
     'Library can be renamed without losing its indexed entries');
   await page.evaluate(()=>window.confirm=()=>true);
