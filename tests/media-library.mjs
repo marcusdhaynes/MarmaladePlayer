@@ -11,6 +11,14 @@ const fallbackRoot=mkdtempSync(join(tmpdir(),'marmalade-library-'));
 mkdirSync(join(fallbackRoot,'Nested'));
 writeFileSync(join(fallbackRoot,'Nested','The Prestige (2006).mp4'),'fixture video');
 writeFileSync(join(fallbackRoot,'Notes.txt'),'not a video');
+const importRoot=mkdtempSync(join(tmpdir(),'marmalade-real-folder-'));
+mkdirSync(join(importRoot,'Movies'),{recursive:true});
+mkdirSync(join(importRoot,'TV Shows','Season 01'),{recursive:true});
+writeFileSync(join(importRoot,'Movies','Blade Runner (1982).mkv'),'movie');
+writeFileSync(join(importRoot,'TV Shows','Season 01','Some.Show.S01E01.mp4'),'episode 1');
+writeFileSync(join(importRoot,'TV Shows','Season 01','Some.Show.S01E02.mp4'),'episode 2');
+const emptyRoot=mkdtempSync(join(tmpdir(),'marmalade-no-media-'));
+writeFileSync(join(emptyRoot,'readme.txt'),'not media');
 const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css',
  '.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
 const server=createServer((req,res)=>{
@@ -97,7 +105,7 @@ try{
   await page.locator('#mlNewLibrary').click();
   assert.equal(await page.locator('#mlDialogTitle').textContent(),'Create Library');
   await page.locator('#mlLibraryName').fill('My Movies');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.waitForFunction(()=>document.querySelectorAll('#mlFolderList .ml-folder-entry').length===1);
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('3 videos'));
   assert((await page.locator('#mlScanPreview').textContent()).includes('3 videos'),
@@ -183,7 +191,7 @@ try{
   await page.locator('#mlNewLibrary').click();
   await page.locator('#mlLibraryName').fill('Series Shelf');
   await page.locator('#mlLibraryKind').selectOption('tv');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
     l.name==='Series Shelf'&&l.count===2));
@@ -251,7 +259,7 @@ try{
   });
   await page.locator('#mlNewLibrary').click();
   await page.locator('#mlLibraryName').fill('Disk Media');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('1 video'));
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.name==='Disk Media'&&l.count===1));
@@ -296,6 +304,9 @@ try{
     });
   });
   await page.locator('#mlCards').getByRole('button',{name:'+ Choose Folder'}).click();
+  // Actual browser directory-input path, not a mocked showDirectoryPicker.
+  // The user selected this folder containing a .mp4 and nested video files.
+  await page.locator('#mlDirectoryInput').setInputFiles(importRoot);
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
     l.name==='Test'&&l.count===3&&l.folders.length===1));
   await page.waitForFunction(()=>document.querySelector('#mlDialog')?.hidden===true);
@@ -351,4 +362,6 @@ try{
   await browser.close();
   await new Promise(resolve=>server.close(resolve));
   rmSync(fallbackRoot,{recursive:true,force:true});
+  rmSync(importRoot,{recursive:true,force:true});
+  rmSync(emptyRoot,{recursive:true,force:true});
 }
