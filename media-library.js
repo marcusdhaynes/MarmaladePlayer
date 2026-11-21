@@ -1389,19 +1389,29 @@
     // Minternet add-on items stream from the add-on's scoped asset serving.
     // Playback is local to this player (watch-together hosting still needs
     // a File picked through the ordinary Choose Video flow).
-    if(ownerFolder?.source==='native'){
+    if(ownerFolder?.source==='native'&&nativeLibraryApi()&&
+       !ownerFolder.playHandle&&!ownerFolder.handle&&!state.sessionFiles.has(item.id)){
       const url=item.url;
-      if(!url){notify('Minternet did not provide a playable address for this video. Rescan in Minternet\u2019s Local Media Library add-on.');return;}
+      if(!url){
+        notify('Native source has no playable URL. Use Add Video Files for local playback.');
+        return;
+      }
       const bridge=window.MarmaladeAddonBridge;
       if(typeof bridge?.chooseNativeStream!=='function'){
-        notify('The Marmaladeum player needs an update to open Minternet library videos.');return;
+        notify('Native streaming is unavailable. Use Add Video Files for direct browser playback.');
+        return;
       }
       try{
         const started=bridge.chooseNativeStream({
           url,name:item.name||item.title||'Library Video',size:item.size,id:item.id
         });
-        if(started)notify('Opening '+(item.name||item.title)+' · Streamed locally by the Minternet extension.');
-      }catch(error){notify('This video cannot be played: '+(error?.message||'unknown error'));}
+        if(started)notify('Opening '+(item.name||item.title)+' from the optional native source.');
+      }catch(error){notify('Unable to play native stream. Add Video Files for local playback.');}
+      return;
+    }
+    if(ownerFolder?.source==='native'&&!nativeLibraryApi()&&
+       !ownerFolder.playHandle&&!ownerFolder.handle&&!state.sessionFiles.has(item.id)){
+      notify('This title is from a native-only catalog. Add Video Files to make a browser-independent local library.');
       return;
     }
     // Extension-held items play in the extension library page, which owns
