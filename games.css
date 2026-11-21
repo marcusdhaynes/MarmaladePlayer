@@ -822,3 +822,303 @@ body>.games-dialog::backdrop{
 @media(max-width:800px){
   body:not(.theater-open) .games-panel{padding-bottom:0}
 }
+
+/* Mobile width-driven theater and 1/2/3-panel geometry.
+   Video is one full-width 16:9 stage unless the user enables the per-video
+   intrinsic ratio. Every visible information window remains a separate card.
+   Do not affect desktop, native fullscreen, floating player, or interactive PiP. */
+@media(max-width:800px){
+  body:not(.theater-open):not(.native-pip-active) .screen-column{
+    width:100%;min-width:0;max-width:100%;
+  }
+  body:not(.theater-open):not(.native-pip-active)
+    .stage:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen){
+    width:100%!important;
+    min-width:0!important;max-width:100%!important;
+    height:auto!important;
+    aspect-ratio:var(--mobile-stage-aspect,16 / 9)!important;
+    margin-inline:auto!important;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row{
+    box-sizing:border-box;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    width:100%!important;min-width:0!important;max-width:100%!important;
+    gap:clamp(5px,1.45vw,11px)!important;
+    align-items:stretch!important;
+    margin:0!important;
+  }
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="2"],
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="3"]{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row>section:not([hidden]){
+    box-sizing:border-box;min-width:0!important;max-width:100%!important;
+    width:100%!important;grid-column:auto!important;grid-row:auto!important;
+    margin:0!important;
+    overflow-wrap:anywhere;
+    container-type:inline-size;
+  }
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="3"]>.media-info:not([hidden]){
+    grid-column:1 / -1!important;
+  }
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="2"]>section:not([hidden]),
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="3"]>section:not([hidden]):not(.media-info){
+    padding:clamp(5px,1.2vw,10px)!important;
+  }
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="2"]>.ml-panel,
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="2"]>.games-panel,
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="3"]>.ml-panel,
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="3"]>.games-panel{
+    min-height:260px;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-workspace{
+    grid-template-columns:minmax(0,1fr)!important;
+    min-width:0!important;gap:6px;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-sidebar{
+    min-width:0;border-right:0!important;border-bottom:1px solid #ffffff16!important;
+    padding:0 0 5px!important;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-shelves{
+    display:flex;flex-flow:row wrap;gap:2px;max-height:96px;
+    overflow:auto;overscroll-behavior:contain;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-shelf-row{
+    max-width:100%;min-width:0;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-shelf{
+    max-width:100%;min-width:0;width:auto;min-height:24px;padding:3px 5px;
+    font-size:clamp(8px,1.15vw,10px);
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-main,
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-header,
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-toolbar,
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-filters{
+    min-width:0;max-width:100%;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-header,
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-toolbar{
+    flex-wrap:wrap;gap:4px;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-toolbar-actions{
+    flex-wrap:wrap;gap:2px;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-filters{
+    display:flex!important;flex-wrap:wrap!important;gap:3px!important;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-filters input{
+    flex:1 1 100%;min-width:0;width:100%;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-filters select{
+    flex:1 1 56px;min-width:0;max-width:100%;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .ml-cards{
+    grid-template-columns:repeat(auto-fill,minmax(min(98px,100%),1fr))!important;
+    gap:clamp(3px,1vw,7px);min-width:0;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .mi-search-row{
+    min-width:0;flex-wrap:wrap;gap:4px;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .mi-search-row input{
+    min-width:0;flex:1 1 100%;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .mi-search-row select,
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .mi-search-row button{
+    flex:1 1 auto;min-width:0;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .mi-hero{
+    flex-wrap:wrap;gap:7px;
+  }
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .mi-stats,
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .mi-cast-grid,
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row .mi-credit-grid{
+    grid-template-columns:repeat(auto-fit,minmax(min(118px,100%),1fr))!important;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-top{
+    padding:clamp(4px,1vw,8px)!important;
+    gap:3px;
+    max-width:100%;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-controls{
+    box-sizing:border-box;
+    padding:clamp(9px,2.5vw,16px) clamp(4px,1vw,8px) clamp(3px,1vw,6px)!important;
+    max-width:100%;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-title{
+    min-width:0;gap:4px;margin-bottom:2px;font-size:clamp(8px,1.2vw,10px);
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-title-info{
+    min-width:0;max-width:58%;overflow:hidden;text-overflow:ellipsis;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-title strong{
+    font-size:clamp(8px,1.35vw,10px);min-width:0;max-width:100%;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-seek{
+    min-width:0;gap:3px;margin-bottom:2px;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-seek .timecode{
+    font-size:clamp(7px,1vw,9px);flex:none;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-bottom{
+    min-width:0;gap:clamp(1px,.35vw,4px);justify-content:space-between;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-actions{
+    gap:clamp(0px,.22vw,3px);min-width:0;flex-wrap:nowrap!important;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen)
+    #skipBack,
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen)
+    #playPause,
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen)
+    #skipForward{
+    box-sizing:border-box!important;
+    width:clamp(20px,6.8vw,29px)!important;
+    min-width:clamp(20px,6.8vw,29px)!important;
+    height:clamp(20px,6.8vw,29px)!important;
+    min-height:clamp(20px,6.8vw,29px)!important;
+    flex:0 0 clamp(20px,6.8vw,29px)!important;
+    aspect-ratio:1 / 1!important;
+    padding:2px!important;
+    border-radius:6px!important;
+    background:#ffffff14;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-controls .theater-right>.icon-btn,
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .adaptive-brightness>.icon-btn{
+    flex:0 0 clamp(18px,5.6vw,25px)!important;
+    width:clamp(18px,5.6vw,25px)!important;
+    min-width:0!important;
+    height:clamp(20px,6.8vw,29px)!important;
+    min-height:0!important;
+    padding:2px!important;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-right{
+    flex:0 1 auto;min-width:0;gap:0!important;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) #volume{
+    width:clamp(22px,7.5vw,56px)!important;
+    min-width:22px!important;flex:1 1 clamp(22px,7.5vw,56px)!important;
+    margin:0!important;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .vol-mark{
+    min-width:0!important;font-size:clamp(7px,1vw,9px);
+    white-space:nowrap;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .theater-controls .icon-btn svg{
+    width:clamp(13px,4vw,17px);height:clamp(13px,4vw,17px);
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .stage-empty{
+    max-width:100%;padding:clamp(6px,1.6vw,12px);
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .stage-empty .empty-art{
+    height:clamp(30px,7vw,55px);
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .stage-empty h1{
+    font-size:clamp(14px,3.5vw,26px);letter-spacing:-.5px;
+  }
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .stage-empty p{
+    margin:4px auto 0;font-size:clamp(9px,1.65vw,12px);line-height:1.25;
+  }
+  /* Keep subtitle text proportionate without changing saved subtitle styles
+     or the detached/native PiP and full-screen subtitle positions. */
+  body:not(.theater-open):not(.native-pip-active) .stage:not(.pip-interactive):not(.floating-player):not(.fullscreen-fallback):not(:fullscreen) .subtitle-overlay{
+    bottom:clamp(44px,13vw,70px);font-size:clamp(10px,2.15vw,17px);
+    max-width:86%;margin-inline:auto;
+  }
+  /* A full-width panel may keep its spacious arrangement; a half panel
+     must reflow its own contents based on its actual computed width. */
+  @container (max-width:260px){
+    .ml-header{flex-wrap:wrap;gap:4px;margin-bottom:6px}
+    .ml-header-copy strong{font-size:clamp(11px,5cqi,14px)}
+    .ml-kicker{font-size:8px;letter-spacing:.5px}
+    .ml-workspace{min-height:0}
+    .ml-main{gap:5px}
+    .ml-toolbar{gap:3px}
+    .ml-toolbar-heading strong{font-size:clamp(9px,4.1cqi,12px)}
+    .ml-panel .ml-toolbar-actions .ml-tool-icon,
+    .ml-panel .ml-filters .ml-tool-icon{
+      width:clamp(22px,12cqi,27px)!important;
+      min-width:clamp(22px,12cqi,27px)!important;
+      height:clamp(22px,12cqi,27px)!important;
+      min-height:clamp(22px,12cqi,27px)!important;
+      padding:3px!important;
+    }
+    .ml-panel .ml-tool-icon .glass-icon{width:15px;height:15px}
+    .ml-panel button{font-size:9px;padding:3px 5px;min-height:24px}
+    .ml-panel .ml-filters input,.ml-panel .ml-filters select{
+      height:26px;font-size:9px;padding:3px 5px;
+    }
+    .ml-cards{gap:4px}
+    .ml-panel .ml-card{padding:4px;min-height:0;gap:3px}
+    .ml-card-art{min-height:80px}
+    .ml-card-label{font-size:9px}
+    .ml-card-detail{font-size:8px}
+    .games-panel-heading{flex-wrap:wrap;gap:3px;margin-bottom:7px}
+    .games-panel-heading strong{font-size:clamp(12px,5cqi,15px)}
+    .games-panel-heading small{font-size:8px;letter-spacing:.6px}
+    .games-panel-heading>span{font-size:8px;line-height:1.2;padding:3px 5px}
+    .games-collection .games-cards{gap:4px;grid-template-columns:minmax(0,1fr)}
+    .games-collection .games-card{padding:0 2px}
+    .games-card-name{font-size:10px}
+    .games-panel .games-controls{
+      display:grid!important;grid-template-columns:minmax(0,1fr) auto;
+      grid-template-areas:"nav nav" "pad log";
+      justify-items:center;align-items:center;
+      gap:4px!important;
+      padding:4px 0!important;
+    }
+    .games-panel .games-control-spacer{display:none!important}
+    .games-panel .games-split-pill{
+      grid-area:nav;
+      --game-nav-width: min(110px,100%);
+      justify-self:center;
+      max-width:100%!important;
+      min-width:0!important;
+      width:min(110px,100%)!important;
+      flex:none!important;
+    }
+    .games-panel .games-split-pill .games-nav-orb{
+      flex-basis:14px!important;width:14px!important;max-width:14px!important;
+      height:15px!important;
+    }
+    .games-panel .games-split-pill .games-nav-orb svg{width:10px!important;height:10px!important}
+    .games-panel .games-split-pill .games-nav-label{font-size:8px!important}
+    .games-panel .games-dpad{
+      grid-area:pad;justify-self:center;
+      flex:none!important;width:min(70px,46cqi)!important;
+      height:min(70px,46cqi)!important;
+    }
+    .games-panel .games-log-toggle{
+      grid-area:log;justify-self:end;
+      flex:none!important;width:clamp(29px,20cqi,38px)!important;
+      min-width:0!important;
+    }
+    .games-panel .games-log-toggle svg{width:10px;height:11px}
+    .mi-header{flex-wrap:wrap;gap:4px;margin-bottom:7px}
+    .mi-header>strong{font-size:clamp(11px,5cqi,13px)}
+    .mi-muted,.mi-footnote{font-size:9px}
+    .mi-search-row input,.mi-search-row select,.mi-search-row button{
+      min-width:0;font-size:10px;padding:5px 6px;
+    }
+    .mi-hero{gap:5px}
+    .mi-poster{width:min(62px,38cqi);max-width:40%}
+    .mi-title-line{flex-wrap:wrap;gap:4px}
+    .mi-hero h2{font-size:clamp(12px,6cqi,17px)}
+    .mi-user-rating{max-width:100%!important}
+    .mi-section{padding:6px 0}
+    .mi-section h3{font-size:10px}
+    .mi-overview{font-size:10px;line-height:1.45}
+    .mi-settings-row{grid-template-columns:minmax(0,1fr)}
+    .mi-credentials{padding:6px;margin:3px 0 8px}
+  }
+}
