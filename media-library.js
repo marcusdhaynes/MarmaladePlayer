@@ -186,13 +186,26 @@
   function dbOperation(mode,method,payload){
     if(!state.db)return Promise.resolve(null);
     return new Promise((resolve,reject)=>{
-      let tx;
+      let settled=false,result=null;
+      const finish=(error,value)=>{
+        if(settled)return;
+        settled=true;
+        if(error)reject(error);
+        else resolve(value);
+      };
       try{
-        tx=state.db.transaction('libraries',mode);
-        const req=tx.objectStore('libraries')[method](payload);
-        req.onsuccess=()=>resolve(req.result);
-        req.onerror=()=>reject(req.error);
-      }catch(error){reject(error);}
+        const tx=state.db.transaction('libraries',mode);
+        const request=tx.objectStore('libraries')[method](payload);
+        request.onsuccess=()=>{result=request.result;};
+        // A successful request is NOT a committed transaction. Wait until
+        // transaction completion before saying a library has been saved;
+        // premature resolution previously risked losing the new index on
+        // immediate page reload or navigating into OnlyFrames.
+        tx.oncomplete=()=>finish(null,result);
+        request.onerror=()=>finish(request.error||new Error('Library database operation failed'));
+        tx.onerror=()=>finish(tx.error||new Error('Library transaction failed'));
+        tx.onabort=()=>finish(tx.error||new Error('Library transaction aborted'));
+      }catch(error){finish(error);}
     });
   }
   async function persist(lib){
