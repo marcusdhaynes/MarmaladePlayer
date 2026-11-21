@@ -12,6 +12,7 @@ on:
       - 'tests/game-no-autoplay.mjs'
       - 'tests/game-loading-gate.mjs'
       - 'tests/onlyframes-library-selector.mjs'
+      - 'tests/browser-local-video-fallback.mjs'
       - 'media-library.js'
       - '.github/workflows/games-layout.yml'
   pull_request:
@@ -44,3 +45,5 @@ jobs:
         run: node tests/game-no-autoplay.mjs
       - name: Show every Media Library in the top-layer game selector
         run: node tests/onlyframes-library-selector.mjs
+      - name: Verify browser-only video folder, files and ten repeated relinks
+        run: node tests/browser-local-video-fallback.mjs
