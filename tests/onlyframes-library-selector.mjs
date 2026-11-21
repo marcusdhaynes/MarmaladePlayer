@@ -43,7 +43,10 @@ try{
       {id:'extlib:test',name:'Extension Vault',kind:'movie',
         folders:[{id:'ext-folder',name:'Ext Folder',source:'extension',handle:null}],
         items:[{id:'ext-video',folderId:'ext-folder',title:'Extension Video',
-          name:'ext.mp4',path:'ext.mp4'}],hiddenIds:[]},
+          name:'ext.mp4',path:'ext.mp4'},
+          ...Array.from({length:37},(_,i)=>({id:'ext-'+i,folderId:'ext-folder',
+            title:'Video '+i,name:'video-'+i+'.mp4',path:'video-'+i+'.mp4'}))],
+        hiddenIds:[]},
       {id:'addon:test',name:'Minternet Movies',kind:'movie',
         folders:[{id:'native-folder',name:'Native Videos',source:'native',handle:null}],
         items:[{id:'native-video',folderId:'native-folder',title:'Native Video',
@@ -65,7 +68,7 @@ try{
   assert(byId.has('extlib:test'),'Extension-only library must appear in game catalog');
   assert(byId.has('addon:test'),'Native library must appear in game catalog');
   assert.equal(byId.get('test-empty').count,0);
-  assert.equal(byId.get('extlib:test').count,1);
+  assert.equal(byId.get('extlib:test').count,38);
   assert.equal(byId.get('extlib:test').playableCount,0);
   assert.equal(byId.get('addon:test').playableCount,1);
   await page.locator('#settingsBtn').click();
@@ -124,12 +127,14 @@ try{
   await page.locator('#onlyFramesChooseVideos').click();
   await page.locator('#onlyFramesDirectVideos').setInputFiles([
     {name:'ext.mp4',mimeType:'video/mp4',buffer:Buffer.from('fake-video-bytes')},
-    {name:'second.mkv',mimeType:'video/x-matroska',buffer:Buffer.from('fake-video-bytes')}
+    {name:'second.mkv',mimeType:'video/x-matroska',buffer:Buffer.from('fake-video-bytes')},
+    ...Array.from({length:36},(_,i)=>({name:'video-'+i+'.mp4',
+      mimeType:'video/mp4',buffer:Buffer.from('fake-video-bytes')}))
   ]);
   await page.waitForFunction(()=>{
     const local=window.MarmaladeMediaLibrary.getGameLibraries()
       .find(lib=>lib.name.includes('Browser Library'));
-    return local?.playableCount===2;
+    return local?.playableCount===38;
   });
   const localId=await page.evaluate(()=>{
     return window.MarmaladeMediaLibrary.getGameLibraries()
@@ -152,11 +157,13 @@ try{
   for(let round=0;round<10;round++){
     const snap=await page.evaluate(async id=>{
       const files=[new File(['v'+Date.now()],'ext.mp4',{type:'video/mp4'}),
-        new File(['other'],'second.mkv',{type:'video/x-matroska'})];
+        new File(['other'],'second.mkv',{type:'video/x-matroska'}),
+        ...Array.from({length:36},(_,i)=>
+          new File(['data'],'video-'+i+'.mp4',{type:'video/mp4'}))];
       return window.MarmaladeMediaLibrary.importGameFiles(id,files);
     },localId);
     assert.equal(snap.connected,true,'Local import round '+round);
-    assert.equal(snap.playableCount,2,'No duplicates on import round '+round);
+    assert.equal(snap.playableCount,38,'No duplicates on import round '+round);
     assert.equal(snap.libraryId,localId,
       'Local reimport must retain its independent ID on round '+round);
   }
@@ -169,7 +176,7 @@ try{
   await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
   const persisted=await page.evaluate(id=>
     window.MarmaladeMediaLibrary.getGameLibraries().find(lib=>lib.id===id),localId);
-  assert.equal(persisted.count,2);
+  assert.equal(persisted.count,38);
   assert.equal(persisted.playableCount,0,
     'After reloading, never claim cached metadata is an openable File');
   await page.evaluate(async id=>{
