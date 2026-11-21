@@ -92,6 +92,25 @@ try{
  assert(filters.every(item=>Math.abs(item.top-filters[0].top)<3 && item.width>0),
    'Sort and filter dropdowns must fit on a single row');
  assert.equal(await page.locator('#onlyFramesLaunch img').evaluate(img=>img.complete&&img.naturalWidth>0),true);
+ const officialArtwork=await page.evaluate(()=>{
+   const card=document.querySelector('#onlyFramesLaunch img');
+   const dialog=document.querySelector('#onlyFramesDialog .games-dialog-logo');
+   const cardStyle=getComputedStyle(card);
+   return {
+     cardSource:new URL(card.currentSrc||card.src).pathname,
+     dialogSource:new URL(dialog.currentSrc||dialog.src).pathname,
+     sameSource:card.src===dialog.src,
+     cardDimensions:[card.naturalWidth,card.naturalHeight],
+     cardFit:cardStyle.objectFit
+   };
+ });
+ assert(officialArtwork.sameSource,'Game card and dialog use the exact same official image');
+ assert.match(officialArtwork.cardSource,/onlyframes-official-poster\\.png$/);
+ assert.equal(officialArtwork.dialogSource,officialArtwork.cardSource);
+ assert.deepEqual(officialArtwork.cardDimensions,[1024,1536],
+   'Official poster must retain its full original 1024×1536 resolution');
+ assert.equal(officialArtwork.cardFit,'contain',
+   'Never crop the official OnlyFrames artwork');
  const posterFit=await page.locator('#onlyFramesLaunch').evaluate(card=>{
    const art=card.querySelector('img');
    const outer=card.getBoundingClientRect(),inner=art.getBoundingClientRect();

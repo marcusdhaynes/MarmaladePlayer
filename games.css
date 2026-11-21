@@ -615,3 +615,24 @@ body>.games-dialog::backdrop{
 @media(max-width:520px){
   .games-timestamp-step #onlyFramesTimeInput{width:135px;height:34px;min-height:34px;font-size:16px}
 }
+
+
+/* The user's original 1024×1536 OnlyFrames PNG is the single, canonical
+   artwork for the Games card and every in-game details/preview image. */
+.games-collection #onlyFramesLaunch img{
+  display:block;width:100%;height:auto;aspect-ratio:2/3;
+  object-fit:contain!important;object-position:center center;
+}
+.games-dialog-surface .games-dialog-logo{
+  display:block;box-sizing:border-box;
+  width:min(156px,45vw)!important;
+  height:auto!important;
+  max-width:100%!important;
+  max-height:none!important;
+  aspect-ratio:2/3;
+  object-fit:contain!important;
+  object-position:center center;
+  margin:0 auto 8px;
+  border-radius:7px;
+  box-shadow:0 4px 16px #050a1e55;
+}
