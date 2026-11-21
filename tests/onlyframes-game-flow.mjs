@@ -315,6 +315,28 @@ try {
   await page.locator('#onlyFramesLaunch').click();
   await page.locator('#onlyFramesAction').click();
 
+  // In Random mode, each Next turn reads from the in-memory snapshot,
+  // even with 500 indexed titles, not the Media Library API.
+  await page.locator('#onlyFramesLaunch').click();
+  await page.locator('#onlyFramesVideoRandom').click();
+  await page.locator('#onlyFramesModeAutomatic').click();
+  await page.locator('#onlyFramesAction').click();
+  await page.waitForFunction(()=>window.MarmaladeGames.history().length===1);
+  const randomReads=await page.evaluate(()=>window.__onlyFramesHarness.catalogReads);
+  for(let turn=2;turn<=5;turn++){
+    await page.locator('#gamesNext').click();
+    await page.waitForFunction(expected=>
+      window.MarmaladeGames.history().length===expected,turn);
+  }
+  assert.equal(await page.evaluate(()=>window.__onlyFramesHarness.catalogReads),randomReads,
+    'Random Next turns must not re-read the large video catalog');
+  const bulkHistory=await page.evaluate(()=>window.MarmaladeGames.history());
+  for(let i=1;i<bulkHistory.length;i++){
+    assert.notEqual(bulkHistory[i].id,bulkHistory[i-1].id,
+      'Random mode should not immediately repeat the previous video');
+  }
+  await page.locator('#onlyFramesLaunch').click();
+  await page.locator('#onlyFramesAction').click();
   assert.equal(pageErrors.length,0,'Browser runtime errors: '+pageErrors.join('\n'));
   console.log('PASS OnlyFrames automatic and player-choice modes, frame history, receipt log, disabled D-pad, and End Game');
 }finally{
