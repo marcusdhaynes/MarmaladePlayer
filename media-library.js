@@ -1346,6 +1346,9 @@
     if(!state.ready)return;
     renderShelves();renderCards();
     if(state.status)ui.status.textContent=state.status;
+    // New/edited/rescanned libraries may appear while game details are open.
+    // Consumers read the authoritative catalog rather than a stale snapshot.
+    window.dispatchEvent(new Event('marmalade:media-library-updated'));
   }
   async function getPlayable(item){
     const lib=state.libraries.find(l=>l.id===item.libraryId);
@@ -1411,21 +1414,28 @@
   }
   // A restricted game bridge: returns safe catalog metadata and delegates
   // random selections through exactly the same native/file playback paths.
+  // Every actual library appears in the Games dropdown, including empty,
+  // disconnected, and extension-only libraries. Playability is separate.
+  function gameFolder(lib,item){
+    return (lib.folders||[]).find(folder=>folder.id===item.folderId)||
+      (lib.id.startsWith('addon:')&&item.url?{source:'native'}:null);
+  }
   function getGameLibraries(){
-    return state.libraries.map(lib=>{
-      const count=(lib.items||[]).filter(item=>{
-        const folder=lib.folders.find(f=>f.id===item.folderId);
-        return folder && folder.source!=='extension';
-      }).length;
-      return {id:lib.id,name:lib.name,kind:lib.kind,count};
-    }).filter(lib=>lib.count>0);
+    return state.libraries.map(lib=>({
+      id:lib.id,name:lib.name,kind:lib.kind,
+      count:(lib.items||[]).length,
+      playableCount:getGameVideos(lib.id).length
+    }));
   }
   function getGameVideos(libraryId){
     const lib=state.libraries.find(lib=>lib.id===libraryId);
     if(!lib)return [];
     return (lib.items||[]).filter(item=>{
-      const folder=lib.folders.find(folder=>folder.id===item.folderId);
-      return folder&&folder.source!=='extension';
+      const folder=gameFolder(lib,item);
+      if(!folder||folder.source==='extension')return false;
+      if(folder.source==='native')return !!item.url;
+      if(folder.source==='session')return state.sessionFiles.has(item.id);
+      return !!folder.handle;
     }).map(item=>({id:item.id,title:item.title||item.name,
       name:item.name||item.title||'Library Video',runtimeSec:Number(item.runtimeSec)||null,
       libraryId:lib.id,libraryName:lib.name}));
@@ -1434,9 +1444,9 @@
     const lib=state.libraries.find(lib=>lib.id===libraryId);
     const item=lib?.items.find(item=>item.id===itemId);
     if(!lib||!item)throw Error('That video is no longer in this library. Rescan the library and try again.');
-    const folder=lib.folders.find(folder=>folder.id===item.folderId);
+    const folder=gameFolder(lib,item);
     if(!folder||folder.source==='extension')
-      throw Error('This source cannot play inside Marmaladeum. Choose a local or Minternet library.');
+      throw Error('This source cannot play inside Marmaladeum. Choose a connected local or Minternet library.');
     const bridge=window.MarmaladeAddonBridge;
     if(bridge?.state?.role!=='host')
       throw Error('Only the host can select the game video. End your guest session before playing.');

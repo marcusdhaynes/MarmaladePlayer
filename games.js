@@ -198,7 +198,8 @@
   });
   const dialog=$('onlyFramesDialog'),launch=$('onlyFramesLaunch'),close=$('onlyFramesClose');
   const overview=$('onlyFramesOverview'),step=$('onlyFramesTimeStep');
-  const action=$('onlyFramesAction'),modeSelect=$('onlyFramesMode');
+  const action=$('onlyFramesAction'),modeToggle=$('onlyFramesMode');
+  const modeAutomatic=$('onlyFramesModeAutomatic'),modeChoice=$('onlyFramesModeChoice');
   const librarySelect=$('onlyFramesLibrary'),hint=$('onlyFramesHint');
   const timeRange=$('onlyFramesTimeRange'),timeValue=$('onlyFramesTimeValue');
   const timeDuration=$('onlyFramesTimeDuration'),pickedTitle=$('onlyFramesPickedVideo');
@@ -214,6 +215,25 @@
   let busy=false,generation=0,pendingChoice=null;
   let history=[],cursor=-1,eventLog=[];
   const gameCards=[launch];
+  // Native dialog is promoted into the browser's top layer. Keeping it
+  // outside .games-panel also prevents ancestor stacking contexts from
+  // placing the video controls above the game details.
+  if(dialog.parentElement!==document.body)document.body.append(dialog);
+  function showGameDialog(){
+    dialog.hidden=false;
+    if(!dialog.open)dialog.showModal();
+  }
+  function hideGameDialog(){
+    if(dialog.open)dialog.close();
+    dialog.hidden=true;
+  }
+  function selectedMode(){return modeChoice.getAttribute('aria-pressed')==='true'?'choice':'automatic';}
+  function setSelectedMode(value){
+    modeAutomatic.setAttribute('aria-pressed',String(value!=='choice'));
+    modeChoice.setAttribute('aria-pressed',String(value==='choice'));
+  }
+  modeAutomatic.addEventListener('click',()=>setSelectedMode('automatic'));
+  modeChoice.addEventListener('click',()=>setSelectedMode('choice'));
   const timeText=seconds=>{
     const time=Math.max(0,Math.floor(Number(seconds)||0));
     const parts=[Math.floor(time/3600),Math.floor(time%3600/60),time%60];
@@ -288,22 +308,51 @@
     }
     logCount.textContent=eventLog.length+' '+(eventLog.length===1?'EVENT':'EVENTS');
   }
+  function updateLibrarySelection(){
+    if(activeGame)return;
+    const api=mediaLibrary();
+    const libs=api?.getGameLibraries?.()||[];
+    const chosen=libs.find(lib=>lib.id===librarySelect.value);
+    const playable=chosen?(Number.isFinite(chosen.playableCount)?
+      chosen.playableCount:(api?.getGameVideos?.(chosen.id)||[]).length):0;
+    action.disabled=!chosen||playable<1;
+    if(!libs.length){
+      hint.textContent='No libraries found. Create a Media Library to get started.';
+    }else if(!chosen){
+      hint.textContent='Choose a Media Library to begin.';
+    }else if(playable>0){
+      hint.textContent=playable+' playable video'+(playable===1?'':'s')+
+        ' available in '+chosen.name+'.';
+    }else if(chosen.count>0){
+      hint.textContent=chosen.name+' contains '+chosen.count+' indexed video'+
+        (chosen.count===1?'':'s')+', but none can be opened here. Reconnect its source folder, or use a local / Minternet library.';
+    }else{
+      hint.textContent=chosen.name+' is empty. Add videos to this library to play.';
+    }
+  }
   function populateLibraries(){
-    const previously=selectedLibrary||librarySelect.value;
+    const previously=librarySelect.value||selectedLibrary;
     const libs=mediaLibrary()?.getGameLibraries?.()||[];
     librarySelect.replaceChildren(new Option('Choose a Library…',''));
     for(const lib of libs){
-      const option=new Option(lib.name+' · '+lib.count+' video'+(lib.count===1?'':'s'),lib.id);
+      const count=Math.max(0,Number(lib.count)||0);
+      const option=new Option(lib.name+' · '+count+' video'+(count===1?'':'s'),lib.id);
       librarySelect.add(option);
     }
     if(libs.some(lib=>lib.id===previously))librarySelect.value=previously;
     else if(libs.length===1)librarySelect.value=libs[0].id;
     else librarySelect.value='';
-    const available=libs.some(lib=>lib.id===librarySelect.value);
-    if(!activeGame){
-      hint.textContent=libs.length?'Select a mode and a library to begin.':
-        'Add videos to a local Media Library first. Extension-only catalog entries cannot play inside Marmaladeum.';
-      action.disabled=!available;
+    selectedLibrary=librarySelect.value||null;
+    updateLibrarySelection();
+  }
+  let libraryRefreshToken=0;
+  async function refreshLibrariesAfterLoad(){
+    const token=++libraryRefreshToken;
+    const api=mediaLibrary();
+    if(api?.ready){
+      try{await api.ready;}catch{}
+      if(token!==libraryRefreshToken||dialog.hidden||activeGame)return;
+      populateLibraries();
     }
   }
   function openOverview(){
@@ -320,11 +369,13 @@
   }
   function showDetails(){
     openOverview();
-    dialog.hidden=false;
+    showGameDialog();
+    void refreshLibrariesAfterLoad();
     close.focus();
   }
   function closeDetails(){
-    dialog.hidden=true;
+    ++libraryRefreshToken;
+    hideGameDialog();
     if(pendingChoice){
       pendingChoice=null;
       setGameStatus('CHOOSE NEXT FRAME');
@@ -363,7 +414,7 @@
   }
   function displayTimePicker(video,duration){
     pendingChoice={...video,duration};
-    overview.hidden=true;step.hidden=false;dialog.hidden=false;
+    overview.hidden=true;step.hidden=false;showGameDialog();
     pickedTitle.textContent=video.title+' · '+video.libraryName;
     const max=Math.max(0,Math.floor(duration-0.05));
     timeRange.max=String(max);timeRange.value=String(Math.floor(max/2));
@@ -402,13 +453,13 @@
       if(token!==generation)return;
       if(existingIndex!==null){
         recordFrame(video,duration,video.timestamp,existingIndex,direction);
-        dialog.hidden=true;
+        hideGameDialog();
       }else if(mode==='choice'){
         displayTimePicker(video,duration);
       }else{
         const max=Math.max(0,Math.floor(duration-0.05));
         recordFrame(video,duration,randomIndex(max+1),null,direction);
-        dialog.hidden=true;
+        hideGameDialog();
       }
     }catch(error){
       if(token!==generation)return;
@@ -453,7 +504,7 @@
       hint.textContent='Choose a nonempty Media Library to start OnlyFrames.';
       action.disabled=true;return;
     }
-    activeGame='onlyframes';selectedLibrary=chosen;mode=modeSelect.value==='choice'?'choice':'automatic';
+    activeGame='onlyframes';selectedLibrary=chosen;mode=selectedMode();
     history=[];cursor=-1;pendingChoice=null;eventLog=[];renderLog();
     appendLog('start','OnlyFrames started',
       (mode==='automatic'?'Automatic':"Player's Choice")+' · '+librarySelect.selectedOptions[0].text);
@@ -475,14 +526,14 @@
     activeGame=null;selectedLibrary=null;history=[];cursor=-1;
     setGameStatus('SELECT A GAME');
     toggleLog(false);syncControls();
-    dialog.hidden=true;step.hidden=true;overview.hidden=false;launch.focus();
+    hideGameDialog();step.hidden=true;overview.hidden=false;launch.focus();
   }
   function confirmChoice(){
     const choice=pendingChoice;
     if(!choice||activeGame!=='onlyframes'||busy)return;
     try{
       recordFrame(choice,choice.duration,Number(timeRange.value),null,'Player Choice');
-      pendingChoice=null;dialog.hidden=true;step.hidden=true;overview.hidden=false;
+      pendingChoice=null;hideGameDialog();step.hidden=true;overview.hidden=false;
       syncControls();
     }catch(error){
       hint.textContent=error?.message||'Unable to seek to this time.';
@@ -494,12 +545,15 @@
   launch.addEventListener('click',showDetails);
   close.addEventListener('click',closeDetails);
   dialog.addEventListener('click',event=>{if(event.target===dialog)closeDetails();});
-  window.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&!dialog.hidden)closeDetails();
+  dialog.addEventListener('cancel',event=>{
+    event.preventDefault();closeDetails();
+  });
+  window.addEventListener('marmalade:media-library-updated',()=>{
+    if(!dialog.hidden&&!activeGame&&overview.hidden===false)populateLibraries();
   });
   librarySelect.addEventListener('change',()=>{
     selectedLibrary=librarySelect.value||null;
-    action.disabled=!selectedLibrary;
+    updateLibrarySelection();
   });
   timeRange.addEventListener('input',updateTimeLabel);
   $('onlyFramesConfirmTime').addEventListener('click',confirmChoice);

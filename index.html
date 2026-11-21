@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261120-game-controls-v3">
+<link rel="stylesheet" href="./games.css?v=20261121-modal-pill-libraries-v4">
 </head>
 <body>
   <div class="app-shell">
@@ -778,7 +778,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
               <div id="gamesLogEntries" class="games-log-entries" role="log" aria-live="polite"></div>
               <div class="games-log-footer"><span id="gamesLogCount">0 EVENTS</span><span>LOCAL SESSION</span></div>
             </section>
-            <div id="onlyFramesDialog" class="games-dialog" role="dialog" aria-modal="true" aria-label="OnlyFrames" hidden>
+            <dialog id="onlyFramesDialog" class="games-dialog" aria-label="OnlyFrames" hidden>
               <div class="games-dialog-surface">
                 <button type="button" id="onlyFramesClose" class="games-dialog-close" aria-label="Close OnlyFrames">×</button>
                 <img class="games-dialog-logo" src="./assets/onlyframes-logo.svg" alt="OnlyFrames" width="280" height="84">
@@ -790,7 +790,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                     <section><small>WIN / LOSE CONDITION</small><p>Not specified yet. Keep scores manually until the win/lose rules are provided.</p></section>
                   </div>
                   <div class="games-start-options" id="onlyFramesOptions">
-                    <label>Mode<select id="onlyFramesMode" aria-label="OnlyFrames Mode"><option value="automatic">Automatic</option><option value="choice">Player's Choice</option></select></label>
+                    <div class="games-mode-field">
+                      <span id="onlyFramesModeLabel" class="games-option-label">Mode</span>
+                      <div id="onlyFramesMode" class="games-mode-pill" role="group" aria-labelledby="onlyFramesModeLabel">
+                        <button type="button" id="onlyFramesModeAutomatic" aria-pressed="true">Automatic</button>
+                        <button type="button" id="onlyFramesModeChoice" aria-pressed="false">Player's Choice</button>
+                      </div>
+                    </div>
                     <label>Video Library<select id="onlyFramesLibrary" aria-label="OnlyFrames Video Library"><option value="">Choose a Library…</option></select></label>
                   </div>
                   <p class="games-dialog-hint" id="onlyFramesHint" role="status"></p>
@@ -805,7 +811,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                   <button type="button" id="onlyFramesConfirmTime" class="games-primary-action">Show Frame</button>
                 </div>
               </div>
-            </div>
+            </dialog>
           </section>
           <section class="media-info" id="mediaInfoPanel" aria-label="Movie and TV information" hidden>
           <div class="mi-header"><strong>Movie &amp; Series Information</strong><div class="mi-header-right"><span id="miStatus" class="mi-muted" role="status" aria-live="polite">No Video Selected</span></div></div>
@@ -6116,8 +6122,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
-<script src="./media-library.js?v=20261120-library-settings-v2" defer></script>
-<script src="./games.js?v=20261120-onlyframes-engine-v3" defer></script>
+<script src="./media-library.js?v=20261121-all-game-libraries-v4" defer></script>
+<script src="./games.js?v=20261121-modal-pill-libraries-v4" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>

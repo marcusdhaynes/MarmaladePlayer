@@ -303,3 +303,49 @@
 @media(prefers-reduced-motion:reduce){
  .games-split-pill button{transition:none}
 }
+
+
+/* Native top-layer game dialog, never behind the video transport controls.
+   The dialog is portaled to body; no stage/panel stacking context applies. */
+body>.games-dialog{
+  position:fixed!important;inset:0!important;margin:0!important;
+  width:100vw!important;height:100dvh!important;
+  max-width:none!important;max-height:none!important;
+  box-sizing:border-box!important;display:grid!important;place-items:center!important;
+  padding:18px!important;border:0!important;border-radius:0!important;
+  background:transparent!important;backdrop-filter:none!important;
+  overflow-y:auto!important;overscroll-behavior:contain!important;
+  z-index:2147483646!important;
+}
+body>.games-dialog::backdrop{
+  background:rgba(5,6,17,.86)!important;
+  backdrop-filter:blur(9px);
+}
+body>.games-dialog[hidden],body>.games-dialog:not([open]){
+  display:none!important;
+}
+.games-mode-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.games-mode-field .games-option-label{font:750 10px system-ui;color:#b4d1e5}
+.games-mode-pill{box-sizing:border-box;width:100%;height:36px;
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  padding:2px;gap:2px;border:1px solid #457f9b;border-radius:8px;
+  background:#102741;box-shadow:inset 0 1px 3px #0005;overflow:hidden}
+.games-mode-pill button{box-sizing:border-box;display:grid;place-items:center;
+  min-width:0;width:100%;height:100%;margin:0;padding:2px 2px;
+  border:1px solid transparent;border-radius:6px;background:transparent;
+  font:750 clamp(8px,1vw,10px)/1.2 system-ui,sans-serif;
+  white-space:nowrap;letter-spacing:-.15px;color:#abc0d3;
+  cursor:pointer;transition:background .14s,color .14s}
+.games-mode-pill button[aria-pressed="true"]{
+  color:#efffff;background:linear-gradient(130deg,#078bad,#0f5d91);
+  border-color:#63cde6a6;box-shadow:0 2px 7px #0004}
+.games-mode-pill button:not([aria-pressed="true"]):hover{
+  color:#e4f5ff;background:#ffffff0f}
+.games-mode-pill button:focus-visible{
+  outline:2px solid #b6efff;outline-offset:-2px}
+@media(max-width:520px){
+  .games-mode-pill button{font-size:10px}
+}
+@media(prefers-reduced-motion:reduce){
+  .games-mode-pill button{transition:none}
+}

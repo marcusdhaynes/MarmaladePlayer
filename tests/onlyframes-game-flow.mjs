@@ -71,6 +71,24 @@ try {
   for(const id of ['gamesUp','gamesDown','gamesLeft','gamesRight'])
     assert.equal(await page.locator('#'+id).isDisabled(),true,'D-pad stays disabled');
   await page.locator('#onlyFramesLaunch').click();
+  const dialogLayer=await page.locator('#onlyFramesDialog').evaluate(dialog=>{
+    const surface=dialog.querySelector('.games-dialog-surface');
+    const bounds=surface.getBoundingClientRect();
+    return {open:dialog.open,portaled:dialog.parentElement===document.body,
+      midpointHit:document.elementFromPoint(bounds.x+bounds.width/2,
+        bounds.y+bounds.height/2)?.closest('#onlyFramesDialog')===dialog,
+      backgroundHit:document.elementFromPoint(12,Math.round(innerHeight/2))===dialog};
+  });
+  assert(dialogLayer.open&&dialogLayer.portaled&&dialogLayer.midpointHit&&dialogLayer.backgroundHit,
+    'Game details must occupy the browser top layer above every video control');
+  const modeWidths=await page.locator('#onlyFramesMode').evaluate(pill=>
+    [...pill.querySelectorAll('button')].map(btn=>btn.getBoundingClientRect().width));
+  assert(Math.abs(modeWidths[0]-modeWidths[1])<1,
+    'Automatic and Player Choice must have equal-width pill halves');
+  assert.equal(await page.locator('#onlyFramesModeAutomatic').getAttribute('aria-pressed'),'true');
+  await page.locator('#onlyFramesModeChoice').click();
+  assert.equal(await page.locator('#onlyFramesModeChoice').getAttribute('aria-pressed'),'true');
+  await page.locator('#onlyFramesModeAutomatic').click();
   assert.equal(await page.locator('#onlyFramesAction').isEnabled(),true,
     'With a nonempty library, Play Game is available');
   assert.equal(await page.locator('#onlyFramesLibrary').inputValue(),'test-library');
@@ -118,7 +136,7 @@ try {
   assert.equal(await page.locator('#gamesLogToggle').isDisabled(),true);
   assert.equal(await page.locator('#gamesLogPanel').isVisible(),false);
   await page.locator('#onlyFramesLaunch').click();
-  await page.locator('#onlyFramesMode').selectOption('choice');
+  await page.locator('#onlyFramesModeChoice').click();
   await page.locator('#onlyFramesAction').click();
   await page.locator('#onlyFramesTimeStep').waitFor({state:'visible'});
   assert.equal(await page.locator('#onlyFramesTimeRange').getAttribute('max'),'119');

@@ -95,6 +95,8 @@ try{
  await page.locator('#onlyFramesLaunch').click();
  assert.equal(await page.locator('#onlyFramesDialog').isVisible(),true);
  assert.match(await page.locator('#onlyFramesDialog').textContent(),/RULES[\s\S]*WIN \/ LOSE CONDITION/i);
+ assert.equal(await page.locator('#onlyFramesDialog').evaluate(el=>el.open&&el.parentElement===document.body),true,
+   'Game dialog is modal in the top layer, outside app layout stacking contexts');
  assert.equal(await page.locator('#gamesPrevious').isDisabled(),true);
  assert.equal(await page.locator('#gamesNext').isDisabled(),true);
  assert.equal(await page.locator('#gamesLogToggle').isDisabled(),true);
