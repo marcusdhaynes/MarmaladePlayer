@@ -32,8 +32,8 @@ jobs:
           node scripts/build-media-extensions.mjs
           mkdir -p dist/extension-packages
           for target in chrome edge brave opera vivaldi firefox safari; do
-            cd "dist/media-extensions/\$target"
-            zip -q -r "../../extension-packages/marmalade-library-\$target.zip" .
+            cd "dist/media-extensions/$target"
+            zip -q -r "../../extension-packages/marmalade-library-$target.zip" .
             cd ../../..
           done
           cp dist/extension-packages/marmalade-library-firefox.zip dist/extension-packages/marmalade-library-firefox-unsigned.xpi
