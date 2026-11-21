@@ -1,1 +1,43 @@
-{"action":{"default_popup":"../popup.html","default_title":"Marmalade Library"},"background":{"scripts":["../background-firefox.js"]},"browser_specific_settings":{"gecko":{"id":"marmalade-library@somniel.com","strict_min_version":"115.0"}},"content_scripts":[{"js":["../content.js"],"matches":["https://marmaladeum.com/*","https://marcusdhaynes.github.io/MarmaladePlayer/*","http://localhost/*","http://127.0.0.1/*"],"run_at":"document_start"}],"description":"Persistent local media library catalog for Marmalade Player. Catalog persists in extension storage; Firefox has no persistent directory handles, so files are re-picked before playback (see README).","manifest_version":3,"name":"Marmalade Library","options_ui":{"open_in_tab":true,"page":"../library.html"},"permissions":["storage","unlimitedStorage"],"version":"0.1.0"}
+{
+  "manifest_version": 3,
+  "name": "Marmalade Library",
+  "version": "0.2.0",
+  "description": "Independent Marmaladeum media library backup for Firefox; metadata persists, file reopening respects Firefox permissions.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "marmalade-library@somniel.com",
+      "strict_min_version": "128.0"
+    }
+  },
+  "action": {
+    "default_title": "Marmalade Library"
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "options_ui": {
+    "page": "library.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "matches": [
+        "https://marmaladeum.com/*",
+        "https://www.marmaladeum.com/*",
+        "https://marcusdhaynes.github.io/MarmaladePlayer/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ]
+    }
+  ]
+}
