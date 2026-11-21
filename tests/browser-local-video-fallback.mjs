@@ -85,7 +85,7 @@ try{
   await page.evaluate(()=>window.MarmaladeMediaLibrary.select(
     window.MarmaladeMediaLibrary.getGameLibraries().find(x=>x.name==='Browser Movies').id));
   // Re-select files, 10 times, and assert no duplicate catalog entries.
-  await page.locator('#mlQuickAddVideos').setInputFiles([
+  await page.locator('#mlQuickFiles').setInputFiles([
     {name:'Movie.mp4',mimeType:'video/mp4',buffer:Buffer.from('test movie')},
     {name:'Episode.mkv',mimeType:'video/x-matroska',buffer:Buffer.from('test episode')}
   ]);
