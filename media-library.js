@@ -1541,7 +1541,46 @@
         hiddenIds:[],migratedFrom:external?source.id:null,
         createdAt:now(),lastScan:now()};
     }
-    const paths=files.map(file=>String(file.webkitRelativePath||'').split('/').filter(Boolean));
+    // Prefer reconnecting the exact indexed item over adding a duplicate
+    // folder. This covers Firefox/Safari FileList sessions across page reloads
+    // as well as users selecting individual video files from a prior folder.
+    const allPrevious=lib.items||[];
+    const byName=new Map();
+    for(const item of allPrevious){
+      const key=String(item.name||'').toLocaleLowerCase();
+      if(!byName.has(key))byName.set(key,[]);
+      byName.get(key).push(item);
+    }
+    const pendingFiles=[];
+    let linkedCount=0;
+    for(const file of files){
+      const parts=String(file.webkitRelativePath||'').split('/').filter(Boolean);
+      const relative=parts.length>=2?parts.slice(1).join('/'):file.name;
+      const matches=allPrevious.filter(item=>item.path===relative);
+      const named=byName.get(file.name.toLocaleLowerCase())||[];
+      const exact=matches.length===1?matches[0]:named.length===1?named[0]:null;
+      if(exact){
+        state.sessionFiles.set(exact.id,file);
+        state.sessionFolderLoaded.add(exact.folderId);
+        linkedCount++;
+      }else pendingFiles.push(file);
+    }
+    if(!pendingFiles.length){
+      if(created)state.libraries.push(lib);
+      await persist(lib);
+      state.selected=lib.id;
+      setLocal('marmalade:media-library:selected',lib.id);
+      state.query='';state.kind='all';state.collection='all';
+      ui.search.value='';ui.filter.value='all';ui.collections.value='all';
+      render();
+      notify(linkedCount+' existing videos reconnected in '+lib.name+
+        '. Files are available locally in this browser session.');
+      return {connected:true,libraryId:lib.id,imported:linkedCount,
+        playableCount:getGameVideos(lib.id).length,name:lib.name,
+        sessionOnly:true,independent:true};
+    }
+    const filesToAdd=pendingFiles;
+    const paths=filesToAdd.map(file=>String(file.webkitRelativePath||'').split('/').filter(Boolean));
     const prefixes=paths.filter(parts=>parts.length>=2).map(parts=>parts[0]);
     const commonRoot=prefixes.length&&prefixes.every(first=>first===prefixes[0])?
       prefixes[0]:null;
@@ -1561,8 +1600,8 @@
     const entries=[];
     // Streaming object URLs are created by the established chooseVideo
     // player path. Keep the File objects intact, never eagerly load bytes.
-    for(let index=0;index<files.length;index++){
-      const file=files[index],parts=paths[index];
+    for(let index=0;index<filesToAdd.length;index++){
+      const file=filesToAdd[index],parts=paths[index];
       let path=(parts.length>=2?parts.slice(1).join('/'):file.name)||file.name;
       const original=path;
       for(let suffix=2;occupied.has(path);suffix++){
@@ -1604,7 +1643,7 @@
     render();
     notify(countLabel(entries.length)+' ready in '+lib.name+
       '. Videos play directly in this browser; nothing was uploaded.');
-    return {connected:true,libraryId:lib.id,imported:entries.length,
+    return {connected:true,libraryId:lib.id,imported:entries.length+linkedCount,
       playableCount:getGameVideos(lib.id).length,name:lib.name,
       sessionOnly:true,independent:true};
   }
