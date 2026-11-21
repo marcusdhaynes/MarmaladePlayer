@@ -6,6 +6,7 @@ on:
       - 'extension/**'
       - 'scripts/build-media-extensions.mjs'
       - 'tests/extension-catalog.mjs'
+      - 'tests/extension-bridge.mjs'
       - '.github/workflows/media-library-extensions.yml'
   workflow_dispatch:
 permissions:
@@ -27,6 +28,7 @@ jobs:
           node --check extension/lib/store.mjs
           node --check extension/lib/catalog.mjs
           node tests/extension-catalog.mjs
+          node tests/extension-bridge.mjs
       - name: Build seven minimal browser extensions
         run: |
           node scripts/build-media-extensions.mjs
