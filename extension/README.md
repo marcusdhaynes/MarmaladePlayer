@@ -1,6 +1,6 @@
 # Marmalade Library — Independent Browser Extensions v0.2.0
 
-This is one shared five-file WebExtension packaged for Chrome, Edge, Brave, Opera, Vivaldi, Firefox and Safari. **No Minternet native module, .mext media server, local HTTP server or native file bridge is required.**
+This is one shared five-file WebExtension packaged for Chrome, Edge, Brave, Opera, Vivaldi, Minternet, Firefox and Safari. **No Minternet native module, .mext media server, local HTTP server or native file bridge is required.**
 
 ## What is retained
 
@@ -13,6 +13,8 @@ This is one shared five-file WebExtension packaged for Chrome, Edge, Brave, Oper
 ## Installation
 
 **Chrome, Edge, Brave, Opera, Vivaldi:** Download your browser ZIP from [Marmalade Library releases](https://github.com/marcusdhaynes/MarmaladePlayer/releases). Extract it, enable Extensions > Developer Mode, then Load unpacked using the extracted folder.
+
+**Minternet:** Download the separate Minternet ZIP (same pure WebExtension functionality as Chromium), then in Minternet use Extensions > Chrome > Import ZIP if its WebView2 extension runtime accepts the package. This does not use a .mext or any Minternet-native media service. Browser file-access support must still be verified on the installed Minternet build.
 
 **Firefox:** Download the Firefox ZIP; temporarily test through about:debugging > This Firefox > Load Temporary Add-on. Permanent installation requires Mozilla add-on signing. The provided development XPI is **unsigned** and is not a permanently installable release.
 
