@@ -202,6 +202,8 @@
   const modeAutomatic=$('onlyFramesModeAutomatic'),modeChoice=$('onlyFramesModeChoice');
   const librarySelect=$('onlyFramesLibrary'),hint=$('onlyFramesHint');
   const timeRange=$('onlyFramesTimeRange'),timeValue=$('onlyFramesTimeValue');
+  const timeInput=$('onlyFramesTimeInput'),timeError=$('onlyFramesTimeError');
+  const confirmTime=$('onlyFramesConfirmTime');
   const timeDuration=$('onlyFramesTimeDuration'),pickedTitle=$('onlyFramesPickedVideo');
   const status=$('gamesStatus');
   const control={previous:$('gamesPrevious'),next:$('gamesNext'),
@@ -505,6 +507,99 @@
     video.pause();
     return target;
   }
+  const asSixDigits=value=>String(value||'').replace(/\D/g,'').slice(0,6).padEnd(6,'0');
+  const maskTime=digits=>digits.slice(0,2)+':'+digits.slice(2,4)+':'+digits.slice(4,6);
+  const fullTime=seconds=>{
+    const time=Math.max(0,Math.floor(Number(seconds)||0));
+    const hours=Math.floor(time/3600),minutes=Math.floor(time%3600/60);
+    return maskTime(String(hours).padStart(2,'0').slice(-2)+
+      String(minutes).padStart(2,'0')+
+      String(time%60).padStart(2,'0'));
+  };
+  const timeSeconds=()=>{
+    const match=/^(\d{2}):(\d{2}):(\d{2})$/.exec(timeInput.value);
+    if(!match)return null;
+    const [,hh,mm,ss]=match;
+    const hours=Number(hh),minutes=Number(mm),seconds=Number(ss);
+    if(minutes>59||seconds>59)return null;
+    return hours*3600+minutes*60+seconds;
+  };
+  const timeCaretPositions=[0,1,3,4,6,7,8];
+  const digitsBefore=(value,offset)=>String(value).slice(0,offset).replace(/\D/g,'').length;
+  function cursorAtDigit(index){
+    const position=timeCaretPositions[Math.max(0,Math.min(6,index))];
+    timeInput.setSelectionRange(position,position);
+  }
+  function validateTimeInput(){
+    const seconds=timeSeconds();
+    const maximum=Number(timeRange.max);
+    const malformed=seconds===null;
+    const outOfBounds=!malformed&&(!Number.isFinite(maximum)||seconds>maximum);
+    const invalid=malformed||outOfBounds||!pendingChoice;
+    timeInput.setAttribute('aria-invalid',String(invalid));
+    confirmTime.disabled=invalid;
+    timeError.textContent=malformed?'Minutes and seconds must be between 00 and 59.':
+      outOfBounds?'Timestamp must be within this video.':'';
+    if(!invalid){
+      // Digit entry updates the slider but never seeks/starts video playback.
+      timeRange.value=String(seconds);
+      timeValue.textContent=timeText(seconds);
+    }
+    return !invalid;
+  }
+  function writeTimeDigits(input,kind='insert'){
+    const oldValue=timeInput.value;
+    const original=asSixDigits(oldValue).split('');
+    const start=digitsBefore(oldValue,timeInput.selectionStart??0);
+    const end=digitsBefore(oldValue,timeInput.selectionEnd??0);
+    let position=start;
+    if(kind==='delete-backward'&&start===end)position=Math.max(0,start-1);
+    if(kind==='delete-forward'&&start===end)position=Math.min(5,start);
+    const stop=end>start?end:Math.min(6,position+(kind==='insert'?0:1));
+    if(end>start||kind!=='insert')
+      for(let i=position;i<stop;i++)original[i]='0';
+    if(kind==='insert'){
+      const digits=String(input||'').replace(/\D/g,'').slice(0,6-position);
+      for(let i=0;i<digits.length;i++)original[position+i]=digits[i];
+      position=Math.min(6,position+digits.length);
+    }
+    timeInput.value=maskTime(original.join(''));
+    cursorAtDigit(position);
+    validateTimeInput();
+  }
+  timeInput.addEventListener('focus',()=>timeInput.select());
+  timeInput.addEventListener('beforeinput',event=>{
+    if(event.isComposing)return;
+    const kind=event.inputType||'';
+    if(kind==='insertText'||kind==='insertReplacementText'||kind==='insertFromPaste'){
+      if(event.data===null)return; // mobile/composition fallback: normalized by input
+      event.preventDefault();
+      writeTimeDigits(event.data,'insert');
+    }else if(kind==='deleteContentBackward'||kind==='deleteContentForward'||
+             kind==='deleteByCut'){
+      event.preventDefault();
+      writeTimeDigits('',kind==='deleteContentBackward'?'delete-backward':'delete-forward');
+    }
+  });
+  timeInput.addEventListener('paste',event=>{
+    event.preventDefault();
+    writeTimeDigits(event.clipboardData?.getData('text/plain')||'','insert');
+  });
+  timeInput.addEventListener('input',()=>{
+    // Fallback for mobile keyboards, autofill and input methods which do not
+    // implement beforeinput: keep colons fixed and sanitize every non-digit.
+    const original=timeInput.value;
+    const index=digitsBefore(original,timeInput.selectionStart??original.length);
+    timeInput.value=maskTime(asSixDigits(original));
+    cursorAtDigit(index);
+    validateTimeInput();
+  });
+  timeInput.addEventListener('keydown',event=>{
+    if(event.key==='Enter'&&!confirmTime.disabled){
+      event.preventDefault();
+      void confirmChoice();
+    }
+  });
   function displayTimePicker(video,duration){
     pendingChoice={...video,duration};
     overview.hidden=true;loadingStep.hidden=true;step.hidden=false;
@@ -518,7 +613,12 @@
     syncControls();
     timeRange.focus();
   }
-  function updateTimeLabel(){timeValue.textContent=timeText(Number(timeRange.value));}
+  function updateTimeLabel(){
+    const seconds=Number(timeRange.value);
+    timeValue.textContent=timeText(seconds);
+    timeInput.value=fullTime(seconds);
+    validateTimeInput();
+  }
   // Update gameplay and history only AFTER a real video frame is available.
   function recordFrame(video,duration,timestamp,fromHistoryIndex=null,direction='Frame'){
     const time=Math.max(0,Math.min(Math.max(0,duration-.05),Number(timestamp)||0));
@@ -640,7 +740,8 @@
     if(!choice||activeGame!=='onlyframes'||busy)return;
     busy=true;loadFailure=null;retryWork=null;
     const token=++generation;
-    const timestamp=Number(timeRange.value);
+    if(!validateTimeInput())return;
+    const timestamp=timeSeconds();
     showLoading('Preparing Chosen Frame','Waiting for the selected timestamp to decode before continuing.');
     syncControls();
     try{
@@ -675,7 +776,7 @@
     updateLibrarySelection();
   });
   timeRange.addEventListener('input',updateTimeLabel);
-  $('onlyFramesConfirmTime').addEventListener('click',()=>void confirmChoice());
+  confirmTime.addEventListener('click',()=>void confirmChoice());
   loadingRetry.addEventListener('click',()=>{
     const retry=retryWork;
     if(!busy&&activeGame==='onlyframes'&&retry){

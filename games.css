@@ -575,3 +575,43 @@ body>.games-dialog::backdrop{
   display:none!important;
   pointer-events:none!important;
 }
+
+
+/* OnlyFrames exact frame: the HH:MM:SS box lives directly beneath the
+   scrubber endpoints, centered and styled like the other glass controls. */
+.games-timestamp-step .games-time-entry{
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:5px;min-height:57px;
+  width:100%;margin:-5px auto 0;
+}
+.games-timestamp-step .games-time-entry>label{
+  display:block;text-align:center;
+  font:750 9px/1.2 system-ui,sans-serif;
+  letter-spacing:.8px;text-transform:uppercase;
+  color:#8dc5df;
+}
+.games-timestamp-step #onlyFramesTimeInput{
+  box-sizing:border-box;display:block;width:142px;max-width:100%;
+  height:36px;min-height:36px;margin:0;padding:5px 10px;
+  border-radius:8px;border:1px solid #4d839e;
+  background:linear-gradient(140deg,#173249,#0d243b);
+  box-shadow:inset 0 1px 3px #0007,0 1px 0 #ffffff12;
+  color:#f1faff;text-align:center;
+  font:750 17px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:1px;caret-color:#49d6f4;
+  outline:none;
+}
+.games-timestamp-step #onlyFramesTimeInput:focus-visible{
+  border-color:#67daee;box-shadow:0 0 0 2px #53d2ec3b,inset 0 1px 3px #0007;
+}
+.games-timestamp-step #onlyFramesTimeInput[aria-invalid="true"]{
+  border-color:#dc7182;box-shadow:0 0 0 1px #dc718233;
+}
+.games-time-error{display:block;min-height:0;
+  color:#f2a6af;font:10px/1.35 system-ui,sans-serif;
+  text-align:center;max-width:100%;}
+.games-time-error:empty{display:none}
+@media(max-width:520px){
+  .games-timestamp-step #onlyFramesTimeInput{width:135px;height:34px;min-height:34px;font-size:16px}
+}

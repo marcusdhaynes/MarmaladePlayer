@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-compact-receipt-v10">
+<link rel="stylesheet" href="./games.css?v=20261121-exact-timestamp-v11">
 </head>
 <body>
   <div class="app-shell">
@@ -814,6 +814,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                   <label for="onlyFramesTimeRange">Timestamp</label>
                   <input id="onlyFramesTimeRange" type="range" min="0" max="0" step="1" value="0" aria-label="Choose a timestamp within the selected video">
                   <div class="games-time-labels"><output id="onlyFramesTimeValue">00:00</output><span id="onlyFramesTimeDuration">00:00</span></div>
+                  <div class="games-time-entry">
+                    <label for="onlyFramesTimeInput">Exact Timestamp · HH:MM:SS</label>
+                    <input id="onlyFramesTimeInput" type="text" value="00:00:00"
+                      inputmode="numeric" autocomplete="off" autocorrect="off"
+                      spellcheck="false" maxlength="8" pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                      aria-label="Exact timestamp, hours minutes seconds, digits only"
+                      aria-describedby="onlyFramesTimeError">
+                    <span id="onlyFramesTimeError" class="games-time-error" aria-live="polite"></span>
+                  </div>
                   <button type="button" id="onlyFramesConfirmTime" class="games-primary-action">Show Frame</button>
                 </div>
                 <div id="onlyFramesLoadingStep" class="games-loading-step" role="status" aria-live="polite" hidden>
@@ -6191,7 +6200,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261121-all-game-libraries-v4" defer></script>
-<script src="./games.js?v=20261121-wait-media-ready-v5" defer></script>
+<script src="./games.js?v=20261121-exact-timestamp-v6" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
