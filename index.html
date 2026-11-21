@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-onlyframes-dual-choice-v1">
+<link rel="stylesheet" href="./games.css?v=20261121-game-library-auth-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -817,7 +817,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                     <label>Video Library<select id="onlyFramesLibrary" aria-label="OnlyFrames Video Library"><option value="">Choose a Library…</option></select></label>
                   </div>
                   <p class="games-dialog-hint" id="onlyFramesHint" role="status"></p>
+                  <button type="button" id="onlyFramesConnectLibrary" class="games-connect-library" hidden>Connect Video Folder</button>
                   <button type="button" id="onlyFramesAction" class="games-primary-action" disabled>Play Game</button>
+                  <input type="file" id="onlyFramesConnectFiles" webkitdirectory directory multiple accept="video/*,.mkv,.mp4,.avi,.mov,.webm" hidden aria-label="Select original indexed video folder">
                 </div>
                 <div id="onlyFramesTimeStep" class="games-timestamp-step" hidden>
                   <small>PLAYER'S CHOICE</small><strong>Pick Your Frame</strong>
@@ -6236,8 +6238,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
-<script src="./media-library.js?v=20261121-all-game-libraries-v4" defer></script>
-<script src="./games.js?v=20261121-onlyframes-dual-choice-v1" defer></script>
+<script src="./media-library.js?v=20261121-game-library-auth-v1" defer></script>
+<script src="./games.js?v=20261121-game-library-auth-v1" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
