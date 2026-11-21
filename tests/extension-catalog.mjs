@@ -13,16 +13,32 @@ const manifest = JSON.parse(readFileSync(resolve(root, 'extension/manifest.json'
 assert.equal(manifest.manifest_version, 3, 'Chromium target is Manifest V3');
 assert.ok(manifest.content_scripts[0].matches.some((m) => m.includes('marmaladeum.com')),
   'Content script covers marmaladeum.com');
-assert.ok(manifest.externally_connectable.matches.some((m) => m.includes('marmaladeum.com')));
+assert.equal(manifest.action.default_popup,undefined,
+  'Marmalade Library uses one toolbar click, no popup HTML/JS');
+assert.equal(manifest.background.service_worker,'background.js');
+assert(!JSON.stringify(manifest).toLowerCase().includes('minternet'),
+  'The independent browser extension must not depend on Minternet');
 for (const f of ['background.js', 'content.js', 'library.html', 'library.js',
-  'popup.html', 'popup.js', 'lib/catalog.mjs', 'lib/store.mjs',
-  'targets/firefox/manifest.json', 'targets/firefox/README.md',
-  'targets/safari/README.md', 'minternet/README.md', 'minternet/media_library.rs']) {
+  'lib/catalog.mjs', 'lib/store.mjs',
+  'targets/firefox/manifest.json', 'targets/safari/README.md']) {
   assert.ok(existsSync(resolve(root, 'extension', f)), 'extension file exists: ' + f);
 }
 const firefox = JSON.parse(readFileSync(resolve(root, 'extension/targets/firefox/manifest.json'), 'utf8'));
 assert.equal(firefox.name, 'Marmalade Library');
 assert.ok(firefox.browser_specific_settings.gecko.id.includes('somniel.com'));
+assert.deepEqual(firefox.background.scripts,['background.js'],
+  'Firefox must use the same background module with root-relative paths');
+assert.deepEqual(firefox.content_scripts[0].js,['content.js'],
+  'Firefox packaged manifest cannot escape its extension root');
+const bridge=readFileSync(resolve(root,'extension/content.js'),'utf8');
+const app=readFileSync(resolve(root,'media-library.js'),'utf8');
+assert(bridge.includes('backup-site-catalog')&&bridge.includes('siteCatalog'),
+  'The extension must persist Marmaladeum catalog metadata, not only its own');
+assert(app.includes('restoreSiteCatalog')&&app.includes('queueLibraryBackup'),
+  'The website must restore missing metadata before its backup overwrites it');
+const runtimeFiles=['background.js','content.js','library.html','library.js',
+  'lib/catalog.mjs','lib/store.mjs'];
+assert.equal(runtimeFiles.length+1,7,'Minimum standalone extension runtime has seven files');
 
 // --- Recursive scan: root file + nested files, non-videos excluded -------
 const mkFile = (name) => ({
@@ -70,4 +86,10 @@ assert.ok(fallbackItems.some((i) => i.path === 'Root Film.mp4'));
 assert.ok(fallbackItems.some((i) => i.path === 'Sub/Nested Film.mkv'));
 assert.ok(isVideoName('x.webm') && !isVideoName('x.txt'));
 
-console.log('PASS extension catalog scan (root + nested), fallback import, manifests, layout');
+for(let pass=1;pass<=10;pass++){
+  const repeatedlyIndexed=itemsFromFileList({id:'stable',name:'Picked'},fakeFiles,'movie');
+  assert.equal(repeatedlyIndexed.length,2,'Import must remain stable on pass '+pass);
+  assert.equal(repeatedlyIndexed[0].id,'stable|Root Film.mp4');
+  assert.equal(repeatedlyIndexed[1].id,'stable|Sub/Nested Film.mkv');
+}
+console.log('PASS 10x extension indexing, browser manifests, seven-file runtime and independent backup bridge');
