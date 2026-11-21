@@ -1,6 +1,6 @@
 # Safari Marmalade Library extension
 
-The Safari target uses the same seven-file independent WebExtension source.
+The Safari target uses the same five-file independent WebExtension source.
 It is not a Safari app until packaged and signed by Apple tooling.
 
 On macOS, after extracting the Safari source ZIP, run:
