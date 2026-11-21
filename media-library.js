@@ -1373,7 +1373,13 @@
           title:item.title,show:item.show,type:item.type,year:item.year,
           season:item.season,episode:item.episode,size:item.size,
           lastModified:item.lastModified,addedAt:item.addedAt,
-          favorite:item.favorite===true,watched:item.watched===true
+          favorite:item.favorite===true,watched:item.watched===true,
+          watchlist:item.watchlist===true,poster:item.poster||'',
+          posterCustomized:item.posterCustomized===true,
+          overview:item.overview||'',runtimeSec:item.runtimeSec||null,
+          collections:item.collections||[],playlists:item.playlists||[],
+          metadataSource:item.metadataSource||'',customized:item.customized===true,
+          analyzedAt:item.analyzedAt||null
         }))
       }));
       window.postMessage({source:'marmalade-web',type:'backup-site-catalog',
