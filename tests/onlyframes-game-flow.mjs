@@ -235,6 +235,86 @@ try {
   await page.locator('#onlyFramesLaunch').click();
   await page.locator('#onlyFramesAction').click();
   assert.equal(await page.evaluate(()=>window.__onlyFramesHarness.stops),2);
+  // Video/Timeline controls are independent. Choosing a video must not
+  // require timestamp choice; the opposite combination is tested above.
+  await page.locator('#onlyFramesLaunch').click();
+  await page.locator('#onlyFramesVideoChoice').click();
+  await page.locator('#onlyFramesModeAutomatic').click();
+  await page.locator('#onlyFramesAction').click();
+  await page.locator('#onlyFramesVideoStep').waitFor({state:'visible'});
+  assert.equal(await page.locator('#onlyFramesVideoRandom').getAttribute('aria-pressed'),'false');
+  assert.equal(await page.locator('#onlyFramesModeAutomatic').getAttribute('aria-pressed'),'true');
+  await page.locator('#onlyFramesVideoSearch').fill('Sample B');
+  assert.equal(await page.locator('.games-video-card').count(),1);
+  await page.locator('#onlyFramesVideoPlus').click();
+  assert.equal(await page.locator('#onlyFramesVideoColumns').textContent(),'4 / row');
+  await page.locator('#onlyFramesVideoMinus').click();
+  assert.equal(await page.locator('#onlyFramesVideoColumns').textContent(),'3 / row');
+  await page.locator('.games-video-card').click();
+  await page.waitForFunction(()=>window.MarmaladeGames.history().length===1);
+  assert.equal(await page.evaluate(()=>window.MarmaladeGames.history()[0].id),'b',
+    'Video Choice must open the specifically chosen video');
+  await page.locator('#onlyFramesLaunch').click();
+  await page.locator('#onlyFramesAction').click();
+
+  // Choice + Choice: first the compact video window, then exact timestamp.
+  await page.locator('#onlyFramesLaunch').click();
+  await page.locator('#onlyFramesModeChoice').click();
+  await page.locator('#onlyFramesAction').click();
+  await page.locator('#onlyFramesVideoStep').waitFor({state:'visible'});
+  await page.locator('.games-video-card').first().click();
+  await page.locator('#onlyFramesTimeStep').waitFor({state:'visible'});
+  await page.locator('#onlyFramesTimeInput').fill('00:00:30');
+  await page.locator('#onlyFramesConfirmTime').click();
+  await page.waitForFunction(()=>window.MarmaladeGames.history().length===1);
+  assert.equal(await page.evaluate(()=>window.MarmaladeGames.history()[0].timestamp),30);
+  await page.locator('#onlyFramesLaunch').click();
+  await page.locator('#onlyFramesAction').click();
+
+  // Hundreds of catalog entries should be indexed only once when gameplay
+  // begins, not re-filtered/re-scanned for each Next button press.
+  await page.evaluate(()=>{
+    const library=window.MarmaladeMediaLibrary;
+    window.__onlyFramesHarness.catalogReads=0;
+    library.getGameLibraries=()=>[{id:'test-library',name:'Sample Movies',
+      count:500,playableCount:500}];
+    const videos=Array.from({length:500},(_,index)=>({
+      id:'bulk-'+index,title:'Movie '+String(index).padStart(3,'0'),
+      name:'Movie '+index+'.mp4',libraryId:'test-library',
+      libraryName:'Sample Movies',kind:index%2?'tv':'movie',
+      favorite:index===40,year:2000+index%20
+    }));
+    library.getGameVideos=()=>{
+      window.__onlyFramesHarness.catalogReads++;
+      return videos;
+    };
+  });
+  await page.locator('#onlyFramesLaunch').click();
+  await page.locator('#onlyFramesVideoChoice').click();
+  await page.locator('#onlyFramesModeAutomatic').click();
+  await page.locator('#onlyFramesAction').click();
+  await page.locator('#onlyFramesVideoStep').waitFor({state:'visible'});
+  assert.equal(await page.locator('.games-video-card').count(),72,
+    'Large library chooser must render only its first page');
+  await page.locator('#onlyFramesVideoSearch').fill('Movie 040');
+  assert.equal(await page.locator('.games-video-card').count(),1);
+  await page.locator('#onlyFramesVideoFilter').selectOption('favorite');
+  assert.equal(await page.locator('.games-video-card').count(),1);
+  await page.locator('#onlyFramesVideoFilter').selectOption('tv');
+  assert.equal(await page.locator('.games-video-card').count(),0);
+  await page.locator('#onlyFramesVideoFilter').selectOption('all');
+  await page.locator('.games-video-card').click();
+  await page.waitForFunction(()=>window.MarmaladeGames.history().length===1);
+  assert.equal(await page.evaluate(()=>window.MarmaladeGames.history()[0].id),'bulk-40');
+  const reads=await page.evaluate(()=>window.__onlyFramesHarness.catalogReads);
+  await page.locator('#gamesNext').click();
+  await page.locator('#onlyFramesVideoStep').waitFor({state:'visible'});
+  assert.equal(await page.evaluate(()=>window.__onlyFramesHarness.catalogReads),reads,
+    'Opening Next must not scan or copy 500 catalog entries again');
+  await page.locator('#onlyFramesVideoCancel').click();
+  await page.locator('#onlyFramesLaunch').click();
+  await page.locator('#onlyFramesAction').click();
+
   assert.equal(pageErrors.length,0,'Browser runtime errors: '+pageErrors.join('\n'));
   console.log('PASS OnlyFrames automatic and player-choice modes, frame history, receipt log, disabled D-pad, and End Game');
 }finally{
