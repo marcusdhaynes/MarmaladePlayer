@@ -206,6 +206,7 @@
   const videoCount=$('onlyFramesVideoCount'),videoShown=$('onlyFramesVideoShown');
   const videoMore=$('onlyFramesVideoMore'),videoColumns=$('onlyFramesVideoColumns');
   const librarySelect=$('onlyFramesLibrary'),hint=$('onlyFramesHint');
+  const connectAction=$('onlyFramesConnectLibrary'),connectFiles=$('onlyFramesConnectFiles');
   const timeRange=$('onlyFramesTimeRange'),timeValue=$('onlyFramesTimeValue');
   const timeInput=$('onlyFramesTimeInput'),timeError=$('onlyFramesTimeError');
   const confirmTime=$('onlyFramesConfirmTime');
@@ -417,17 +418,27 @@
     const chosen=libs.find(lib=>lib.id===librarySelect.value);
     const playable=chosen?(Number.isFinite(chosen.playableCount)?
       chosen.playableCount:(api?.getGameVideos?.(chosen.id)||[]).length):0;
-    action.disabled=!chosen||playable<1;
+    const unlinked=chosen?Math.max(0,Number.isFinite(chosen.unlinkedCount)?
+      chosen.unlinkedCount:chosen.count-playable):0;
+    const hasCatalog=!!chosen&&chosen.count>0;
+    action.disabled=!chosen||!hasCatalog;
+    action.textContent=hasCatalog&&playable===0?'Connect & Play':'Play Game';
+    connectAction.hidden=!chosen||unlinked===0;
+    connectAction.disabled=!hasCatalog;
+    connectAction.textContent=unlinked>0&&playable>0?
+      'Connect Remaining Videos ('+unlinked+')':'Connect Video Folder';
     if(!libs.length){
       hint.textContent='No libraries found. Create a Media Library to get started.';
     }else if(!chosen){
       hint.textContent='Choose a Media Library to begin.';
     }else if(playable>0){
-      hint.textContent=playable+' playable video'+(playable===1?'':'s')+
-        ' available in '+chosen.name+'.';
+      hint.textContent=playable+' ready to play in '+chosen.name+
+        (unlinked?' · '+unlinked+' indexed video'+(unlinked===1?' needs':'s need')+
+          ' folder access.':' · All indexed videos are available.');
     }else if(chosen.count>0){
-      hint.textContent=chosen.name+' contains '+chosen.count+' indexed video'+
-        (chosen.count===1?'':'s')+', but none can be opened here. Reconnect its source folder, or use a local / Minternet library.';
+      hint.textContent=chosen.name+' is indexed with '+chosen.count+
+        ' video'+(chosen.count===1?'':'s')+
+        '. Connect the original video folder once to play here. Files remain on your device.';
     }else{
       hint.textContent=chosen.name+' is empty. Add videos to this library to play.';
     }
@@ -437,7 +448,8 @@
     const previously=librarySelect.value||selectedLibrary;
     const libs=mediaLibrary()?.getGameLibraries?.()||[];
     const signature=JSON.stringify(libs.map(lib=>[
-      lib.id,lib.name,Number(lib.count)||0,Number(lib.playableCount)||0
+      lib.id,lib.name,Number(lib.count)||0,Number(lib.playableCount)||0,
+      Number(lib.unlinkedCount)||0
     ]));
     // Automatic poster lookups re-render the library frequently. Do not
     // destroy an open native select when its actual choices are unchanged.
@@ -473,6 +485,7 @@
     action.classList.toggle('games-end-action',!!activeGame);
     $('onlyFramesOptions').hidden=!!activeGame;
     if(activeGame){
+      connectAction.hidden=true;
       hint.textContent='OnlyFrames is active · Video '+videoMode+
         ' · Timestamp '+timestampMode+' · End Game stops the video and resets scores.';
       action.disabled=false;
@@ -799,6 +812,62 @@
     if(activeGame!=='onlyframes'||busy||pendingChoice||cursor<=0)return;
     void displayVideo(history[cursor-1],{existingIndex:cursor-1,direction:'Previous'});
   }
+
+  // This is the only browser-permission recovery path. A click directly
+  // opens the original folder picker; no network request, no O(n) rescan,
+  // no deletion or duplication of indexed library data.
+  let pendingGameFiles=null;
+  async function connectGameSource(playWhenConnected=false){
+    if(activeGame||busy)return;
+    const libraryId=librarySelect.value;
+    if(!libraryId)return;
+    const api=mediaLibrary();
+    if(!api?.connectGameLibrary)return;
+    if(typeof window.showDirectoryPicker!=='function'){
+      pendingGameFiles={libraryId,playWhenConnected};
+      connectFiles.value='';
+      connectFiles.click();
+      return;
+    }
+    connectAction.disabled=true;
+    action.disabled=true;
+    try{
+      const result=await api.connectGameLibrary(libraryId,()=>
+        window.showDirectoryPicker({mode:'read'}));
+      populateLibraries();
+      if(result?.connected){
+        hint.textContent='Connected '+result.folder+' · '+result.playableCount+
+          ' video'+(result.playableCount===1?'':'s')+' ready.';
+        if(playWhenConnected)beginGame();
+      }else if(result?.cancelled){
+        hint.textContent='Folder selection cancelled. Indexed videos are unchanged.';
+      }else{
+        hint.textContent='Choose the original indexed video folder to enable playback.';
+      }
+    }catch(error){
+      hint.textContent=error?.name==='AbortError'?
+        'Folder selection cancelled. Indexed videos are unchanged.':
+        'Folder access: '+(error?.message||'Unable to open the selected folder.');
+    }finally{
+      updateLibrarySelection();
+    }
+  }
+  connectFiles.addEventListener('change',()=>{
+    const pending=pendingGameFiles;
+    pendingGameFiles=null;
+    if(!pending||!connectFiles.files?.length)return;
+    const result=mediaLibrary()?.connectGameFiles?.(pending.libraryId,connectFiles.files);
+    populateLibraries();
+    if(result?.connected){
+      hint.textContent=result.playableCount+' video'+(result.playableCount===1?'':'s')+
+        ' ready for this session. A browser without persistent folder access may need a new selection after restarting.';
+      if(pending.playWhenConnected)beginGame();
+    }else{
+      hint.textContent='No indexed videos matched the chosen folder. Select the original media folder.';
+    }
+    connectFiles.value='';
+  });
+  connectAction.addEventListener('click',()=>void connectGameSource());
   function beginGame(){
     if(activeGame)return;
     const chosen=librarySelect.value;
@@ -868,7 +937,12 @@
       if(token===generation){busy=false;syncControls();}
     }
   }
-  action.addEventListener('click',()=>activeGame?endGame():beginGame());
+  action.addEventListener('click',()=>{
+    if(activeGame){endGame();return;}
+    const candidates=mediaLibrary()?.getGameVideos?.(librarySelect.value)||[];
+    if(candidates.length)beginGame();
+    else void connectGameSource(true);
+  });
   launch.addEventListener('click',showDetails);
   close.addEventListener('click',closeDetails);
   dialog.addEventListener('click',event=>{if(event.target===dialog)closeDetails();});
