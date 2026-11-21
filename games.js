@@ -190,15 +190,330 @@
     add.title='Add Player';
   add.addEventListener('click',addPlayer);
   }
-  const dialog=$('onlyFramesDialog'),launch=$('onlyFramesLaunch'),close=$('onlyFramesClose');
-  const closeGame=()=>{dialog.hidden=true;launch.focus();};
-  launch.addEventListener('click',()=>{dialog.hidden=false;close.focus();});
-  close.addEventListener('click',closeGame);
-  dialog.addEventListener('click',event=>{if(event.target===dialog)closeGame();});
-  window.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&!dialog.hidden)closeGame();
+
+  // Games describe their supported controls; unassigned buttons remain true
+  // disabled controls, rather than buttons that merely look inactive.
+  const GAME_CONTROLS=Object.freeze({
+    onlyframes:Object.freeze({previous:true,next:true,log:true,dpad:false})
   });
-  addSettingsToggle();show(enabled);renderScores();syncPanels();persist();
-  window.MarmaladeGames={show,isVisible:()=>enabled,getScores:()=>players.map(p=>({...p})),
-    addPlayer,renderScores};
+  const dialog=$('onlyFramesDialog'),launch=$('onlyFramesLaunch'),close=$('onlyFramesClose');
+  const overview=$('onlyFramesOverview'),step=$('onlyFramesTimeStep');
+  const action=$('onlyFramesAction'),modeSelect=$('onlyFramesMode');
+  const librarySelect=$('onlyFramesLibrary'),hint=$('onlyFramesHint');
+  const timeRange=$('onlyFramesTimeRange'),timeValue=$('onlyFramesTimeValue');
+  const timeDuration=$('onlyFramesTimeDuration'),pickedTitle=$('onlyFramesPickedVideo');
+  const status=$('gamesStatus');
+  const control={previous:$('gamesPrevious'),next:$('gamesNext'),
+    log:$('gamesLogToggle'),up:$('gamesUp'),down:$('gamesDown'),
+    left:$('gamesLeft'),right:$('gamesRight')};
+  const logPanel=$('gamesLogPanel'),logEntries=$('gamesLogEntries');
+  const logCount=$('gamesLogCount');
+  const mediaLibrary=()=>window.MarmaladeMediaLibrary;
+  const player=()=>window.MarmaladeAddonBridge;
+  let activeGame=null,selectedLibrary=null,mode='automatic';
+  let busy=false,generation=0,pendingChoice=null;
+  let history=[],cursor=-1,eventLog=[];
+  const gameCards=[launch];
+  const timeText=seconds=>{
+    const time=Math.max(0,Math.floor(Number(seconds)||0));
+    const parts=[Math.floor(time/3600),Math.floor(time%3600/60),time%60];
+    return parts[0]>0?parts.map(x=>String(x).padStart(2,'0')).join(':'):
+      parts.slice(1).map(x=>String(x).padStart(2,'0')).join(':');
+  };
+  const randomIndex=count=>{
+    if(count<1)return -1;
+    if(globalThis.crypto?.getRandomValues){
+      const buf=new Uint32Array(1);
+      crypto.getRandomValues(buf);
+      return Math.floor(buf[0]/4294967296*count);
+    }
+    return Math.floor(Math.random()*count);
+  };
+  function selectedControls(){
+    return activeGame?GAME_CONTROLS[activeGame]||{}:{};
+  }
+  function toggleLog(open){
+    const value=Boolean(open)&&activeGame==='onlyframes';
+    logPanel.hidden=!value;
+    control.log.setAttribute('aria-expanded',String(value));
+  }
+  function syncControls(){
+    const c=selectedControls();
+    control.previous.disabled=!c.previous||busy||!!pendingChoice||cursor<=0;
+    control.next.disabled=!c.next||busy||!!pendingChoice;
+    control.log.disabled=!c.log;
+    for(const key of ['up','down','left','right'])
+      control[key].disabled=!c.dpad||busy;
+    if(control.log.disabled)toggleLog(false);
+    for(const card of gameCards){
+      const selected=activeGame==='onlyframes'&&card===launch;
+      card.setAttribute('aria-pressed',String(selected));
+      card.disabled=!!activeGame&&!selected;
+      card.querySelector('.games-card-active').hidden=!selected;
+    }
+  }
+  function setGameStatus(message){
+    status.textContent=message;
+    status.dataset.active=String(!!activeGame);
+  }
+  function appendLog(kind,title,description='',timestamp=null,library=''){
+    const item={kind,title,description,timestamp,library,at:new Date(),index:eventLog.length+1};
+    eventLog.push(item);
+    if(eventLog.length>100)eventLog.shift();
+    renderLog();
+  }
+  function renderLog(){
+    logEntries.replaceChildren();
+    if(!eventLog.length){
+      const empty=node('p','games-log-empty','No game events yet.');
+      logEntries.append(empty);
+    }else for(const event of eventLog.slice().reverse()){
+      const entry=node('div','games-log-entry');
+      entry.dataset.kind=event.kind;
+      const head=node('div','games-log-item-top');
+      head.append(node('span','games-log-item-number',
+        '#'+String(event.index).padStart(2,'0')));
+      head.append(node('strong','games-log-item-title',event.title));
+      head.append(node('time','games-log-item-time',
+        event.at.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})));
+      const description=node('p','games-log-item-description',event.description);
+      entry.append(head,description);
+      if(event.timestamp!==null){
+        const stamp=node('div','games-log-item-meta');
+        stamp.append(node('span','games-log-timestamp','⏱ '+timeText(event.timestamp)));
+        if(event.library)stamp.append(node('span','games-log-source',event.library));
+        entry.append(stamp);
+      }
+      logEntries.append(entry);
+    }
+    logCount.textContent=eventLog.length+' '+(eventLog.length===1?'EVENT':'EVENTS');
+  }
+  function populateLibraries(){
+    const previously=selectedLibrary||librarySelect.value;
+    const libs=mediaLibrary()?.getGameLibraries?.()||[];
+    librarySelect.replaceChildren(new Option('Choose a Library…',''));
+    for(const lib of libs){
+      const option=new Option(lib.name+' · '+lib.count+' video'+(lib.count===1?'':'s'),lib.id);
+      librarySelect.add(option);
+    }
+    if(libs.some(lib=>lib.id===previously))librarySelect.value=previously;
+    else if(libs.length===1)librarySelect.value=libs[0].id;
+    else librarySelect.value='';
+    const available=libs.some(lib=>lib.id===librarySelect.value);
+    if(!activeGame){
+      hint.textContent=libs.length?'Select a mode and a library to begin.':
+        'Add videos to a local Media Library first. Extension-only catalog entries cannot play inside Marmaladeum.';
+      action.disabled=!available;
+    }
+  }
+  function openOverview(){
+    step.hidden=true;overview.hidden=false;
+    populateLibraries();
+    action.textContent=activeGame==='onlyframes'?'End Game':'Play Game';
+    action.classList.toggle('games-end-action',!!activeGame);
+    $('onlyFramesOptions').hidden=!!activeGame;
+    if(activeGame){
+      hint.textContent='OnlyFrames is active · '+(mode==='automatic'?'Automatic':"Player's Choice")+
+        ' · Select End Game to stop the video and reset scores.';
+      action.disabled=false;
+    }
+  }
+  function showDetails(){
+    openOverview();
+    dialog.hidden=false;
+    close.focus();
+  }
+  function closeDetails(){
+    dialog.hidden=true;
+    if(pendingChoice){
+      pendingChoice=null;
+      setGameStatus('CHOOSE NEXT FRAME');
+      syncControls();
+      appendLog('notice','Frame skipped','No timestamp was chosen.');
+    }
+    launch.focus();
+  }
+  function waitForMediaDuration(token){
+    const bridge=player(),video=bridge?.media;
+    if(!video) return Promise.reject(Error('The video player is unavailable.'));
+    return new Promise((resolve,reject)=>{
+      let timer;
+      const valid=()=>token===generation&&activeGame==='onlyframes'&&
+        video.readyState>=1&&Number.isFinite(video.duration)&&video.duration>0&&!video.error;
+      const cleanup=()=>{
+        video.removeEventListener('loadedmetadata',onReady);
+        video.removeEventListener('durationchange',onReady);
+        video.removeEventListener('error',onError);
+        clearTimeout(timer);
+      };
+      const onReady=()=>{
+        if(token!==generation){cleanup();reject(Error('Game selection changed.'));return;}
+        if(!valid())return;
+        cleanup();resolve(video.duration);
+      };
+      const onError=()=>{
+        cleanup();reject(Error('This selected video could not be decoded.'));
+      };
+      video.addEventListener('loadedmetadata',onReady);
+      video.addEventListener('durationchange',onReady);
+      video.addEventListener('error',onError);
+      timer=setTimeout(()=>{cleanup();reject(Error('The video did not report a playable duration.'));},18000);
+      onReady();
+    });
+  }
+  function displayTimePicker(video,duration){
+    pendingChoice={...video,duration};
+    overview.hidden=true;step.hidden=false;dialog.hidden=false;
+    pickedTitle.textContent=video.title+' · '+video.libraryName;
+    const max=Math.max(0,Math.floor(duration-0.05));
+    timeRange.max=String(max);timeRange.value=String(Math.floor(max/2));
+    timeDuration.textContent=timeText(duration);
+    updateTimeLabel();
+    setGameStatus('CHOOSE A TIMESTAMP');
+    syncControls();
+    timeRange.focus();
+  }
+  function updateTimeLabel(){timeValue.textContent=timeText(Number(timeRange.value));}
+  function recordFrame(video,duration,timestamp,fromHistoryIndex=null,direction='Frame'){
+    const bridge=player();
+    if(!bridge?.pauseAndSeekGameFrame?.(timestamp))
+      throw Error('Unable to show the chosen frame. The video may not be ready.');
+    const time=Math.max(0,Math.min(Math.max(0,duration-.05),Number(timestamp)||0));
+    if(fromHistoryIndex===null){
+      history=history.slice(0,cursor+1);
+      history.push({...video,duration,timestamp:time});
+      cursor=history.length-1;
+    }else cursor=fromHistoryIndex;
+    setGameStatus('ACTIVE · FRAME '+String(cursor+1).padStart(2,'0'));
+    appendLog('frame',direction+' · '+video.title,
+      (mode==='automatic'?'Automatic':'Player’s Choice')+' · '+timeText(time),
+      time,video.libraryName);
+    syncControls();
+  }
+  async function displayVideo(video,{existingIndex=null,direction='Frame'}={}){
+    if(activeGame!=='onlyframes'||busy)return;
+    busy=true;pendingChoice=null;
+    const token=++generation;
+    setGameStatus('LOADING VIDEO…');syncControls();
+    try{
+      await mediaLibrary().playGameVideo(video.libraryId,video.id);
+      if(token!==generation)return;
+      const duration=await waitForMediaDuration(token);
+      if(token!==generation)return;
+      if(existingIndex!==null){
+        recordFrame(video,duration,video.timestamp,existingIndex,direction);
+        dialog.hidden=true;
+      }else if(mode==='choice'){
+        displayTimePicker(video,duration);
+      }else{
+        const max=Math.max(0,Math.floor(duration-0.05));
+        recordFrame(video,duration,randomIndex(max+1),null,direction);
+        dialog.hidden=true;
+      }
+    }catch(error){
+      if(token!==generation)return;
+      const message=error?.message||'Could not select the video.';
+      setGameStatus('SELECTION FAILED');
+      hint.textContent=message;
+      appendLog('error','Selection failed',message);
+      // The game remains selected, so Next can recover after a transient
+      // failure without losing the player's scoreboard.
+      if(dialog.hidden)player()?.notify?.(message);
+    }finally{
+      if(token===generation){busy=false;syncControls();}
+    }
+  }
+  function nextVideo(){
+    if(activeGame!=='onlyframes'||busy||pendingChoice)return;
+    if(cursor<history.length-1){
+      void displayVideo(history[cursor+1],{existingIndex:cursor+1,direction:'Next'});
+      return;
+    }
+    const candidates=mediaLibrary()?.getGameVideos?.(selectedLibrary)||[];
+    if(!candidates.length){
+      setGameStatus('LIBRARY EMPTY');
+      appendLog('error','No videos available','Reconnect or rescan the chosen Media Library.');
+      player()?.notify?.('No playable videos in the selected Media Library.');
+      return;
+    }
+    const previous=history[cursor]?.id;
+    const pool=candidates.length>1?candidates.filter(v=>v.id!==previous):candidates;
+    const candidate=pool[randomIndex(pool.length)];
+    if(candidate)void displayVideo(candidate,{direction:history.length?'Next':'First'});
+  }
+  function previousVideo(){
+    if(activeGame!=='onlyframes'||busy||pendingChoice||cursor<=0)return;
+    void displayVideo(history[cursor-1],{existingIndex:cursor-1,direction:'Previous'});
+  }
+  function beginGame(){
+    if(activeGame)return;
+    const chosen=librarySelect.value;
+    const list=mediaLibrary()?.getGameVideos?.(chosen)||[];
+    if(!chosen||!list.length){
+      hint.textContent='Choose a nonempty Media Library to start OnlyFrames.';
+      action.disabled=true;return;
+    }
+    activeGame='onlyframes';selectedLibrary=chosen;mode=modeSelect.value==='choice'?'choice':'automatic';
+    history=[];cursor=-1;pendingChoice=null;eventLog=[];renderLog();
+    appendLog('start','OnlyFrames started',
+      (mode==='automatic'?'Automatic':"Player's Choice")+' · '+librarySelect.selectedOptions[0].text);
+    toggleLog(false);
+    syncControls();
+    nextVideo();
+  }
+  function endGame(){
+    if(activeGame!=='onlyframes')return;
+    ++generation;busy=false;pendingChoice=null;
+    const success=player()?.stopGameVideo?.();
+    if(!success){
+      hint.textContent='Could not stop the player. Use Stop in the video controls.';
+      player()?.media?.pause?.();
+    }
+    appendLog('end','OnlyFrames ended','Scores reset. Video returned to the default screen.');
+    for(const item of players)item.score=0;
+    persist();renderScores();
+    activeGame=null;selectedLibrary=null;history=[];cursor=-1;
+    setGameStatus('SELECT A GAME');
+    toggleLog(false);syncControls();
+    dialog.hidden=true;step.hidden=true;overview.hidden=false;launch.focus();
+  }
+  function confirmChoice(){
+    const choice=pendingChoice;
+    if(!choice||activeGame!=='onlyframes'||busy)return;
+    try{
+      recordFrame(choice,choice.duration,Number(timeRange.value),null,'Player Choice');
+      pendingChoice=null;dialog.hidden=true;step.hidden=true;overview.hidden=false;
+      syncControls();
+    }catch(error){
+      hint.textContent=error?.message||'Unable to seek to this time.';
+      setGameStatus('SEEK FAILED');
+      player()?.notify?.(hint.textContent);
+    }
+  }
+  action.addEventListener('click',()=>activeGame?endGame():beginGame());
+  launch.addEventListener('click',showDetails);
+  close.addEventListener('click',closeDetails);
+  dialog.addEventListener('click',event=>{if(event.target===dialog)closeDetails();});
+  window.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&!dialog.hidden)closeDetails();
+  });
+  librarySelect.addEventListener('change',()=>{
+    selectedLibrary=librarySelect.value||null;
+    action.disabled=!selectedLibrary;
+  });
+  timeRange.addEventListener('input',updateTimeLabel);
+  $('onlyFramesConfirmTime').addEventListener('click',confirmChoice);
+  control.previous.addEventListener('click',previousVideo);
+  control.next.addEventListener('click',nextVideo);
+  control.log.addEventListener('click',()=>toggleLog(logPanel.hidden));
+  $('gamesLogClose').addEventListener('click',()=>toggleLog(false));
+  addSettingsToggle();
+  show(enabled);renderScores();renderLog();syncControls();persist();
+  setGameStatus('SELECT A GAME');
+  window.MarmaladeGames={
+    show,isVisible:()=>enabled,getScores:()=>players.map(p=>({...p})),
+    addPlayer,renderScores,isGameActive:()=>activeGame!==null,
+    activeGame:()=>activeGame,history:()=>history.map(item=>({...item})),
+    endGame,controls:()=>({...selectedControls()})
+  };
 })();
