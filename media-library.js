@@ -2354,9 +2354,7 @@
     // Recover first; only then begin backing up this site's current catalog.
     // Do not route media retention through Minternet or its native module.
     void syncFromExtension({silent:true}).catch(error=>
-      console.warn('Extension restore unavailable:',error)).finally(()=>{
-      state.backupReady=true;queueLibraryBackup();
-    });
+      console.warn('Extension restore unavailable:',error));
     const chosen=selectedLibrary();
     if(chosen&&chosen.folders.some(f=>f.handle)&&
       now()-(chosen.lastScan||0)>20*60*1000)void scanLibrary(chosen);
@@ -2501,6 +2499,12 @@
     }
     const recovery=await restoreSiteCatalog(snapshot.siteLibraries);
     const imported=await importExtensionCatalog(snapshot.libraries);
+    // Never overwrite the extension's last-known catalog unless a real
+    // extension responded and restoration succeeded. A missing or delayed
+    // content bridge must not turn a temporary connection failure into
+    // permanent loss of the independent backup.
+    state.backupReady=true;
+    queueLibraryBackup();
     if(!silent){
       notify(recovery.restored?recovery.items+' titles recovered from the extension. Reselect files if access needs renewal.':
         imported?imported+' extension catalog titles available. Choose Video Files to play them in Marmaladeum.':
