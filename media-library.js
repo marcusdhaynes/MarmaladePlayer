@@ -1409,6 +1409,51 @@
       notify('Playing '+file.name+' · Your video stays on this device.');
     }catch(error){notify(error?.message||'This video cannot be accessed. Reconnect the folder.');}
   }
+  // A restricted game bridge: returns safe catalog metadata and delegates
+  // random selections through exactly the same native/file playback paths.
+  function getGameLibraries(){
+    return state.libraries.map(lib=>{
+      const count=(lib.items||[]).filter(item=>{
+        const folder=lib.folders.find(f=>f.id===item.folderId);
+        return folder && folder.source!=='extension';
+      }).length;
+      return {id:lib.id,name:lib.name,kind:lib.kind,count};
+    }).filter(lib=>lib.count>0);
+  }
+  function getGameVideos(libraryId){
+    const lib=state.libraries.find(lib=>lib.id===libraryId);
+    if(!lib)return [];
+    return (lib.items||[]).filter(item=>{
+      const folder=lib.folders.find(folder=>folder.id===item.folderId);
+      return folder&&folder.source!=='extension';
+    }).map(item=>({id:item.id,title:item.title||item.name,
+      name:item.name||item.title||'Library Video',runtimeSec:Number(item.runtimeSec)||null,
+      libraryId:lib.id,libraryName:lib.name}));
+  }
+  async function playGameVideo(libraryId,itemId){
+    const lib=state.libraries.find(lib=>lib.id===libraryId);
+    const item=lib?.items.find(item=>item.id===itemId);
+    if(!lib||!item)throw Error('That video is no longer in this library. Rescan the library and try again.');
+    const folder=lib.folders.find(folder=>folder.id===item.folderId);
+    if(!folder||folder.source==='extension')
+      throw Error('This source cannot play inside Marmaladeum. Choose a local or Minternet library.');
+    const bridge=window.MarmaladeAddonBridge;
+    if(bridge?.state?.role!=='host')
+      throw Error('Only the host can select the game video. End your guest session before playing.');
+    if(folder.source==='native'){
+      if(!item.url||!bridge.chooseNativeStream?.({url:item.url,name:item.name||item.title,
+        size:item.size,id:item.id}))
+        throw Error('The Minternet library stream could not open. Rescan the source in Minternet.');
+    }else{
+      const {file,handle}=await getPlayable({...item,libraryId:lib.id});
+      if(!video(file.name))throw Error('This is not a supported video file.');
+      if(handle)bridge.state.lastOpenedHandle=handle;
+      if(typeof bridge.chooseVideo!=='function')throw Error('Player is not ready.');
+      bridge.chooseVideo(file);
+    }
+    return {id:item.id,title:item.title||item.name||'Library Video',
+      libraryId:lib.id,libraryName:lib.name};
+  }
   // Only titles are sent to the existing public metadata source, never a video
   // or local folder path. User consent is required before first lookup.
   async function findArtwork(){
@@ -2122,6 +2167,7 @@
     getLibraries:()=>state.libraries.map(l=>({id:l.id,name:l.name,kind:l.kind,
       folders:l.folders.map(f=>({id:f.id,name:f.name,source:f.source})),
       count:l.items.length})),
+    getGameLibraries,getGameVideos,playGameVideo,
     isVisible:()=>!panel.hidden,refresh:()=>{const l=selectedLibrary();return l?scanLibrary(l,{ask:true}):Promise.resolve();}
   };
 })();

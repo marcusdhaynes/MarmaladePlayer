@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261120-games-centered-v2">
+<link rel="stylesheet" href="./games.css?v=20261120-game-controls-v3">
 </head>
 <body>
   <div class="app-shell">
@@ -745,19 +745,65 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             </div>
           </section>
           <section class="games-panel" id="gamesPanel" aria-label="Games Library" hidden>
-            <div class="games-panel-heading"><div><small>PLAY TOGETHER</small><strong>Games</strong></div><span>1 Game</span></div>
-            <div class="games-cards">
-              <button id="onlyFramesLaunch" class="games-card" type="button" aria-label="Open OnlyFrames">
-                <img src="./assets/onlyframes-poster.svg" alt="OnlyFrames poster" width="280" height="420" loading="lazy">
-                <span class="games-card-name">OnlyFrames</span>
-              </button>
+            <div class="games-collection">
+              <div class="games-panel-heading"><div><small>PLAY TOGETHER</small><strong>Games</strong></div><span id="gamesStatus">SELECT A GAME</span></div>
+              <div class="games-cards">
+                <button id="onlyFramesLaunch" class="games-card" type="button" aria-label="Open OnlyFrames details" aria-pressed="false">
+                  <img src="./assets/onlyframes-poster.svg?v=20261120-framed-title-v2" alt="OnlyFrames poster" width="280" height="420" loading="lazy">
+                  <span class="games-card-name">OnlyFrames</span>
+                  <span class="games-card-active" hidden>ACTIVE</span>
+                </button>
+              </div>
             </div>
+            <section class="games-controls" id="gamesControls" aria-label="Game Controls">
+              <div class="games-split-pill" role="group" aria-label="Previous or Next">
+                <button type="button" id="gamesPrevious" disabled title="Previous video and frame" aria-label="Previous"> <span aria-hidden="true">‹</span><small>Previous</small></button>
+                <button type="button" id="gamesNext" disabled title="Next video and frame" aria-label="Next"><small>Next</small><span aria-hidden="true">›</span></button>
+              </div>
+              <div class="games-control-spacer"></div>
+              <div class="games-dpad" role="group" aria-label="Directional game pad">
+                <button type="button" id="gamesUp" disabled aria-label="Up">▲</button>
+                <button type="button" id="gamesLeft" disabled aria-label="Left">◀</button>
+                <span class="games-dpad-center" aria-hidden="true">◆</span>
+                <button type="button" id="gamesRight" disabled aria-label="Right">▶</button>
+                <button type="button" id="gamesDown" disabled aria-label="Down">▼</button>
+              </div>
+              <button type="button" id="gamesLogToggle" class="games-log-toggle" disabled aria-expanded="false" aria-controls="gamesLogPanel">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M6 2.5h12v19l-3-1.7-3 1.7-3-1.7-3 1.7zM9 7.5h6M9 11h6M9 14.5h4"/></svg>
+                <span>Log</span>
+              </button>
+            </section>
+            <section id="gamesLogPanel" class="games-log-panel" aria-label="Game Event Log" hidden>
+              <div class="games-log-heading"><div><small>SESSION RECEIPT</small><strong>OnlyFrames Log</strong></div><button id="gamesLogClose" type="button" aria-label="Close game log">×</button></div>
+              <div id="gamesLogEntries" class="games-log-entries" role="log" aria-live="polite"></div>
+              <div class="games-log-footer"><span id="gamesLogCount">0 EVENTS</span><span>LOCAL SESSION</span></div>
+            </section>
             <div id="onlyFramesDialog" class="games-dialog" role="dialog" aria-modal="true" aria-label="OnlyFrames" hidden>
               <div class="games-dialog-surface">
                 <button type="button" id="onlyFramesClose" class="games-dialog-close" aria-label="Close OnlyFrames">×</button>
-                <img src="./assets/onlyframes-logo.svg" alt="OnlyFrames" width="280" height="84">
-                <p>The rules for OnlyFrames haven't been provided yet. The game will be ready for its rules once they're defined.</p>
-                <p>Use the scoreboard at the top of Marmaladeum to keep players' scores in the meantime.</p>
+                <img class="games-dialog-logo" src="./assets/onlyframes-logo.svg" alt="OnlyFrames" width="280" height="84">
+                <div id="onlyFramesOverview" class="games-overview">
+                  <div class="games-rule-grid">
+                    <section><small>DESCRIPTION</small><p>A frame-selection game that pulls surprise moments from your own video collection.</p></section>
+                    <section><small>FORMAT</small><p>One random video per turn. Automatic or Player's Choice timestamp mode.</p></section>
+                    <section><small>RULES</small><p>Choose a Media Library. A random video is selected. Automatic chooses a random moment; Player's Choice lets you choose an exact time. The player displays the frame and pauses there. Next draws another video; Previous revisits an earlier frame.</p></section>
+                    <section><small>WIN / LOSE CONDITION</small><p>Not specified yet. Keep scores manually until the win/lose rules are provided.</p></section>
+                  </div>
+                  <div class="games-start-options" id="onlyFramesOptions">
+                    <label>Mode<select id="onlyFramesMode" aria-label="OnlyFrames Mode"><option value="automatic">Automatic</option><option value="choice">Player's Choice</option></select></label>
+                    <label>Video Library<select id="onlyFramesLibrary" aria-label="OnlyFrames Video Library"><option value="">Choose a Library…</option></select></label>
+                  </div>
+                  <p class="games-dialog-hint" id="onlyFramesHint" role="status"></p>
+                  <button type="button" id="onlyFramesAction" class="games-primary-action" disabled>Play Game</button>
+                </div>
+                <div id="onlyFramesTimeStep" class="games-timestamp-step" hidden>
+                  <small>PLAYER'S CHOICE</small><strong>Pick Your Frame</strong>
+                  <p id="onlyFramesPickedVideo">Loading random video…</p>
+                  <label for="onlyFramesTimeRange">Timestamp</label>
+                  <input id="onlyFramesTimeRange" type="range" min="0" max="0" step="1" value="0" aria-label="Choose a timestamp within the selected video">
+                  <div class="games-time-labels"><output id="onlyFramesTimeValue">00:00</output><span id="onlyFramesTimeDuration">00:00</span></div>
+                  <button type="button" id="onlyFramesConfirmTime" class="games-primary-action">Show Frame</button>
+                </div>
               </div>
             </div>
           </section>
@@ -6034,8 +6080,25 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   applyVolume();
   // Add-on uses only the local player and presentation-delay telemetry. It never
   // changes capture tracks, sender parameters, quality selection or transport.
+  // Safe game integration reuses the same host transport and hard-stop path
+  // as the normal playback controls (no separate video pipeline).
+  function pauseAndSeekGameFrame(seconds){
+    if(state.role!=='host'||!['file','native'].includes(state.source))return false;
+    const duration=stableMovieDuration(),point=Number(seconds);
+    if(!Number.isFinite(duration)||duration<=0||!Number.isFinite(point))return false;
+    applyTransport('pause');
+    applyTransport('seek',Math.max(0,Math.min(duration-.05,point)));
+    return true;
+  }
+  function stopGameVideo(){
+    if(state.role!=='host')return false;
+    if(!state.source)return true;
+    stopPlaybackToPicker();
+    return state.source===null;
+  }
   window.MarmaladeAddonBridge={state,media,el,ensureAudioPlayback,
-    chooseVideo:selectHostFile,chooseNativeStream,openMoviePicker,notify};
+    chooseVideo:selectHostFile,chooseNativeStream,openMoviePicker,notify,
+    pauseAndSeekGameFrame,stopGameVideo};
   // Offline app shell is optional; room signaling and WebRTC require connectivity.
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
@@ -6054,7 +6117,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261120-library-settings-v2" defer></script>
-<script src="./games.js?v=20261120-games-v1" defer></script>
+<script src="./games.js?v=20261120-onlyframes-engine-v3" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
