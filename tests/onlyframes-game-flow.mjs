@@ -192,6 +192,41 @@ try {
     input.value='42';input.dispatchEvent(new Event('input',{bubbles:true}));
   });
   assert.equal(await page.locator('#onlyFramesTimeValue').textContent(),'00:42');
+  const timestampInput=page.locator('#onlyFramesTimeInput');
+  assert.equal(await timestampInput.inputValue(),'00:00:42',
+    'Moving the scrubber updates the exact HH:MM:SS field');
+  const exactLayout=await timestampInput.evaluate(input=>{
+    const rect=input.getBoundingClientRect();
+    const slider=document.getElementById('onlyFramesTimeRange').getBoundingClientRect();
+    const left=document.getElementById('onlyFramesTimeValue').getBoundingClientRect();
+    const right=document.getElementById('onlyFramesTimeDuration').getBoundingClientRect();
+    return {belowSlider:rect.top>slider.bottom,centered:Math.abs(
+      (rect.left+rect.right)/2-(left.left+right.right)/2)<2,
+      width:rect.width};
+  });
+  assert(exactLayout.belowSlider&&exactLayout.centered&&exactLayout.width<=150,
+    'Timestamp field must be compact and centered beneath the scrubber endpoints');
+  await timestampInput.fill('00:01:59');
+  assert.equal(await page.locator('#onlyFramesTimeRange').inputValue(),'119',
+    'Exact timestamp entry updates the scrubber precisely');
+  assert.equal(await page.locator('#onlyFramesTimeValue').textContent(),'01:59');
+  await timestampInput.fill('00:02:00');
+  assert.equal(await page.locator('#onlyFramesConfirmTime').isDisabled(),true,
+    'Cannot select a frame beyond the video runtime');
+  assert.equal(await timestampInput.getAttribute('aria-invalid'),'true');
+  await timestampInput.fill('00:61:42');
+  assert.equal(await page.locator('#onlyFramesConfirmTime').isDisabled(),true,
+    'Minutes must never exceed 59');
+  await timestampInput.fill('00:00:42');
+  assert.equal(await page.locator('#onlyFramesConfirmTime').isEnabled(),true);
+  assert.equal(await page.locator('#onlyFramesTimeRange').inputValue(),'42');
+  await timestampInput.press('ControlOrMeta+A');
+  await timestampInput.pressSequentially('000042');
+  assert.equal(await timestampInput.inputValue(),'00:00:42',
+    'Typing digits must fill only the six HHMMSS positions and retain colons');
+  await timestampInput.pressSequentially('xyz');
+  assert.equal(await timestampInput.inputValue(),'00:00:42',
+    'Alphabetic characters must be ignored by numeric timestamp masking');
   await page.locator('#onlyFramesConfirmTime').click();
   await page.waitForFunction(()=>window.MarmaladeGames.history().length===1);
   assert.equal(await page.evaluate(()=>window.MarmaladeGames.history()[0].timestamp),42,

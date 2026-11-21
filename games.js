@@ -737,10 +737,9 @@
   }
   async function confirmChoice(){
     const choice=pendingChoice;
-    if(!choice||activeGame!=='onlyframes'||busy)return;
+    if(!choice||activeGame!=='onlyframes'||busy||!validateTimeInput())return;
     busy=true;loadFailure=null;retryWork=null;
     const token=++generation;
-    if(!validateTimeInput())return;
     const timestamp=timeSeconds();
     showLoading('Preparing Chosen Frame','Waiting for the selected timestamp to decode before continuing.');
     syncControls();

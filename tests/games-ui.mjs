@@ -181,6 +181,8 @@ try{
  await page.setViewportSize({width:1440,height:850});
  await page.locator('#onlyFramesLaunch').click();
  assert.equal(await page.locator('#onlyFramesDialog').isVisible(),true);
+ assert.equal(await page.locator('#onlyFramesTimeInput').getAttribute('inputmode'),'numeric',
+   'Player Choice provides a numeric HH:MM:SS timestamp input');
  assert.match(await page.locator('#onlyFramesDialog').textContent(),/RULES[\s\S]*WIN \/ LOSE CONDITION/i);
  assert.equal(await page.locator('#onlyFramesDialog').evaluate(el=>el.open&&el.parentElement===document.body),true,
    'Game dialog is modal in the top layer, outside app layout stacking contexts');

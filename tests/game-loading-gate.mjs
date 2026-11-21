@@ -134,9 +134,9 @@ try{
   await page.evaluate(()=>window.__frameGate.picture());
   await page.locator('#onlyFramesTimeStep').waitFor({state:'visible'});
   assert.equal(await page.evaluate(()=>window.MarmaladeGames.history().length),0);
-  await page.locator('#onlyFramesTimeRange').evaluate(el=>{
-    el.value='42';el.dispatchEvent(new Event('input',{bubbles:true}));
-  });
+  await page.locator('#onlyFramesTimeInput').fill('00:00:42');
+  assert.equal(await page.locator('#onlyFramesTimeRange').inputValue(),'42',
+    'Exact HH:MM:SS typing updates the scrubber without starting playback');
   await page.locator('#onlyFramesConfirmTime').click();
   await page.waitForFunction(()=>window.__frameGate.state.pendingSeek===42);
   assert.equal(await page.evaluate(()=>window.MarmaladeGames.history().length),0);
