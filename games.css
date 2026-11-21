@@ -807,3 +807,18 @@ body>.games-dialog::backdrop{
   outline:2px solid #c4faff;outline-offset:2px
 }
 .games-dialog .games-connect-library[hidden]{display:none!important}
+
+/* Center the controls precisely within their footer, using the divider
+   line and the panel's bottom border as the two reference edges.
+   The divider and the bottom border are each 1px: 3px of inner padding
+   gives a balanced 4px clearance to the D-pad on both sides. Keep the
+   panel's other three padding edges and every control size unchanged. */
+.games-panel{padding-bottom:0}
+.games-panel .games-controls{
+  align-items:center;
+  padding-top:3px;
+  padding-bottom:3px;
+}
+@media(max-width:800px){
+  body:not(.theater-open) .games-panel{padding-bottom:0}
+}
