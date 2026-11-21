@@ -1127,7 +1127,12 @@ body>.games-dialog::backdrop{
    inset. Do not add a second card padding below it (which offsets the
    divider-to-D-pad and D-pad-to-window spacing). */
 @media(max-width:800px){
-  body:not(.theater-open):not(.native-pip-active) .movie-info-row>.games-panel:not([hidden]){
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="1"]>.games-panel:not([hidden]),
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="2"]>.games-panel:not([hidden]),
+  body:not(.theater-open):not(.native-pip-active)
+    .movie-info-row[data-panel-count="3"]>.games-panel:not([hidden]){
     padding-bottom:0!important;
   }
 }
