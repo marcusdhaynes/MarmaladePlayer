@@ -101,7 +101,7 @@ try{
   assert.match(await page.locator('#onlyFramesHint').textContent(),/empty/i);
   await page.locator('#onlyFramesLibrary').selectOption('extlib:test');
   assert.equal(await page.locator('#onlyFramesAction').isDisabled(),true);
-  assert.match(await page.locator('#onlyFramesHint').textContent(),/cannot be opened/i);
+  assert.match(await page.locator('#onlyFramesHint').textContent(),/none can be opened/i);
   await page.locator('#onlyFramesLibrary').selectOption('addon:test');
   assert.equal(await page.locator('#onlyFramesAction').isEnabled(),true,
     'A connected native source can be selected for play');

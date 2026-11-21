@@ -330,14 +330,23 @@
       hint.textContent=chosen.name+' is empty. Add videos to this library to play.';
     }
   }
+  let libraryCatalogSignature='';
   function populateLibraries(){
     const previously=librarySelect.value||selectedLibrary;
     const libs=mediaLibrary()?.getGameLibraries?.()||[];
-    librarySelect.replaceChildren(new Option('Choose a Library…',''));
-    for(const lib of libs){
-      const count=Math.max(0,Number(lib.count)||0);
-      const option=new Option(lib.name+' · '+count+' video'+(count===1?'':'s'),lib.id);
-      librarySelect.add(option);
+    const signature=JSON.stringify(libs.map(lib=>[
+      lib.id,lib.name,Number(lib.count)||0,Number(lib.playableCount)||0
+    ]));
+    // Automatic poster lookups re-render the library frequently. Do not
+    // destroy an open native select when its actual choices are unchanged.
+    if(signature!==libraryCatalogSignature){
+      libraryCatalogSignature=signature;
+      librarySelect.replaceChildren(new Option('Choose a Library…',''));
+      for(const lib of libs){
+        const count=Math.max(0,Number(lib.count)||0);
+        const option=new Option(lib.name+' · '+count+' video'+(count===1?'':'s'),lib.id);
+        librarySelect.add(option);
+      }
     }
     if(libs.some(lib=>lib.id===previously))librarySelect.value=previously;
     else if(libs.length===1)librarySelect.value=libs[0].id;
