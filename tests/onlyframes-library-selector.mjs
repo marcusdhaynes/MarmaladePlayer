@@ -90,10 +90,12 @@ try{
   assert(modal.open&&modal.portaled&&modal.viewport&&modal.hit,
     'Top-layer dialog must intercept player controls, not be painted beneath them: '+
     JSON.stringify(modal));
-  const halves=await page.locator('#onlyFramesMode').evaluate(el=>
-    [...el.querySelectorAll('button')].map(button=>button.getBoundingClientRect().width));
-  assert.equal(halves.length,2);
-  assert(Math.abs(halves[0]-halves[1])<1,'Mode split-pill halves must be equal width');
+  const groups=await page.locator('#onlyFramesMode').evaluate(el=>
+    [...el.querySelectorAll('.games-mode-pill')].map(group=>
+      [...group.querySelectorAll('button')].map(button=>button.getBoundingClientRect().width)));
+  assert.equal(groups.length,2,'Video and Timestamp must have separate split pills');
+  assert(groups.every(halves=>halves.length===2&&Math.abs(halves[0]-halves[1])<1),
+    'Each Random/Choice split-pill must have equal-width halves');
   await page.locator('#onlyFramesModeChoice').click();
   assert.equal(await page.locator('#onlyFramesModeChoice').getAttribute('aria-pressed'),'true');
   await page.locator('#onlyFramesLibrary').selectOption('test-empty');
