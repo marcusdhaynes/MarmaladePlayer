@@ -154,10 +154,10 @@ try {
   });
   assert(receipt.rows>=3,'Session receipt retains all player actions');
   assert(receipt.frameHeight<=25,'Receipt rows must be compact and single-line');
+  const baseline=(receipt.childLines[0].top+receipt.childLines[0].bottom)/2;
   assert(receipt.childLines.every(line=>
-    line.top>=receipt.childLines[0].top-3&&
-    line.bottom<=receipt.childLines[0].bottom+4),
-    'Title, mode, library and timestamp share one row');
+    Math.abs((line.top+line.bottom)/2-baseline)<2),
+    'Title, mode, library and timestamp share one vertically centered row');
   assert.equal(receipt.stampCount,1,'Only one timecode per selected frame');
   assert.equal(receipt.wallClockCount,0,'No duplicate real-world clock timestamps');
   assert(!/\d{2}:\d{2}/.test(receipt.description),
