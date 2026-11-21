@@ -1153,3 +1153,14 @@ body>.games-dialog::backdrop{
   .games-import-actions{gap:4px}
   .games-import-actions .games-connect-library{font-size:9px;padding:5px 7px!important}
 }
+
+/* Mobile Games panel: an ID-specific final rule prevents the generic
+   two-column panel padding selector from reintroducing a bottom inset.
+   The D-pad is equally clear of its divider and the card bottom border. */
+@media(max-width:800px){
+  body:not(.theater-open):not(.native-pip-active)
+    #movieInfoRow #gamesPanel:not([hidden]){
+    padding-bottom:0!important;
+    margin-bottom:0!important;
+  }
+}
