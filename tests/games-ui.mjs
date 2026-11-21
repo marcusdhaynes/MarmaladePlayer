@@ -103,30 +103,53 @@ try{
    JSON.stringify(posterFit));
  assert(Math.abs(posterFit.imageRatio-2/3)<.025,
    'Poster must retain its natural 2:3 image ratio');
- const nav=await page.locator('.games-split-pill').evaluate(group=>{
-   const controls=[...group.querySelectorAll('button')];
-   const computed=controls.map(button=>{
-     const bounds=button.getBoundingClientRect();
+ const inspectNav=()=>page.locator('.games-split-pill').evaluate(group=>{
+   const buttons=[...group.querySelectorAll('button')];
+   const outer=group.getBoundingClientRect();
+   const controls=group.closest('.games-controls').getBoundingClientRect();
+   const halves=buttons.map(button=>{
+     const rect=button.getBoundingClientRect();
      const style=getComputedStyle(button);
-     return {width:bounds.width,height:bounds.height,rounded:style.borderRadius,
-       background:style.backgroundImage,disabled:button.disabled,
+     return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,
+       width:rect.width,height:rect.height,disabled:button.disabled,
        icons:button.querySelectorAll('.games-nav-orb svg path').length,
        label:button.querySelector('.games-nav-label')?.textContent,
-       order:[...button.children].map(n=>n.className.baseVal||n.className)};
+       background:style.backgroundColor};
    });
-   return computed;
+   const style=getComputedStyle(group);
+   const divider=getComputedStyle(buttons[1],'::before');
+   return {outer:{left:outer.left,right:outer.right,width:outer.width,
+       height:outer.height},controls:{left:controls.left,right:controls.right},
+     radius:style.borderRadius,gap:style.columnGap,background:style.backgroundImage,
+     dividerWidth:divider.width,halves};
  });
- assert.equal(nav.length,2);
- assert(Math.abs(nav[0].width-nav[1].width)<1,
-   'Previous and Next must occupy equal-width halves');
- assert(nav.every(x=>x.height>=40&&x.rounded.includes('999px')&&x.icons===1),
-   'Both nav pills need circular double-chevron ends');
- assert(nav[0].background.includes('255, 212, 89')&&
-        nav[1].background.includes('177, 235, 120'),
-   'Previous must be yellow and Next green to match the approved reference');
- assert(nav.every(x=>x.disabled),'Both games controls must start inactive');
- assert.equal(nav[0].label,'PREV');
- assert.equal(nav[1].label,'NEXT');
+ let nav=await inspectNav();
+ assert.equal(nav.halves.length,2);
+ assert(nav.halves.every(x=>x.icons===1&&x.disabled),
+   'Both game navigation halves start disabled and use vector chevrons');
+ assert.equal(nav.halves[0].label,'PREV');
+ assert.equal(nav.halves[1].label,'NEXT');
+ assert(Math.abs(nav.halves[0].width-nav.halves[1].width)<1,
+   'Previous and Next must have precisely equal widths');
+ assert(Math.abs(nav.halves[0].right-nav.halves[1].left)<1 && nav.gap==='0px',
+   'Both sides must meet without a gap at the center');
+ assert(nav.radius!=='0px'&&nav.dividerWidth==='1px'&&
+   nav.background.includes('linear-gradient'),
+   'A single rounded glass shell with a subtle center divider is required');
+ assert(nav.outer.width<=184.5&&nav.outer.height<=44.5&&
+   nav.outer.left>=nav.controls.left-1&&nav.outer.right<=nav.controls.right+1,
+   'Connected toggle must stay compact and within the Games footer');
+ for(const width of [780,390]){
+   await page.setViewportSize({width,height:800});
+   nav=await inspectNav();
+   assert(Math.abs(nav.halves[0].width-nav.halves[1].width)<1 &&
+     Math.abs(nav.halves[0].right-nav.halves[1].left)<1 &&
+     nav.outer.left>=nav.controls.left-1 &&
+     nav.outer.right<=nav.controls.right+1,
+     'Connected navigation must fit and stay symmetrical at '+width+'px: '+
+     JSON.stringify(nav));
+ }
+ await page.setViewportSize({width:1440,height:850});
  await page.locator('#onlyFramesLaunch').click();
  assert.equal(await page.locator('#onlyFramesDialog').isVisible(),true);
  assert.match(await page.locator('#onlyFramesDialog').textContent(),/RULES[\s\S]*WIN \/ LOSE CONDITION/i);

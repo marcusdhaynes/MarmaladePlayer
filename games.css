@@ -414,138 +414,158 @@ body>.games-dialog::backdrop{
 }
 
 
-/* Reference-inspired arcade controls: matched gold/green pills with paired
-   chevrons in circular ends and a subtle broken orbit. Both halves have the
-   exact same layout width; real disabled attributes remain authoritative. */
+/* Marmaladeum Games navigation: one compact, connected, two-sided glass
+   control. The slim center rule separates equal interactive halves, while
+   the shared shell matches the dark crystalline transport and D-pad. */
 .games-panel .games-split-pill{
+  box-sizing:border-box;
+  position:relative;
   display:grid!important;
   grid-template-columns:repeat(2,minmax(0,1fr))!important;
-  flex:0 1 clamp(134px,48%,228px)!important;
-  width:clamp(134px,48%,228px);
-  min-width:116px!important;
-  height:56px!important;
-  align-items:center!important;
-  column-gap:8px!important;
-  padding:0!important;
-  border:0!important;
-  background:transparent!important;
-  border-radius:0!important;
-  box-shadow:none!important;
-  overflow:visible!important;
+  flex:0 1 clamp(112px,44%,184px)!important;
+  width:clamp(112px,44%,184px)!important;
+  min-width:112px!important;
+  height:44px!important;
+  padding:2px!important;
+  gap:0!important;
+  align-items:stretch!important;
+  overflow:hidden!important;
+  border:1px solid #716777!important;
+  border-radius:11px!important;
+  background:linear-gradient(155deg,#373341,#24232d 65%,#1d202a)!important;
+  box-shadow:inset 0 1px 0 #ffffff18,0 3px 12px #0005!important;
 }
 .games-panel .games-split-pill .games-nav-button{
   box-sizing:border-box;
+  position:relative;
+  isolation:isolate;
   display:flex!important;
   flex-direction:row!important;
-  justify-content:space-between!important;
   align-items:center!important;
-  min-width:0!important;
+  justify-content:center!important;
   width:100%!important;
-  height:48px!important;
-  padding:3px 5px!important;
-  gap:2px!important;
-  border:1px solid rgba(255,255,255,.22)!important;
-  border-radius:999px!important;
-  color:#20302f!important;
+  height:100%!important;
+  min-width:0!important;
+  margin:0!important;
+  padding:4px 3px!important;
+  gap:3px!important;
+  border:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  color:#ece4ee!important;
   cursor:pointer;
-  position:relative;
-  overflow:visible!important;
-  isolation:isolate;
-  transition:transform .17s ease,filter .17s ease,box-shadow .17s ease;
+  transition:background-color .15s ease,color .15s ease,opacity .15s ease;
 }
 .games-panel .games-split-pill .games-nav-prev{
-  background:linear-gradient(150deg,#ffd459 0%,#ffc139 52%,#f09b1d 100%)!important;
-  box-shadow:inset 0 1px 1px #ffffff9e,inset 0 -3px 0 #a86a1d38,0 4px 11px #08091365!important;
+  border-radius:8px 0 0 8px!important;
 }
 .games-panel .games-split-pill .games-nav-next{
-  background:linear-gradient(150deg,#b1eb78 0%,#85cf50 49%,#50ab3a 100%)!important;
-  box-shadow:inset 0 1px 1px #ffffff9e,inset 0 -3px 0 #356c2838,0 4px 11px #08091365!important;
+  border-radius:0 8px 8px 0!important;
 }
-.games-panel .games-split-pill .games-nav-orb{
-  flex:0 0 44%;
-  max-width:43px;
-  aspect-ratio:1;
-  display:grid;
-  place-items:center;
-  position:relative;
-  border-radius:50%;
-  border:1px solid #ffffff82;
-  color:#263235;
-  background:#ffffff23;
-  box-shadow:inset 0 2px 4px #ffffff4a,0 0 0 1px #0000000d;
-}
-.games-panel .games-split-pill .games-nav-orb::after{
+.games-panel .games-split-pill .games-nav-next::before{
   content:"";
   position:absolute;
-  inset:-5px;
-  border:2px solid currentColor;
-  border-radius:50%;
-  opacity:.77;
+  left:0;
+  top:6px;
+  bottom:6px;
+  width:1px;
+  background:linear-gradient(180deg,transparent,#bba7be82 22%,#bba7be82 78%,transparent);
   pointer-events:none;
 }
-.games-panel .games-split-pill .games-nav-prev .games-nav-orb::after{
-  border-right-color:transparent;
-  transform:rotate(-15deg);
+.games-panel .games-split-pill .games-nav-orb{
+  box-sizing:border-box;
+  flex:0 0 23px!important;
+  width:23px!important;
+  height:26px!important;
+  min-width:0!important;
+  max-width:23px!important;
+  aspect-ratio:auto!important;
+  display:grid;
+  place-items:center;
+  border:1px solid #ffffff12!important;
+  border-radius:6px!important;
+  background:#ffffff0b!important;
+  box-shadow:inset 0 1px #ffffff0a!important;
+  color:#d7c9da!important;
 }
-.games-panel .games-split-pill .games-nav-next .games-nav-orb::after{
-  border-left-color:transparent;
-  transform:rotate(15deg);
-}
+.games-panel .games-split-pill .games-nav-orb::after{content:none!important}
 .games-panel .games-split-pill .games-nav-orb svg{
-  width:67%;height:67%;display:block;
+  display:block;
+  width:17px!important;
+  height:17px!important;
   overflow:visible;
 }
 .games-panel .games-split-pill .games-nav-label{
-  display:block;min-width:0;flex:1 1 auto;
-  white-space:nowrap;text-align:center;
-  font:900 clamp(8px,1.2vw,12px)/1.1 system-ui,sans-serif;
-  letter-spacing:-.025em;
-  text-shadow:0 1px #ffffff33;
+  flex:0 1 auto;
+  min-width:0;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:clip;
+  text-align:center;
+  color:inherit;
+  font:750 9px/1.15 system-ui,sans-serif!important;
+  letter-spacing:.025em!important;
+  text-shadow:none!important;
 }
 .games-panel .games-split-pill .games-nav-button:hover:not(:disabled){
-  transform:translateY(-2px);
-  filter:saturate(1.16) brightness(1.07);
+  background:#b2a0bf1c!important;
+  color:#fff!important;
+  transform:none!important;
+  filter:none!important;
 }
 .games-panel .games-split-pill .games-nav-button:active:not(:disabled){
-  transform:translateY(1px);
+  background:#d1b6d02d!important;
+  transform:none!important;
 }
 .games-panel .games-split-pill .games-nav-button:focus-visible{
-  outline:2px solid #f7f6ff!important;outline-offset:4px!important;
+  outline:2px solid #c6e8f3!important;
+  outline-offset:-2px!important;
+  z-index:1;
 }
 .games-panel .games-controls .games-nav-button:disabled{
-  opacity:.32!important;
-  filter:grayscale(.65)!important;
-  box-shadow:none!important;
+  opacity:.38!important;
+  filter:none!important;
   cursor:not-allowed!important;
+  transform:none!important;
 }
 @media(max-width:930px){
   .games-panel .games-split-pill{
-    flex-basis:clamp(122px,46%,195px)!important;
-    width:clamp(122px,46%,195px);
-    gap:6px!important;
+    flex-basis:clamp(112px,44%,164px)!important;
+    width:clamp(112px,44%,164px)!important;
+    height:42px!important;
   }
   .games-panel .games-split-pill .games-nav-button{
-    height:44px!important;padding:2px 3px!important;
+    padding:3px 2px!important;
+    gap:2px!important;
   }
-  .games-panel .games-split-pill .games-nav-orb{max-width:37px}
-  .games-panel .games-split-pill .games-nav-label{
-    font-size:clamp(8px,1.3vw,10px);
+  .games-panel .games-split-pill .games-nav-orb{
+    flex-basis:21px!important;
+    width:21px!important;height:24px!important;max-width:21px!important;
+  }
+  .games-panel .games-split-pill .games-nav-orb svg{
+    width:15px!important;height:15px!important;
   }
 }
 @media(max-width:520px){
   .games-panel .games-split-pill{
-    flex:0 1 clamp(112px,47%,188px)!important;
-    width:clamp(112px,47%,188px);
-    min-width:104px!important;
-    gap:5px!important;
+    flex-basis:clamp(108px,44%,152px)!important;
+    width:clamp(108px,44%,152px)!important;
+    min-width:108px!important;
+    height:40px!important;
+    border-radius:9px!important;
   }
-  .games-panel .games-split-pill .games-nav-button{
-    height:42px!important;
-    padding:2px!important;
+  .games-panel .games-split-pill .games-nav-orb{
+    flex-basis:19px!important;
+    width:19px!important;height:22px!important;max-width:19px!important;
   }
-  .games-panel .games-split-pill .games-nav-orb{max-width:35px}
-  .games-panel .games-split-pill .games-nav-orb::after{inset:-3px;border-width:1.5px}
-  .games-panel .games-split-pill .games-nav-label{font-size:8px;letter-spacing:-.04em}
+  .games-panel .games-split-pill .games-nav-orb svg{
+    width:14px!important;height:14px!important;
+  }
+  .games-panel .games-split-pill .games-nav-label{
+    font-size:8px!important;
+    letter-spacing:0!important;
+  }
 }
 @media(prefers-reduced-motion:reduce){
   .games-panel .games-split-pill .games-nav-button{transition:none}
