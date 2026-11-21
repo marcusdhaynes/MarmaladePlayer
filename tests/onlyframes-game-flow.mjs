@@ -160,7 +160,7 @@ try {
     'Title, mode, library and timestamp share one row');
   assert.equal(receipt.stampCount,1,'Only one timecode per selected frame');
   assert.equal(receipt.wallClockCount,0,'No duplicate real-world clock timestamps');
-  assert(!/\\d{2}:\\d{2}/.test(receipt.description),
+  assert(!/\d{2}:\d{2}/.test(receipt.description),
     'Frame mode must not repeat the timecode');
   assert.equal(receipt.source,'Sample Movies');
   assert(receipt.tooltip.includes('Sample Movies')&&
