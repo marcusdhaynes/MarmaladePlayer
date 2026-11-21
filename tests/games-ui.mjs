@@ -78,32 +78,108 @@ try{
  const mobileAlignment=await headerAlignment();
  assert(mobileAlignment.topPadding>=0&&mobileAlignment.bottomPadding>=0,
    'Mobile score boxes must remain wholly visible: '+JSON.stringify(mobileAlignment));
+ // Three visible windows on mobile: the first two each occupy one half,
+ // and the Movie & Series Information window occupies the entire next row.
  for(const width of [780,390,320]){
    await page.setViewportSize({width,height:844});
    const mobile=await page.evaluate(()=>{
      const stage=document.querySelector('#dropZone').getBoundingClientRect();
-     const row=document.querySelector('#movieInfoRow');
-     const panels=[...row.querySelectorAll(':scope > section:not([hidden])')]
+     const row=document.querySelector('#movieInfoRow').getBoundingClientRect();
+     const panels=[...document.querySelectorAll('#movieInfoRow > section:not([hidden])')]
        .map(el=>el.getBoundingClientRect());
-     const controlBar=document.querySelector('#gamesControls').getBoundingClientRect();
+     const bar=document.querySelector('#gamesControls').getBoundingClientRect();
      const dpad=document.querySelector('.games-dpad').getBoundingClientRect();
-     const gamePanel=document.querySelector('#gamesPanel').getBoundingClientRect();
-     return {stageWidth:stage.width,leftGutter:stage.left,rightGutter:innerWidth-stage.right,
-       panelsInside:panels.every(p=>p.left>=stage.left-1&&p.right<=stage.right+1),
-       stacked:panels.every((p,i)=>i===0||p.top>=panels[i-1].bottom-1),
-       dpadTop:dpad.top-controlBar.top,dpadBottom:controlBar.bottom-dpad.bottom,
-       topDividerGap:dpad.top-controlBar.top,bottomWindowGap:gamePanel.bottom-dpad.bottom};
+     const nav=document.querySelector('.games-split-pill').getBoundingClientRect();
+     const game=document.querySelector('#gamesPanel').getBoundingClientRect();
+     const buttons=['skipBack','playPause','skipForward'].map(id=>
+       document.getElementById(id).getBoundingClientRect());
+     const finite=buttons.every(x=>x.width>0&&x.height>0&&Math.abs(x.width-x.height)<.75);
+     return {
+       count:panels.length,stageRatio:stage.width/stage.height,
+       leftGutter:stage.left,rightGutter:innerWidth-stage.right,
+       panelWidths:panels.map(p=>p.width),rowWidth:row.width,
+       halves:Math.abs(panels[0].width-panels[1].width)<=2&&
+         Math.abs(panels[0].top-panels[1].top)<=2,
+       fullLower:Math.abs(panels[2].width-row.width)<=2&&
+         panels[2].top>=Math.max(panels[0].bottom,panels[1].bottom)-1,
+       panelsInside:panels.every(p=>p.left>=row.left-1&&p.right<=row.right+1),
+       squareTransport:finite,
+       gameWidth:game.width,navInside:nav.left>=game.left-1&&nav.right<=game.right+1,
+       narrowGrid:getComputedStyle(document.querySelector('#gamesControls')).display==='grid',
+       dpadTop:dpad.top-bar.top,dpadBottom:bar.bottom-dpad.bottom,
+       topDividerGap:dpad.top-bar.top,bottomWindowGap:game.bottom-dpad.bottom
+     };
    });
+   assert.equal(mobile.count,3,'Three visible mobile information panels are expected');
    assert(Math.abs(mobile.leftGutter-mobile.rightGutter)<=2,
-     'The mobile player needs equal screen gutters: '+JSON.stringify({width,...mobile}));
-   assert(mobile.stageWidth<=width&&mobile.panelsInside&&mobile.stacked,
-     'Mobile panels must fit and stack beneath the player: '+JSON.stringify({width,...mobile}));
-   assert(mobile.dpadTop<=6&&mobile.dpadBottom<=6,
-     'Game controls must hug the D-Pad vertically: '+JSON.stringify({width,...mobile}));
-   assert(Math.abs(mobile.topDividerGap-mobile.bottomWindowGap)<=1,
-     'The gap between the divider and D-Pad must equal the gap between D-Pad and panel bottom: '+
+     'Video player needs equal screen gutters: '+JSON.stringify({width,...mobile}));
+   assert(Math.abs(mobile.stageRatio-16/9)<.03,
+     'Mobile theater defaults to a 16:9 frame: '+JSON.stringify({width,...mobile}));
+   assert(mobile.halves&&mobile.fullLower&&mobile.panelsInside,
+     'Mobile 3-window layout must be two half-width and one full-width: '+
      JSON.stringify({width,...mobile}));
+   assert(mobile.squareTransport,
+     'Rewind, play/pause and fast-forward controls must all have square bounds');
+   assert(mobile.navInside,'Game navigation must remain inside its half-width panel');
+   if(mobile.gameWidth<260){
+     assert(mobile.narrowGrid,
+       'Narrow half-width Games panel must reflow the game controls into compact rows');
+   }else{
+     assert(mobile.dpadTop<=6&&mobile.dpadBottom<=6&&
+       Math.abs(mobile.topDividerGap-mobile.bottomWindowGap)<=1,
+       'Full-size Games footer should retain symmetric D-Pad clearance: '+
+       JSON.stringify({width,...mobile}));
+   }
  }
+ // The layout rules must also work with any TWO visible windows, not only
+ // with the default Library + Games pair.
+ await page.setViewportSize({width:390,height:844});
+ await page.locator('#mlVisibilityToggle').evaluate(el=>el.click());
+ assert.equal(await page.locator('#movieInfoRow').getAttribute('data-panel-count'),'2');
+ const twoMobile=await page.locator('#movieInfoRow').evaluate(row=>{
+   const cards=[...row.querySelectorAll(':scope > section:not([hidden])')]
+     .map(x=>x.getBoundingClientRect());
+   return {count:cards.length,sideBySide:Math.abs(cards[0].top-cards[1].top)<2,
+     equal:Math.abs(cards[0].width-cards[1].width)<2,
+     within:cards.every(x=>x.left>=row.getBoundingClientRect().left-1&&
+       x.right<=row.getBoundingClientRect().right+1)};
+ });
+ assert(twoMobile.count===2&&twoMobile.sideBySide&&twoMobile.equal&&twoMobile.within,
+   'Any two mobile windows must split the width evenly: '+JSON.stringify(twoMobile));
+ await page.locator('#gamesVisibilityToggle').evaluate(el=>el.click());
+ assert.equal(await page.locator('#movieInfoRow').getAttribute('data-panel-count'),'1');
+ const oneMobile=await page.locator('#movieInfoRow').evaluate(row=>{
+   const card=row.querySelector(':scope > section:not([hidden])').getBoundingClientRect();
+   return {windowWidth:card.width,rowWidth:row.getBoundingClientRect().width};
+ });
+ assert(Math.abs(oneMobile.windowWidth-oneMobile.rowWidth)<2,
+   'One visible mobile window must fill the whole available width: '+
+   JSON.stringify(oneMobile));
+ // Restore the same three-window state for the rest of the regression suite.
+ await page.locator('#gamesVisibilityToggle').evaluate(el=>el.click());
+ await page.locator('#mlVisibilityToggle').evaluate(el=>el.click());
+ assert.equal(await page.locator('#movieInfoRow').getAttribute('data-panel-count'),'3');
+ // The video aspect control is mobile-only and respects its saved preference.
+ const ratioSetting=page.locator('#mobileMatchVideoAspect');
+ assert.equal(await ratioSetting.isChecked(),false,'Mobile theater starts in 16:9 mode');
+ await page.evaluate(()=>{
+   const video=document.querySelector('#player');
+   Object.defineProperty(video,'videoWidth',{configurable:true,get:()=>360});
+   Object.defineProperty(video,'videoHeight',{configurable:true,get:()=>640});
+   video.dispatchEvent(new Event('loadedmetadata'));
+ });
+ await ratioSetting.evaluate(el=>el.click());
+ const naturalRatio=await page.locator('#dropZone').evaluate(el=>{
+   const box=el.getBoundingClientRect();return box.width/box.height;
+ });
+ assert(Math.abs(naturalRatio-9/16)<.03,
+   'Match Video setting must use the media intrinsic aspect ratio on mobile');
+ await ratioSetting.evaluate(el=>el.click());
+ const restoredRatio=await page.locator('#dropZone').evaluate(el=>{
+   const box=el.getBoundingClientRect();return box.width/box.height;
+ });
+ assert(Math.abs(restoredRatio-16/9)<.03,
+   'Disabling Match Video must immediately restore the mobile 16:9 default');
  await page.setViewportSize({width:1440,height:850});
  const desktopVerticalSpacing=await page.evaluate(()=>{
    const dpad=document.querySelector('.games-dpad').getBoundingClientRect();
