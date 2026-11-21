@@ -17,7 +17,7 @@
     dialog:$('mlDialog'),dialogTitle:$('mlDialogTitle'),name:$('mlLibraryName'),
     kind:$('mlLibraryKind'),folderList:$('mlFolderList'),
     delete:$('mlDeleteLibrary'),pick:$('mlPickFolder'),
-    directoryInput:$('mlDirectoryInput'),save:$('mlDialogSave'),
+    directoryInput:$('mlDirectoryInput'),videoInput:$('mlFilesInput'),save:$('mlDialogSave'),
     menu:$('mlContextMenu'),itemDialog:$('mlItemDialog'),itemBody:$('mlItemDialogBody'),
     itemTitle:$('mlItemDialogTitle'),itemSave:$('mlItemDialogSave')
   };
@@ -1510,6 +1510,105 @@
     return {connected:true,folder:folder.name,playableCount:stats?.playableCount||0,
       remaining:stats?.unlinkedCount||0,sessionOnly:true};
   }
+
+  // Cross-browser, extension-independent local library hydration.
+  // File inputs return live File objects even when choosing a protected
+  // directory via showDirectoryPicker() is forbidden. No copy, upload, or
+  // full-file reading occurs: only metadata is saved in IndexedDB.
+  // External extension catalogs are migrated into an independent browser
+  // library so future gameplay never needs the extension or native bridge.
+  async function importGameFiles(libraryId,fileList){
+    const source=state.libraries.find(lib=>lib.id===libraryId)||null;
+    const files=Array.from(fileList||[]).filter(file=>file&&
+      typeof file.name==='string'&&video(file.name)&&typeof file.slice==='function');
+    if(!files.length)return {connected:false,reason:'No supported video files were selected.'};
+    const external=!!source&&/^(extlib:|addon:)/.test(source.id);
+    let lib=external?
+      state.libraries.find(existing=>existing.migratedFrom===source.id):
+      source;
+    let created=false;
+    if(!lib){
+      created=true;
+      const desired=source?.name||'My Videos';
+      let name=external?desired+' · Browser Library':desired;
+      if(state.libraries.some(existing=>existing.name.toLowerCase()===name.toLowerCase())){
+        let number=2;
+        while(state.libraries.some(existing=>existing.name.toLowerCase()===
+          (name+' '+number).toLowerCase()))number++;
+        name+=' '+number;
+      }
+      lib={id:id(),name,kind:source?.kind||'mixed',folders:[],items:[],
+        hiddenIds:[],migratedFrom:external?source.id:null,
+        createdAt:now(),lastScan:now()};
+    }
+    const paths=files.map(file=>String(file.webkitRelativePath||'').split('/').filter(Boolean));
+    const prefixes=paths.filter(parts=>parts.length>=2).map(parts=>parts[0]);
+    const commonRoot=prefixes.length&&prefixes.every(first=>first===prefixes[0])?
+      prefixes[0]:null;
+    const folderName=commonRoot||'Selected Videos';
+    // Re-selecting the same source after a reload replaces its stale entries
+    // rather than creating duplicates or a second disconnected folder.
+    const oldFolder=lib.folders.find(folder=>folder.source==='session'&&
+      folder.name===folderName);
+    const folder={id:oldFolder?.id||id(),name:folderName,source:'session',handle:null};
+    const previous=new Map((lib.items||[]).filter(item=>item.folderId===folder.id)
+      .map(item=>[item.path,item]));
+    const sourceByPath=new Map((source?.items||[]).map(item=>
+      [String(item.path||item.name||'').toLocaleLowerCase(),item]));
+    const sourceByName=new Map((source?.items||[]).map(item=>
+      [String(item.name||'').toLocaleLowerCase(),item]));
+    const occupied=new Set();
+    const entries=[];
+    // Streaming object URLs are created by the established chooseVideo
+    // player path. Keep the File objects intact, never eagerly load bytes.
+    for(let index=0;index<files.length;index++){
+      const file=files[index],parts=paths[index];
+      let path=(parts.length>=2?parts.slice(1).join('/'):file.name)||file.name;
+      const original=path;
+      for(let suffix=2;occupied.has(path);suffix++){
+        const dot=original.lastIndexOf('.'),slash=original.lastIndexOf('/');
+        path=dot>slash?original.slice(0,dot)+' ('+suffix+')'+original.slice(dot):
+          original+' ('+suffix+')';
+      }
+      occupied.add(path);
+      const item=makeItem(folder,path,file,lib.kind);
+      const previousItem=previous.get(path)||sourceByPath.get(path.toLocaleLowerCase())||
+        sourceByName.get(file.name.toLocaleLowerCase());
+      if(previousItem){
+        Object.assign(item,{...previousItem,id:item.id,folderId:item.folderId,
+          path:item.path,name:item.name,size:item.size,
+          lastModified:item.lastModified,metadataPending:false});
+      }
+      entries.push(item);
+      state.sessionFiles.set(item.id,file);
+    }
+    if(oldFolder){
+      for(const old of (lib.items||[]).filter(item=>item.folderId===folder.id)){
+        if(!occupied.has(old.path))state.sessionFiles.delete(old.id);
+      }
+      lib.items=lib.items.filter(item=>item.folderId!==folder.id);
+      lib.folders=lib.folders.map(existing=>existing.id===folder.id?folder:existing);
+    }else lib.folders.push(folder);
+    lib.items.push(...entries);
+    lib.lastScan=now();
+    state.sessionFolderLoaded.add(folder.id);
+    if(created)state.libraries.push(lib);
+    // Save only the lightweight catalog; user-selected File objects stay
+    // in memory for playback and cannot be silently reused after a restart.
+    await persist(lib);
+    state.selected=lib.id;
+    setLocal('marmalade:media-library:selected',lib.id);
+    state.query='';state.kind='all';state.collection='all';state.folder=null;
+    state.folderMode=false;state.series=null;state.showCount=120;
+    ui.search.value='';ui.filter.value='all';ui.collections.value='all';
+    render();
+    notify(countLabel(entries.length)+' ready in '+lib.name+
+      '. Videos play directly in this browser; nothing was uploaded.');
+    return {connected:true,libraryId:lib.id,imported:entries.length,
+      playableCount:getGameVideos(lib.id).length,name:lib.name,
+      sessionOnly:true,independent:true};
+  }
+
   async function playGameVideo(libraryId,itemId){
     const lib=state.libraries.find(lib=>lib.id===libraryId);
     const item=lib?.items.find(item=>item.id===itemId);
@@ -1706,24 +1805,13 @@
       notify('Choose or create a library before selecting a media folder.');
       return;
     }
-    // Minternet (and any browser shipping the generic Local Media Library
-    // add-on): the add-on owns a REAL native folder dialog and stores the
-    // folder path itself, rescanning on every launch. System webviews give
-    // pages no working showDirectoryPicker and no usable directory-input
-    // folder return, so routing through the add-on is the only flow that
-    // can work there — and it never needs a reconnect.
-    const addon=nativeLibraryApi();
-    if(addon&&typeof addon.addFolder==='function'){
-      void pickAddonFolder(addon);
-      return;
-    }
-    if(typeof window.showDirectoryPicker==='function'){
-      void pickNativeFolder();
-      return;
-    }
-    scanPreview('Select the media folder. Marmaladeum will import its videos automatically.');
+    // Standard directory FileList is the primary cross-browser path: it
+    // avoids Chromium's blocked-root/system-file directory-handle picker
+    // and works without Minternet, native extensions or permission APIs.
+    // No file bytes are sent to a server, and no copying is needed to play.
+    scanPreview('Select your video folder. If the browser refuses the folder, use Add Videos to choose individual files.');
     ui.directoryInput.value='';
-    ui.directoryInput.click(); // synchronous user gesture: do not await before click
+    ui.directoryInput.click(); // Must happen synchronously on click.
   }
   async function pickNativeFolder(){
     scanPreview('Select the media folder. Marmaladeum will scan it and remember it automatically.');
@@ -1750,6 +1838,11 @@
   // Kept as an alias: both dialog buttons now run the same one-click flow,
   // so there is no longer a "right" and "wrong" picker to choose between.
   async function pickPersistentFolder(){
+    if(typeof window.showDirectoryPicker==='function'){
+      await pickNativeFolder();
+      return;
+    }
+    // The standard file picker remains supported in every browser.
     pickFolder();
   }
   async function pickAddonFolder(api){
@@ -1859,7 +1952,7 @@
     }
     const addon=nativeLibraryApi();
     if(addon&&typeof addon.saveLibrary==='function' &&
-       (!state.editing||String(state.editing).startsWith('addon:'))){
+       String(state.editing||'').startsWith('addon:')){
       const nativeId=String(state.editing||'').startsWith('addon:')?
         String(state.editing).slice(6):undefined;
       const original=state.libraries.find(l=>l.id===state.editing);
@@ -1980,7 +2073,17 @@
     $('mlDialogClose').addEventListener('click',closeEditor);
     $('mlDialogCancel').addEventListener('click',closeEditor);
     ui.pick.addEventListener('click',pickFolder);
-    $('mlCompatibilityFolder').addEventListener('click',()=>void pickPersistentFolder());
+    $('mlChooseVideos').addEventListener('click',()=>{
+      if(!currentPending())return;
+      scanPreview('Select one or more videos from any folder. No folder permission is needed.');
+      ui.videoInput.value='';
+      ui.videoInput.click();
+    });
+    const rememberFolder=$('mlCompatibilityFolder');
+    rememberFolder.hidden=typeof window.showDirectoryPicker!=='function';
+    rememberFolder.setAttribute('aria-hidden',String(rememberFolder.hidden));
+    rememberFolder.tabIndex=rememberFolder.hidden?-1:0;
+    rememberFolder.addEventListener('click',()=>void pickPersistentFolder());
     ui.save.addEventListener('click',()=>void saveEditor());
     ui.delete.addEventListener('click',()=>void removeLibrary());
     ui.directoryInput.addEventListener('change',event=>{
@@ -1995,6 +2098,12 @@
         return;
       }
       fallbackFiles(chosen);
+    });
+    ui.videoInput.addEventListener('change',event=>{
+      const chosen=Array.from(event.target.files||[]);
+      event.target.value='';
+      if(chosen.length)fallbackFiles(chosen);
+      else scanPreview('No video files selected. Existing library and videos were not changed.');
     });
     ui.directoryInput.addEventListener('cancel',()=>{
       // Browsers may emit 'cancel' while switching between a programmatically
@@ -2254,6 +2363,7 @@
   }
   window.MarmaladeMediaLibrary={
     ready,show:setVisibility,select:setSelected,syncFromExtension,syncFromNative,
+    importGameFiles,
     hasNativeLibrary:()=>!!nativeLibraryApi(),
     getLibraries:()=>state.libraries.map(l=>({id:l.id,name:l.name,kind:l.kind,
       folders:l.folders.map(f=>({id:f.id,name:f.name,source:f.source})),
