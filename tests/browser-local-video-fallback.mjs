@@ -4,7 +4,7 @@ import {readFileSync,mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {resolve,extname,sep,join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
-import {chromium} from 'playwright';
+import {chromium,firefox,webkit} from 'playwright';
 
 const root=resolve(fileURLToPath(new URL('../',import.meta.url)));
 const directory=mkdtempSync(join(tmpdir(),'marmalade-media-'));
@@ -21,7 +21,11 @@ const server=createServer((req,res)=>{
     res.end(readFileSync(file));}catch{res.writeHead(404);res.end();}
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+const engine=process.env.MARMALADE_BROWSER||'chromium';
+const browserType={chromium,firefox,webkit}[engine];
+if(!browserType)throw Error('Unsupported test browser: '+engine);
+const browser=await browserType.launch({headless:true,
+  ...(engine==='chromium'?{args:['--no-sandbox']}:{})});
 try{
   const page=await browser.newPage({viewport:{width:390,height:844}});
   const errors=[];page.on('pageerror',error=>errors.push(String(error)));
@@ -104,7 +108,7 @@ try{
     assert.equal(current.count,2,'Catalog stays at two real videos: '+round);
   }
   assert.deepEqual(errors,[]);
-  console.log('PASS browser-only folder and file imports, nested videos, protected-folder bypass, real playback and 10x relink');
+  console.log('PASS '+engine+' browser-only folder and file imports, nested videos, protected-folder bypass, real playback and 10x relink');
 }finally{
   await browser.close();
   await new Promise(resolve=>server.close(resolve));
