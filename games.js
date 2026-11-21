@@ -198,8 +198,13 @@
   });
   const dialog=$('onlyFramesDialog'),launch=$('onlyFramesLaunch'),close=$('onlyFramesClose');
   const overview=$('onlyFramesOverview'),step=$('onlyFramesTimeStep');
-  const action=$('onlyFramesAction'),modeToggle=$('onlyFramesMode');
+  const action=$('onlyFramesAction');
+  const videoRandom=$('onlyFramesVideoRandom'),videoChoice=$('onlyFramesVideoChoice');
   const modeAutomatic=$('onlyFramesModeAutomatic'),modeChoice=$('onlyFramesModeChoice');
+  const videoStep=$('onlyFramesVideoStep'),videoSearch=$('onlyFramesVideoSearch');
+  const videoFilter=$('onlyFramesVideoFilter'),videoResults=$('onlyFramesVideoResults');
+  const videoCount=$('onlyFramesVideoCount'),videoShown=$('onlyFramesVideoShown');
+  const videoMore=$('onlyFramesVideoMore'),videoColumns=$('onlyFramesVideoColumns');
   const librarySelect=$('onlyFramesLibrary'),hint=$('onlyFramesHint');
   const timeRange=$('onlyFramesTimeRange'),timeValue=$('onlyFramesTimeValue');
   const timeInput=$('onlyFramesTimeInput'),timeError=$('onlyFramesTimeError');
@@ -213,7 +218,9 @@
   const logCount=$('gamesLogCount');
   const mediaLibrary=()=>window.MarmaladeMediaLibrary;
   const player=()=>window.MarmaladeAddonBridge;
-  let activeGame=null,selectedLibrary=null,mode='automatic';
+  let activeGame=null,selectedLibrary=null,videoMode='random',timestampMode='random';
+  let gameCandidates=[],gameIndexById=new Map(),gameSearchIndex=[];
+  let videoMatches=[],videoRendered=0,videoPerRow=3;
   let busy=false,generation=0,pendingChoice=null;
   let history=[],cursor=-1,eventLog=[];
   const gameCards=[launch];
@@ -229,13 +236,16 @@
     if(dialog.open)dialog.close();
     dialog.hidden=true;
   }
-  function selectedMode(){return modeChoice.getAttribute('aria-pressed')==='true'?'choice':'automatic';}
-  function setSelectedMode(value){
-    modeAutomatic.setAttribute('aria-pressed',String(value!=='choice'));
-    modeChoice.setAttribute('aria-pressed',String(value==='choice'));
+  const selectedVideoMode=()=>videoChoice.getAttribute('aria-pressed')==='true'?'choice':'random';
+  const selectedTimestampMode=()=>modeChoice.getAttribute('aria-pressed')==='true'?'choice':'random';
+  function setPairMode(randomButton,choiceButton,value){
+    randomButton.setAttribute('aria-pressed',String(value!=='choice'));
+    choiceButton.setAttribute('aria-pressed',String(value==='choice'));
   }
-  modeAutomatic.addEventListener('click',()=>setSelectedMode('automatic'));
-  modeChoice.addEventListener('click',()=>setSelectedMode('choice'));
+  videoRandom.addEventListener('click',()=>setPairMode(videoRandom,videoChoice,'random'));
+  videoChoice.addEventListener('click',()=>setPairMode(videoRandom,videoChoice,'choice'));
+  modeAutomatic.addEventListener('click',()=>setPairMode(modeAutomatic,modeChoice,'random'));
+  modeChoice.addEventListener('click',()=>setPairMode(modeAutomatic,modeChoice,'choice'));
   const timeText=seconds=>{
     const time=Math.max(0,Math.floor(Number(seconds)||0));
     const parts=[Math.floor(time/3600),Math.floor(time%3600/60),time%60];
@@ -251,6 +261,94 @@
     }
     return Math.floor(Math.random()*count);
   };
+
+  // The playable catalog is fetched only once when the game begins.
+  // Video draws are O(1); searching builds at most one small page of DOM.
+  const VIDEO_PAGE_SIZE=72;
+  function videoDensity(value){
+    videoPerRow=Math.max(1,Math.min(6,value));
+    videoColumns.textContent=videoPerRow+' / row';
+    videoResults.style.setProperty('--games-video-columns',String(videoPerRow));
+    $('onlyFramesVideoMinus').disabled=videoPerRow<=1;
+    $('onlyFramesVideoPlus').disabled=videoPerRow>=6;
+  }
+  function addVideoPage(){
+    if(videoRendered>=videoMatches.length)return;
+    const fragment=document.createDocumentFragment();
+    const stop=Math.min(videoRendered+VIDEO_PAGE_SIZE,videoMatches.length);
+    for(let n=videoRendered;n<stop;n++){
+      const index=videoMatches[n],item=gameCandidates[index];
+      const button=node('button','games-video-card');
+      button.type='button';button.dataset.index=String(index);
+      button.setAttribute('aria-label','Choose '+item.title);
+      const mark=node('span','games-video-mark','▶');
+      mark.setAttribute('aria-hidden','true');
+      const copy=node('span','games-video-card-copy');
+      copy.append(node('span','games-video-card-title',item.title),
+        node('span','games-video-card-sub',
+          (item.kind==='tv'?'TV':item.kind==='movie'?'MOVIE':'VIDEO')+
+          (item.year?' · '+item.year:'')+
+          (item.runtimeSec?' · '+timeText(item.runtimeSec):'')));
+      button.append(mark,copy);
+      fragment.append(button);
+    }
+    videoResults.append(fragment);
+    videoRendered=stop;
+    videoShown.textContent=String(stop)+' of '+String(videoMatches.length);
+    videoMore.hidden=stop>=videoMatches.length;
+  }
+  function renderVideoChoices(){
+    const query=videoSearch.value.trim().toLocaleLowerCase();
+    const filter=videoFilter.value;
+    videoMatches=[];
+    for(let i=0;i<gameCandidates.length;i++){
+      const item=gameCandidates[i];
+      if(filter==='favorite'?!item.favorite:filter!=='all'&&item.kind!==filter)continue;
+      if(query&&!gameSearchIndex[i].includes(query))continue;
+      videoMatches.push(i);
+    }
+    videoCount.textContent=videoMatches.length+' available';
+    videoResults.replaceChildren();
+    videoRendered=0;videoResults.scrollTop=0;
+    if(!videoMatches.length){
+      videoResults.append(node('p','games-video-empty','No matching videos in this library.'));
+      videoShown.textContent='0 of 0';videoMore.hidden=true;
+      return;
+    }
+    addVideoPage();
+  }
+  function openVideoChooser(){
+    if(activeGame!=='onlyframes'||busy)return;
+    overview.hidden=true;step.hidden=true;loadingStep.hidden=true;
+    videoStep.hidden=false;
+    videoSearch.value='';videoFilter.value='all';
+    videoDensity(videoPerRow);renderVideoChoices();
+    showGameDialog();
+    setGameStatus('CHOOSE A VIDEO');videoSearch.focus();
+  }
+  function closeVideoChooser(){
+    videoStep.hidden=true;hideGameDialog();
+    setGameStatus(cursor<0?'CHOOSE A VIDEO':'ACTIVE · FRAME '+String(cursor+1).padStart(2,'0'));
+    launch.focus();
+  }
+  videoSearch.addEventListener('input',renderVideoChoices);
+  videoFilter.addEventListener('change',renderVideoChoices);
+  $('onlyFramesVideoMinus').addEventListener('click',()=>videoDensity(videoPerRow-1));
+  $('onlyFramesVideoPlus').addEventListener('click',()=>videoDensity(videoPerRow+1));
+  videoMore.addEventListener('click',addVideoPage);
+  videoResults.addEventListener('scroll',()=>{
+    if(videoResults.scrollTop+videoResults.clientHeight>=videoResults.scrollHeight-72)
+      addVideoPage();
+  },{passive:true});
+  videoResults.addEventListener('click',event=>{
+    const chosen=event.target.closest('button[data-index]');
+    if(!chosen||busy||activeGame!=='onlyframes')return;
+    const item=gameCandidates[Number(chosen.dataset.index)];
+    if(!item)return;
+    videoStep.hidden=true;
+    void displayVideo(item,{direction:history.length?'Next':'First'});
+  });
+  $('onlyFramesVideoCancel').addEventListener('click',closeVideoChooser);
   function selectedControls(){
     return activeGame?GAME_CONTROLS[activeGame]||{}:{};
   }
@@ -375,8 +473,8 @@
     action.classList.toggle('games-end-action',!!activeGame);
     $('onlyFramesOptions').hidden=!!activeGame;
     if(activeGame){
-      hint.textContent='OnlyFrames is active · '+(mode==='automatic'?'Automatic':"Player's Choice")+
-        ' · Select End Game to stop the video and reset scores.';
+      hint.textContent='OnlyFrames is active · Video '+videoMode+
+        ' · Timestamp '+timestampMode+' · End Game stops the video and resets scores.';
       action.disabled=false;
     }
   }
@@ -386,7 +484,9 @@
     }else if(loadFailure){
       showLoadFailure(loadFailure);
     }else if(pendingChoice){
-      overview.hidden=true;loadingStep.hidden=true;step.hidden=false;showGameDialog();
+      overview.hidden=true;loadingStep.hidden=true;videoStep.hidden=true;step.hidden=false;showGameDialog();
+    }else if(!videoStep.hidden){
+      showGameDialog();
     }else{
       loadingStep.hidden=true;openOverview();showGameDialog();
       void refreshLibrariesAfterLoad();
@@ -395,6 +495,7 @@
   }
   function closeDetails(){
     ++libraryRefreshToken;
+    videoStep.hidden=true;
     hideGameDialog();
     if(pendingChoice&&!busy){
       // Closing the chooser cancels this optional timestamp phase without
@@ -419,7 +520,7 @@
   const loadingRetry=$('onlyFramesRetryLoad');
 
   function showLoading(title,message){
-    overview.hidden=true;step.hidden=true;loadingStep.hidden=false;
+    overview.hidden=true;step.hidden=true;videoStep.hidden=true;loadingStep.hidden=false;
     loadingTitle.textContent=title;
     loadingMessage.textContent=message;
     loadingSpinner.hidden=false;
@@ -428,7 +529,7 @@
     setGameStatus('WAITING FOR VIDEO');
   }
   function showLoadFailure(message){
-    overview.hidden=true;step.hidden=true;loadingStep.hidden=false;
+    overview.hidden=true;step.hidden=true;videoStep.hidden=true;loadingStep.hidden=false;
     loadingTitle.textContent='Video Not Ready';
     loadingMessage.textContent=message+' No game phase has advanced. Retry the same selection or end the game.';
     loadingSpinner.hidden=true;loadingRetry.hidden=false;
@@ -602,7 +703,7 @@
   });
   function displayTimePicker(video,duration){
     pendingChoice={...video,duration};
-    overview.hidden=true;loadingStep.hidden=true;step.hidden=false;
+    overview.hidden=true;loadingStep.hidden=true;videoStep.hidden=true;step.hidden=false;
     showGameDialog();
     pickedTitle.textContent=video.title+' · '+video.libraryName;
     const max=Math.max(0,Math.floor(duration-0.05));
@@ -629,7 +730,7 @@
     }else cursor=fromHistoryIndex;
     setGameStatus('ACTIVE · FRAME '+String(cursor+1).padStart(2,'0'));
     appendLog('frame',direction+' · '+video.title,
-      mode==='automatic'?'Automatic':'Player’s Choice',
+      'Video '+videoMode+' · Timestamp '+timestampMode,
       time,video.libraryName);
     syncControls();
   }
@@ -653,7 +754,7 @@
         if(token!==generation)return;
         recordFrame(video,duration,frame,existingIndex,direction);
         hideGameDialog();
-      }else if(mode==='choice'){
+      }else if(timestampMode==='choice'){
         // Player Choice is never shown before the video has loaded a picture.
         displayTimePicker(video,duration);
       }else{
@@ -682,17 +783,17 @@
       void displayVideo(history[cursor+1],{existingIndex:cursor+1,direction:'Next'});
       return;
     }
-    const candidates=mediaLibrary()?.getGameVideos?.(selectedLibrary)||[];
-    if(!candidates.length){
+    if(!gameCandidates.length){
       setGameStatus('LIBRARY EMPTY');
-      appendLog('error','No videos available','Reconnect or rescan the chosen Media Library.');
+      appendLog('error','No videos available','Reconnect or rescan the selected Media Library.');
       player()?.notify?.('No playable videos in the selected Media Library.');
       return;
     }
-    const previous=history[cursor]?.id;
-    const pool=candidates.length>1?candidates.filter(v=>v.id!==previous):candidates;
-    const candidate=pool[randomIndex(pool.length)];
-    if(candidate)void displayVideo(candidate,{direction:history.length?'Next':'First'});
+    if(videoMode==='choice'){openVideoChooser();return;}
+    const n=gameCandidates.length,prior=gameIndexById.get(history[cursor]?.id);
+    let index=(n>1&&prior!==undefined)?randomIndex(n-1):randomIndex(n);
+    if(n>1&&prior!==undefined&&index>=prior)index++;
+    void displayVideo(gameCandidates[index],{direction:history.length?'Next':'First'});
   }
   function previousVideo(){
     if(activeGame!=='onlyframes'||busy||pendingChoice||cursor<=0)return;
@@ -709,10 +810,15 @@
     // Acquire game playback ownership before selecting a random file.
     // The player stays paused while loading metadata and seeking.
     player()?.setGameFrameMode?.(true);
-    activeGame='onlyframes';selectedLibrary=chosen;mode=selectedMode();
+    activeGame='onlyframes';selectedLibrary=chosen;
+    videoMode=selectedVideoMode();timestampMode=selectedTimestampMode();
+    gameCandidates=list;
+    gameIndexById=new Map(list.map((item,index)=>[item.id,index]));
+    gameSearchIndex=list.map(item=>
+      (String(item.title||'')+' '+String(item.name||'')+' '+String(item.year||'')).toLocaleLowerCase());
     history=[];cursor=-1;pendingChoice=null;eventLog=[];renderLog();
     appendLog('start','OnlyFrames started',
-      (mode==='automatic'?'Automatic':"Player's Choice")+' · '+librarySelect.selectedOptions[0].text);
+      'Video '+videoMode+' · Timestamp '+timestampMode+' · '+librarySelect.selectedOptions[0].text);
     toggleLog(false);
     syncControls();
     nextVideo();
@@ -730,6 +836,8 @@
     for(const item of players)item.score=0;
     persist();renderScores();
     activeGame=null;selectedLibrary=null;history=[];cursor=-1;
+    gameCandidates=[];gameIndexById.clear();gameSearchIndex=[];videoMatches=[];
+    videoStep.hidden=true;
     loadingStep.hidden=true;
     setGameStatus('SELECT A GAME');
     toggleLog(false);syncControls();
