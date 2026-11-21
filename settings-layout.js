@@ -67,12 +67,16 @@
  aspectRow.innerHTML='<span>Match Video Aspect Ratio <small>Mobile · 16:9 by default</small></span>'+
    '<input type="checkbox" id="mobileMatchVideoAspect" aria-label="Match video aspect ratio on mobile">';
  pages.get('video').querySelector('.settings-stack').append(aspectRow);
- const aspectToggle=$('mobileMatchVideoAspect'),stage=$('dropZone'),sourceVideo=$('player');
+ const aspectToggle=$('mobileMatchVideoAspect'),stage=$('dropZone');
+ const localVideo=$('player'),hostVideo=$('hostMonitor');
  const aspectKey='marmalade:mobile:match-video-aspect';
  try{aspectToggle.checked=localStorage.getItem(aspectKey)==='true';}catch{}
  function syncMobileAspect(){
    if(!stage)return;
-   const width=Number(sourceVideo?.videoWidth)||0,height=Number(sourceVideo?.videoHeight)||0;
+   // Match the video actually visible on screen: guests can watch through
+   // hostMonitor instead of the normal local player element.
+   const visible=stage.classList.contains('host-monitor-active')?hostVideo:localVideo;
+   const width=Number(visible?.videoWidth)||0,height=Number(visible?.videoHeight)||0;
    const valid=aspectToggle.checked&&width>0&&height>0;
    stage.style.setProperty('--mobile-stage-aspect',
      valid?String(width)+' / '+String(height):'16 / 9');
@@ -81,8 +85,13 @@
    try{localStorage.setItem(aspectKey,String(aspectToggle.checked));}catch{}
    syncMobileAspect();
  });
- for(const event of ['loadedmetadata','resize','emptied','loadstart'])
-   sourceVideo?.addEventListener(event,syncMobileAspect);
+ for(const video of [localVideo,hostVideo]){
+   for(const event of ['loadedmetadata','resize','emptied','loadstart'])
+     video?.addEventListener(event,syncMobileAspect);
+ }
+ if(stage&&typeof MutationObserver==='function')
+   new MutationObserver(syncMobileAspect).observe(stage,
+     {attributes:true,attributeFilter:['class']});
  syncMobileAspect();
  const qualityHint=$('qualityHint');
  if(qualityHint){
