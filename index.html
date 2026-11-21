@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-responsive-mobile-panels-v5">
+<link rel="stylesheet" href="./games.css?v=20261121-browser-independent-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -716,7 +716,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <div id="mlCards" class="ml-cards" aria-label="Videos in the selected library"></div>
               </div>
             </div>
-            <input id="mlDirectoryInput" type="file" webkitdirectory directory multiple hidden aria-label="Choose a folder containing video files">
+            <input id="mlDirectoryInput" type="file" webkitdirectory directory multiple hidden aria-label="Select a video folder without requiring persistent folder permissions">
+            <input id="mlFilesInput" type="file" multiple accept="video/*,.mkv,.mp4,.avi,.mov,.webm,.m4v,.wmv,.mpeg,.mpg,.ts,.vob" hidden aria-label="Select video files directly">
             <div id="mlDialog" class="ml-dialog" role="dialog" aria-modal="true" aria-labelledby="mlDialogTitle" hidden>
               <div class="ml-dialog-surface">
                 <div class="ml-dialog-top"><div><small class="ml-kicker">COLLECTION SETUP</small><strong id="mlDialogTitle">Create Library</strong></div><button type="button" id="mlDialogClose" aria-label="Close library editor">✕</button></div>
@@ -728,10 +729,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <div id="mlFolderList" class="ml-folder-list" aria-label="Folders belonging to this library"></div>
                 <div id="mlScanPreview" class="ml-scan-preview" role="status" aria-live="polite"></div>
                 <div class="ml-folder-pickers">
-                  <button type="button" class="ml-pick-folder" id="mlPickFolder" title="Pick a folder once — Marmalade scans it, remembers it, and adds every video inside it and its subfolders">+ Add Folder</button>
-                  <button type="button" class="ml-compat-folder" id="mlCompatibilityFolder" hidden aria-hidden="true" tabindex="-1">Add Folder</button>
+                  <button type="button" class="ml-pick-folder" id="mlPickFolder" title="Select a media folder in any modern browser without uploading its files">+ Add Folder</button>
+                  <button type="button" class="ml-compat-folder" id="mlChooseVideos" title="Select video files individually if the browser blocks the folder">+ Add Videos</button>
+                  <button type="button" class="ml-compat-folder" id="mlCompatibilityFolder" title="Optional: remember access to a safe media subfolder in supported browsers">Remember Folder</button>
                 </div>
-                <p class="ml-help">Add Folder works like Plex: pick a folder once and every movie and TV file inside it — including subfolders — is scanned and added. Marmalade remembers the folder on Chrome and Edge so your library is still here when you come back. Your videos never leave this device.</p>
+                <p class="ml-help">Add Folder or Add Videos works directly in Chrome, Edge, Firefox, Safari and other supported browsers. No Minternet extension is needed. Remember Folder is optional where supported. Browser security may require reselecting session files after reopening; your library titles are preserved. Videos stay on your device.</p>
                 <div class="ml-dialog-bottom"><button id="mlDeleteLibrary" type="button" class="ml-danger" hidden>Remove Library</button><span class="ml-dialog-spacer"></span><button id="mlDialogCancel" type="button">Cancel</button><button id="mlDialogSave" type="button" class="ml-primary">Save Library</button></div>
               </div>
             </div>
@@ -817,9 +819,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                     <label>Video Library<select id="onlyFramesLibrary" aria-label="OnlyFrames Video Library"><option value="">Choose a Library…</option></select></label>
                   </div>
                   <p class="games-dialog-hint" id="onlyFramesHint" role="status"></p>
-                  <button type="button" id="onlyFramesConnectLibrary" class="games-connect-library" hidden>Connect Video Folder</button>
+                  <div id="onlyFramesFileActions" class="games-import-actions" hidden>
+                    <button type="button" id="onlyFramesConnectLibrary" class="games-connect-library">Choose Video Folder</button>
+                    <button type="button" id="onlyFramesChooseVideos" class="games-connect-library">Choose Video Files</button>
+                  </div>
                   <button type="button" id="onlyFramesAction" class="games-primary-action" disabled>Play Game</button>
-                  <input type="file" id="onlyFramesConnectFiles" webkitdirectory directory multiple accept="video/*,.mkv,.mp4,.avi,.mov,.webm" hidden aria-label="Select original indexed video folder">
+                  <input type="file" id="onlyFramesConnectFiles" webkitdirectory directory multiple hidden aria-label="Select a video folder in this browser">
+                  <input type="file" id="onlyFramesDirectVideos" multiple accept="video/*,.mkv,.mp4,.avi,.mov,.webm,.m4v,.wmv,.mpeg,.mpg,.ts,.vob" hidden aria-label="Select one or more video files directly">
                 </div>
                 <div id="onlyFramesTimeStep" class="games-timestamp-step" hidden>
                   <small>PLAYER'S CHOICE</small><strong>Pick Your Frame</strong>
@@ -6238,8 +6244,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
-<script src="./media-library.js?v=20261121-game-library-auth-v1" defer></script>
-<script src="./games.js?v=20261121-game-library-auth-v1" defer></script>
+<script src="./media-library.js?v=20261121-browser-independent-v1" defer></script>
+<script src="./games.js?v=20261121-browser-independent-v1" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
