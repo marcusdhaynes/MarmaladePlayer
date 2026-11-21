@@ -56,7 +56,9 @@ try {
     };
     bridge.stopGameVideo=()=>{
       window.__onlyFramesHarness.stops++;
-      bridge.state.source=null;return true;
+      bridge.state.source=null;
+      bridge.setGameFrameMode(false);
+      return true;
     };
   });
   await page.locator('#settingsBtn').click();
