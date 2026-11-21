@@ -1,1 +1,32 @@
-{"action":{"default_popup":"popup.html","default_title":"Marmalade Library"},"background":{"service_worker":"background.js"},"content_scripts":[{"js":["content.js"],"matches":["https://marmaladeum.com/*","https://marcusdhaynes.github.io/MarmaladePlayer/*","http://localhost/*","http://127.0.0.1/*"],"run_at":"document_start"}],"description":"Persistent local media library for Marmalade Player (marmaladeum.com). Pick a folder once; the catalog and, on Chromium, the folder handle live in the extension, not in the web page.","externally_connectable":{"matches":["https://marmaladeum.com/*","https://marcusdhaynes.github.io/*"]},"manifest_version":3,"name":"Marmalade Library","options_page":"library.html","permissions":["storage","unlimitedStorage"],"version":"0.1.0","web_accessible_resources":[{"matches":["https://marmaladeum.com/*"],"resources":["library.html"]}]}
+{
+  "action": {
+    "default_title": "Marmalade Library"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://marmaladeum.com/*",
+        "https://www.marmaladeum.com/*",
+        "https://marcusdhaynes.github.io/MarmaladePlayer/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "description": "Independent Marmaladeum media library catalog backup; remembers Chromium folder handles when permitted. No Minternet dependency.",
+  "manifest_version": 3,
+  "name": "Marmalade Library",
+  "options_page": "library.html",
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "version": "0.2.0"
+}
