@@ -1,6 +1,6 @@
 # Firefox Marmalade Library extension
 
-The seven-file Firefox package is generated from the shared source with a
+The five-file Firefox package is generated from the shared source with a
 root-relative Firefox Manifest V3. It uses background.js, content.js, library.html,
 library.js, two library modules, and manifest.json. It neither loads nor requires
 Minternet or a native server.
