@@ -35,8 +35,15 @@ try {
     const media=bridge.media;
     window.__onlyFramesHarness={opened:[],seeks:[],stops:0};
     Object.defineProperty(media,'readyState',{configurable:true,
-      get:()=>HTMLMediaElement.HAVE_METADATA});
+      get:()=>HTMLMediaElement.HAVE_CURRENT_DATA});
     Object.defineProperty(media,'duration',{configurable:true,get:()=>120});
+    Object.defineProperty(media,'videoWidth',{configurable:true,get:()=>640});
+    Object.defineProperty(media,'videoHeight',{configurable:true,get:()=>360});
+    Object.defineProperty(media,'paused',{configurable:true,get:()=>true});
+    Object.defineProperty(media,'seeking',{configurable:true,get:()=>false});
+    let framePosition=0;
+    Object.defineProperty(media,'currentTime',{configurable:true,
+      get:()=>framePosition,set:value=>{framePosition=value;}});
     library.getGameLibraries=()=>[{id:'test-library',name:'Sample Movies',count:2}];
     library.getGameVideos=()=>[
       {id:'a',title:'Sample A',name:'Sample A.mp4',libraryId:'test-library',
@@ -52,6 +59,8 @@ try {
     };
     bridge.pauseAndSeekGameFrame=seconds=>{
       window.__onlyFramesHarness.seeks.push(seconds);
+      media.currentTime=seconds;
+      media.dispatchEvent(new Event('seeked'));
       return Number.isFinite(seconds)&&seconds>=0&&seconds<120;
     };
     bridge.stopGameVideo=()=>{

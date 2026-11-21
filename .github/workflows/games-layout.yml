@@ -10,6 +10,7 @@ on:
       - 'tests/games-ui.mjs'
       - 'tests/onlyframes-game-flow.mjs'
       - 'tests/game-no-autoplay.mjs'
+      - 'tests/game-loading-gate.mjs'
       - 'tests/onlyframes-library-selector.mjs'
       - 'media-library.js'
       - '.github/workflows/games-layout.yml'
@@ -37,6 +38,8 @@ jobs:
         run: node tests/games-ui.mjs
       - name: Verify OnlyFrames session, random videos, timestamp picker and End Game
         run: node tests/onlyframes-game-flow.mjs
+      - name: Verify delayed metadata, frame decode, seeking and cancellation
+        run: node tests/game-loading-gate.mjs
       - name: Verify game-only frame locking and native-player autoplay
         run: node tests/game-no-autoplay.mjs
       - name: Show every Media Library in the top-layer game selector
