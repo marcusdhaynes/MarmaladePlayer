@@ -2190,7 +2190,12 @@
     for(const extLib of libraries||[]){
       if(!extLib?.id||!Array.isArray(extLib.items))continue;
       const libId='addon:'+extLib.id;
-      const folders=(extLib.folders||[]).map(f=>({id:f.id,name:f.name,source:'native',handle:null}));
+      const existing=state.libraries.find(l=>l.id===libId);
+      const oldFolders=new Map((existing?.folders||[]).map(f=>[f.id,f]));
+      const folders=(extLib.folders||[]).map(f=>({
+        id:f.id,name:f.name,source:'native',handle:null,
+        playHandle:oldFolders.get(f.id)?.playHandle||null
+      }));
       const items=extLib.items.map(item=>{
         const copy={...item};delete copy.libraryId;
         if(!copy.type||copy.title===undefined){
@@ -2202,7 +2207,6 @@
         }
         return copy;
       });
-      const existing=state.libraries.find(l=>l.id===libId);
       const record={id:libId,name:extLib.name||'Minternet Library',kind:extLib.kind||'movie',
         folders,items,hiddenIds:existing?.hiddenIds||[],createdAt:existing?.createdAt||now(),
         lastScan:extLib.lastScan||now()};
