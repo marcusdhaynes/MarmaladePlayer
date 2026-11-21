@@ -134,6 +134,39 @@ try {
   assert.equal(await page.locator('#gamesLogPanel').isVisible(),true);
   assert.match(await page.locator('#gamesLogPanel').textContent(),/Sample A/);
   assert.match(await page.locator('#gamesLogPanel').textContent(),/Sample Movies/);
+  const receipt=await page.locator('#gamesLogPanel').evaluate(panel=>{
+    const entries=[...panel.querySelectorAll('.games-log-entry')];
+    const frame=entries.find(entry=>entry.dataset.kind==='frame');
+    const bounds=frame.getBoundingClientRect();
+    const stamp=frame.querySelector('.games-log-timestamp');
+    return {rows:entries.length,frameHeight:bounds.height,
+      childLines:[...frame.children].map(el=>{
+        const r=el.getBoundingClientRect();
+        return {top:r.top,bottom:r.bottom};
+      }),stampCount:frame.querySelectorAll('.games-log-timestamp').length,
+      timestamp:stamp?.textContent||'',
+      description:frame.querySelector('.games-log-item-description')?.textContent||'',
+      wallClockCount:panel.querySelectorAll('.games-log-item-time').length,
+      source:frame.querySelector('.games-log-source')?.textContent||'',
+      tooltip:frame.title,
+      topPadding:getComputedStyle(frame).paddingTop,
+      bottomPadding:getComputedStyle(frame).paddingBottom};
+  });
+  assert(receipt.rows>=3,'Session receipt retains all player actions');
+  assert(receipt.frameHeight<=25,'Receipt rows must be compact and single-line');
+  assert(receipt.childLines.every(line=>
+    line.top>=receipt.childLines[0].top-3&&
+    line.bottom<=receipt.childLines[0].bottom+4),
+    'Title, mode, library and timestamp share one row');
+  assert.equal(receipt.stampCount,1,'Only one timecode per selected frame');
+  assert.equal(receipt.wallClockCount,0,'No duplicate real-world clock timestamps');
+  assert(!/\\d{2}:\\d{2}/.test(receipt.description),
+    'Frame mode must not repeat the timecode');
+  assert.equal(receipt.source,'Sample Movies');
+  assert(receipt.tooltip.includes('Sample Movies')&&
+    receipt.tooltip.includes(receipt.timestamp),
+    'Truncated receipts still expose complete details on hover');
+  assert.equal(receipt.topPadding,receipt.bottomPadding);
   await page.locator('#gamesLogClose').click();
   await page.locator('.game-score-plus').first().click();
   assert.equal(await page.locator('.game-score-value').first().textContent(),'01');

@@ -134,6 +134,15 @@ try{
  });
  let nav=await inspectNav();
  assert.equal(nav.halves.length,2);
+ const logSize=()=>page.locator('#gamesLogToggle').evaluate(el=>{
+   const r=el.getBoundingClientRect();
+   const dpad=document.getElementById('gamesLeft').getBoundingClientRect();
+   return {width:r.width,height:r.height,dpadHeight:dpad.height,
+     label:el.querySelector('span')?.textContent,svg:!!el.querySelector('svg')};
+ });
+ let log=await logSize();
+ assert(log.width<=42.5&&log.height<=28.5&&log.svg&&log.label==='Log',
+   'Log control must be minimal, legible, and similar height to D-pad controls');
  assert(nav.halves.every(x=>x.icons===1&&x.disabled),
    'Both game navigation halves start disabled and use vector chevrons');
  assert.equal(nav.halves[0].label,'PREV');
@@ -156,6 +165,9 @@ try{
  for(const width of [780,390]){
    await page.setViewportSize({width,height:800});
    nav=await inspectNav();
+   log=await logSize();
+   assert(log.width<=40.5&&Math.abs(log.height-nav.dpadLeftHeight)<.75,
+     'Log must stay compact and match the D-pad cell height at '+width);
    assert(Math.abs(nav.halves[0].width-nav.halves[1].width)<1 &&
      Math.abs(nav.halves[0].right-nav.halves[1].left)<1 &&
      nav.halves.every(x=>x.labelFits &&

@@ -290,20 +290,22 @@
     }else for(const event of eventLog.slice().reverse()){
       const entry=node('div','games-log-entry');
       entry.dataset.kind=event.kind;
-      const head=node('div','games-log-item-top');
-      head.append(node('span','games-log-item-number',
+      // One receipt line: sequence, event/video, mode or detail, library,
+      // then ONE media timestamp (not an additional wall-clock time).
+      const parts=[event.title,event.description,event.library,
+        event.timestamp===null?'':timeText(event.timestamp)].filter(Boolean);
+      const full=parts.join(' · ');
+      entry.title=full;
+      entry.setAttribute('aria-label',full);
+      entry.append(node('span','games-log-item-number',
         '#'+String(event.index).padStart(2,'0')));
-      head.append(node('strong','games-log-item-title',event.title));
-      head.append(node('time','games-log-item-time',
-        event.at.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})));
-      const description=node('p','games-log-item-description',event.description);
-      entry.append(head,description);
-      if(event.timestamp!==null){
-        const stamp=node('div','games-log-item-meta');
-        stamp.append(node('span','games-log-timestamp','⏱ '+timeText(event.timestamp)));
-        if(event.library)stamp.append(node('span','games-log-source',event.library));
-        entry.append(stamp);
-      }
+      entry.append(node('strong','games-log-item-title',event.title));
+      if(event.description)
+        entry.append(node('span','games-log-item-description',event.description));
+      if(event.library)
+        entry.append(node('span','games-log-source',event.library));
+      if(event.timestamp!==null)
+        entry.append(node('span','games-log-timestamp',timeText(event.timestamp)));
       logEntries.append(entry);
     }
     logCount.textContent=eventLog.length+' '+(eventLog.length===1?'EVENT':'EVENTS');
@@ -527,7 +529,7 @@
     }else cursor=fromHistoryIndex;
     setGameStatus('ACTIVE · FRAME '+String(cursor+1).padStart(2,'0'));
     appendLog('frame',direction+' · '+video.title,
-      (mode==='automatic'?'Automatic':'Player’s Choice')+' · '+timeText(time),
+      mode==='automatic'?'Automatic':'Player’s Choice',
       time,video.libraryName);
     syncControls();
   }

@@ -188,12 +188,14 @@
 .games-dpad-center{grid-row:2;grid-column:2;display:grid;place-items:center;
  width:100%;height:100%;background:#352f41;color:#aa9faf;font-size:8px;
  border-top:1px solid #a8a2ba6b;border-bottom:1px solid #a8a2ba6b}
-.games-log-toggle{flex:0 0 58px;min-width:58px;min-height:64px;
- height:64px;display:flex;flex-direction:column;align-items:center;
- justify-content:center;gap:5px;padding:5px 6px;
+.games-log-toggle{box-sizing:border-box;flex:0 0 42px;min-width:42px;
+ width:42px;height:28px;min-height:28px;
+ display:flex;flex-direction:row;align-items:center;
+ justify-content:center;gap:3px;padding:2px 3px;
  border:1px solid #67586d;background:linear-gradient(160deg,#383042,#201f2a);
- border-radius:10px;color:#e5ddeb;font:700 9px/1 system-ui;cursor:pointer}
-.games-log-toggle svg{width:21px;height:21px;display:block}
+ border-radius:7px;color:#e5ddeb;font:750 9px/1 system-ui;cursor:pointer}
+.games-log-toggle svg{flex:0 0 12px;width:12px;height:13px;display:block}
+.games-log-toggle span{white-space:nowrap}
 .games-log-toggle:not(:disabled):hover,.games-log-toggle[aria-expanded="true"]{
  background:#53415e;border-color:#ab81c9;color:white}
 .games-log-panel[hidden]{display:none!important}
@@ -205,41 +207,44 @@
  box-shadow:0 13px 38px #000a,0 0 0 1px #ffffff10;
  backdrop-filter:blur(16px)}
 .games-log-heading{display:flex;justify-content:space-between;align-items:center;
- padding:10px 13px;border-bottom:1px solid #ffffff19;background:#ffffff07;gap:7px}
+ padding:6px 9px;border-bottom:1px solid #ffffff19;background:#ffffff07;gap:6px}
 .games-log-heading>div{display:flex;flex-direction:column;gap:1px}
 .games-log-heading small{font:800 8px/1.3 system-ui;letter-spacing:1.5px;color:#cf9dc8}
 .games-log-heading strong{font:750 13px/1.3 system-ui;color:#ffe6ef}
 .games-log-heading button{width:28px;height:28px;display:grid;place-items:center;
  font-size:20px;background:transparent;border:0;color:#d1c1d2;cursor:pointer}
 .games-log-heading button:hover{color:white;background:#ffffff13;border-radius:6px}
-.games-log-entries{flex:1;min-height:0;overflow-y:auto;padding:6px 10px 10px;
+.games-log-entries{flex:1;min-height:0;overflow-y:auto;padding:2px 6px;
  scrollbar-width:thin;scrollbar-color:#746779 #14101a}
-.games-log-entry{position:relative;padding:9px 7px 9px 17px;
+.games-log-entry{box-sizing:border-box;position:relative;
+ display:flex;align-items:center;flex-wrap:nowrap;gap:6px;
+ padding:2px 5px 2px 13px;min-width:0;min-height:23px;
+ overflow:hidden;white-space:nowrap;
  border-bottom:1px solid #ffffff12}
-.games-log-entry::before{content:"";position:absolute;left:5px;top:15px;
- width:6px;height:6px;border-radius:50%;background:#82c9e4;
- box-shadow:0 0 5px #59cfff55}
+.games-log-entry::before{content:"";position:absolute;left:3px;top:50%;
+ transform:translateY(-50%);width:5px;height:5px;border-radius:50%;
+ background:#82c9e4;box-shadow:0 0 5px #59cfff55}
 .games-log-entry[data-kind="error"]::before{background:#ee8b91}
 .games-log-entry[data-kind="start"]::before{background:#70cfa9}
 .games-log-entry[data-kind="end"]::before{background:#c8b2d3}
-.games-log-item-top{display:grid;grid-template-columns:auto minmax(0,1fr) auto;
- gap:7px;align-items:baseline}
-.games-log-item-number,.games-log-item-time{font:650 9px ui-monospace,monospace;
+.games-log-item-number{flex:0 0 auto;font:650 9px ui-monospace,monospace;
  color:#b0a7b8;white-space:nowrap}
-.games-log-item-title{min-width:0;overflow:hidden;text-overflow:ellipsis;
- white-space:nowrap;font:750 11px system-ui;color:#eae0f1}
-.games-log-item-description{margin:3px 0 0;font:10px/1.4 system-ui;
- color:#c1afc7;overflow-wrap:anywhere}
-.games-log-item-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
-.games-log-timestamp{font:800 10px ui-monospace,monospace;
- background:#218bb828;border:1px solid #5ab2ce66;color:#bdf0ff;
- border-radius:4px;padding:3px 5px}
-.games-log-source{min-width:0;overflow:hidden;text-overflow:ellipsis;
- font:600 9px system-ui;color:#c5bbc5}
+.games-log-item-title{flex:1 1 auto;min-width:20px;overflow:hidden;
+ text-overflow:ellipsis;white-space:nowrap;font:750 10px/1.2 system-ui;
+ color:#eae0f1}
+.games-log-item-description{flex:0 1 auto;max-width:36%;min-width:0;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ font:9px/1.2 system-ui;color:#c1afc7}
+.games-log-timestamp{flex:0 0 auto;font:750 9px/1.2 ui-monospace,monospace;
+ background:#218bb820;border:1px solid #5ab2ce55;color:#bdf0ff;
+ border-radius:4px;padding:2px 4px;white-space:nowrap}
+.games-log-source{flex:0 2 auto;max-width:26%;min-width:0;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ font:600 9px/1.2 system-ui;color:#c5bbc5}
 .games-log-footer{display:flex;justify-content:space-between;
  background:#ffffff05;border-top:1px dashed #bba3bc40;color:#8e8698;
- padding:7px 13px;font:750 8px ui-monospace,monospace;letter-spacing:.8px}
-.games-log-empty{font:11px system-ui;color:#a7a0ae;padding:15px;text-align:center}
+ padding:4px 9px;font:750 8px ui-monospace,monospace;letter-spacing:.8px}
+.games-log-empty{font:11px system-ui;color:#a7a0ae;padding:9px;text-align:center}
 .games-dialog-surface{width:min(536px,100%);padding:27px 20px 21px;
  max-height:min(92dvh,790px);overflow-y:auto;gap:12px;scrollbar-width:thin;
  scrollbar-color:#387d9d #0c1427}
@@ -287,14 +292,18 @@
  .games-controls{gap:5px}
  .games-split-pill{flex-basis:118px;min-width:100px}
  .games-dpad{flex-basis:75px;width:75px;height:75px}
- .games-log-toggle{flex-basis:52px;min-width:52px}
+ .games-log-toggle{flex:0 0 40px;min-width:40px;width:40px;
+  height:25px;min-height:25px;padding-inline:2px}
 }
 @media(max-width:520px){
  .games-panel{grid-template-rows:minmax(0,3fr) minmax(98px,1fr)}
  .games-controls{gap:4px;min-height:98px;padding:10px 0 0}
  .games-split-pill{flex:0 1 118px;min-width:95px}
  .games-dpad{flex:0 0 70px;width:70px;height:70px}
- .games-log-toggle{flex:0 0 48px;min-width:48px;height:58px;min-height:58px}
+ .games-log-toggle{flex:0 0 38px;min-width:38px;width:38px;
+  height:calc(70px / 3);min-height:calc(70px / 3);
+  gap:2px;padding:1px 2px;font-size:8px}
+ .games-log-toggle svg{flex-basis:11px;width:11px;height:12px}
  .games-dialog-surface{padding:26px 14px 16px}
  .games-rule-grid{grid-template-columns:1fr}
  .games-rule-grid section{grid-column:1/-1}
