@@ -31,7 +31,8 @@
     editing:null,pending:null,relink:null,autoAttachDraft:null,scanning:false,scanSeq:0,
     sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
     pendingScans:new Set(),scanProblems:new Map(),artworkBusy:false,storageAvailable:true,
-    menuTarget:null,itemEditing:null,menuOpen:false,posterRenderPending:false,playingId:null
+    menuTarget:null,itemEditing:null,menuOpen:false,posterRenderPending:false,playingId:null,
+    backupReady:false
   };
   const now=()=>Date.now();
   const id=()=>('ml'+now().toString(36)+Math.random().toString(36).slice(2,9));
@@ -1355,12 +1356,35 @@
     }
     more(visible.length);
   }
+  let libraryBackupTimer=null;
+  // The optional WebExtension retains only catalog metadata. Video bytes,
+  // browser File objects and directory handles never cross the site origin.
+  function queueLibraryBackup(){
+    if(!state.backupReady)return;
+    clearTimeout(libraryBackupTimer);
+    libraryBackupTimer=setTimeout(()=>{
+      const libraries=state.libraries.filter(lib=>
+        !/^(addon:|extlib:)/.test(lib.id)).map(lib=>({
+        id:lib.id,name:lib.name,kind:lib.kind,createdAt:lib.createdAt,
+        lastScan:lib.lastScan,hiddenIds:lib.hiddenIds||[],
+        folders:(lib.folders||[]).map(f=>({id:f.id,name:f.name,source:'session'})),
+        items:(lib.items||[]).map(item=>({
+          id:item.id,folderId:item.folderId,path:item.path,name:item.name,
+          title:item.title,show:item.show,type:item.type,year:item.year,
+          season:item.season,episode:item.episode,size:item.size,
+          lastModified:item.lastModified,addedAt:item.addedAt,
+          favorite:item.favorite===true,watched:item.watched===true
+        }))
+      }));
+      window.postMessage({source:'marmalade-web',type:'backup-site-catalog',
+        libraries,revision:Date.now()},location.origin);
+    },200);
+  }
   function render(){
     if(!state.ready)return;
     renderShelves();renderCards();
     if(state.status)ui.status.textContent=state.status;
-    // New/edited/rescanned libraries may appear while game details are open.
-    // Consumers read the authoritative catalog rather than a stale snapshot.
+    queueLibraryBackup();
     window.dispatchEvent(new Event('marmalade:media-library-updated'));
   }
   async function getPlayable(item){
@@ -2321,12 +2345,12 @@
     const deadLib=state.libraries.find(l=>(l.items||[]).length===0&&
       (l.folders||[]).some(folderIsDead));
     if(deadLib)notify(deadLib.name+' has 0 indexed videos because its folder is disconnected. Open it and press + Choose Folder — choosing the folder once repopulates it.');
-    // Minternet add-on: folders were chosen ONCE in Minternet and are
-    // rescanned natively on every launch, so the catalog simply appears.
-    if(nativeLibraryApi()){
-      const synced=await syncFromNative();
-      if(synced.count)notify(countLabel(synced.count)+' available from Minternet\u2019s Local Media Library add-on.');
-    }
+    // Recover first; only then begin backing up this site's current catalog.
+    // Do not route media retention through Minternet or its native module.
+    void syncFromExtension({silent:true}).catch(error=>
+      console.warn('Extension restore unavailable:',error)).finally(()=>{
+      state.backupReady=true;queueLibraryBackup();
+    });
     const chosen=selectedLibrary();
     if(chosen&&chosen.folders.some(f=>f.handle)&&
       now()-(chosen.lastScan||0)>20*60*1000)void scanLibrary(chosen);
@@ -2346,7 +2370,8 @@
     if(!data||data.source!=='marmalade-extension')return;
     if(data.type==='catalog'&&extensionCatalogResolve){
       const resolve=extensionCatalogResolve;extensionCatalogResolve=null;
-      resolve(Array.isArray(data.libraries)?data.libraries:[]);
+      resolve({libraries:Array.isArray(data.libraries)?data.libraries:[],
+        siteLibraries:Array.isArray(data.siteLibraries)?data.siteLibraries:[]});
     }
   });
   function requestExtensionCatalog(timeoutMs=1500){
@@ -2439,28 +2464,43 @@
     const libraries=Array.isArray(catalog)?catalog:(catalog?.libraries||[]);
     return importAddonCatalog(libraries);
   }
-  async function syncFromExtension(){
-    const nativeLib=window.MarmaladeNativeLibrary;
-    if(nativeLib&&typeof nativeLib.getCatalog==='function'){
-      // Legacy Marmalade-named bridge: paths are native-owned, rescanned on
-      // startup; this is a pure catalog read, no reconnect step.
-      try{
-        const catalog=await nativeLib.getCatalog();
-        const count=await importExtensionCatalog(catalog?.libraries||catalog||[]);
-        notify(count?count+' videos synced from Minternet\u2019s library.':
-          'Minternet library is empty. Add a folder in Minternet\u2019s library panel.');
-        return count;
-      }catch{/* fall through to the WebExtension bridge */}
+  async function restoreSiteCatalog(libraries){
+    let restored=0,items=0;
+    for(const backup of (Array.isArray(libraries)?libraries:[])){
+      if(!backup?.id||/^(addon:|extlib:)/.test(backup.id)||
+         !Array.isArray(backup.items))continue;
+      if(state.libraries.some(lib=>lib.id===backup.id))continue;
+      const folders=(Array.isArray(backup.folders)?backup.folders:[])
+        .map(folder=>({id:folder.id,name:folder.name,
+          source:'session',handle:null,playHandle:null}));
+      const sourceIds=new Set(folders.map(f=>f.id));
+      const entries=backup.items.filter(item=>sourceIds.has(item.folderId))
+        .map(item=>({...item}));
+      const record={id:backup.id,name:backup.name||'Recovered Library',
+        kind:backup.kind||'movie',folders,items:entries,
+        hiddenIds:backup.hiddenIds||[],createdAt:backup.createdAt||now(),
+        lastScan:backup.lastScan||0};
+      state.libraries.push(record);
+      await persist(record);
+      restored++;items+=entries.length;
     }
-    const libraries=await requestExtensionCatalog();
-    if(!libraries){
-      notify('Marmalade Library extension not detected. Install it (see the repo\u2019s extension/ folder) or use + Add Folder here.');
+    if(restored)render();
+    return {restored,items};
+  }
+  async function syncFromExtension({silent=false}={}){
+    const snapshot=await requestExtensionCatalog();
+    if(!snapshot){
+      if(!silent)notify('Library extension is not installed. Standard local file selection still works.');
       return 0;
     }
-    const count=await importExtensionCatalog(libraries);
-    notify(count?count+' videos synced from the Marmalade Library extension.':
-      'Extension library is empty. Add a folder in the extension\u2019s library page.');
-    return count;
+    const recovery=await restoreSiteCatalog(snapshot.siteLibraries);
+    const imported=await importExtensionCatalog(snapshot.libraries);
+    if(!silent){
+      notify(recovery.restored?recovery.items+' titles recovered from the extension. Reselect files if access needs renewal.':
+        imported?imported+' extension catalog titles available. Choose Video Files to play them in Marmaladeum.':
+        'Library extension backup connected.');
+    }
+    return imported+recovery.items;
   }
   window.MarmaladeMediaLibrary={
     ready,show:setVisibility,select:setSelected,syncFromExtension,syncFromNative,
