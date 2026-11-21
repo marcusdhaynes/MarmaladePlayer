@@ -99,6 +99,8 @@ try {
   await page.locator('#onlyFramesAction').click();
   await page.waitForFunction(()=>window.MarmaladeGames.history().length===1);
   assert.equal(await page.evaluate(()=>window.MarmaladeGames.isGameActive()),true);
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.gameFrameMode),true,
+    'Game owns the player and suppresses normal playback');
   assert.equal(await page.locator('#onlyFramesLaunch').getAttribute('aria-pressed'),'true');
   assert.equal(await page.locator('#gamesNext').isEnabled(),true);
   assert.equal(await page.locator('#gamesPrevious').isDisabled(),true);
@@ -128,6 +130,8 @@ try {
   assert.equal(await page.locator('#onlyFramesAction').textContent(),'End Game');
   await page.locator('#onlyFramesAction').click();
   assert.equal(await page.evaluate(()=>window.MarmaladeGames.isGameActive()),false);
+  // End Game's real bridge must restore the player's ordinary playback mode.
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.gameFrameMode),false);
   assert.equal(await page.evaluate(()=>window.__onlyFramesHarness.stops),1,
     'End Game must invoke the actual player stop bridge');
   assert.equal(await page.locator('.game-score-value').first().textContent(),'00',

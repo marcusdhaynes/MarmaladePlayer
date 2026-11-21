@@ -33,5 +33,7 @@ jobs:
         run: node tests/games-ui.mjs
       - name: Verify OnlyFrames session, random videos, timestamp picker and End Game
         run: node tests/onlyframes-game-flow.mjs
+      - name: Verify game-only frame locking and native-player autoplay
+        run: node tests/game-no-autoplay.mjs
       - name: Show every Media Library in the top-layer game selector
         run: node tests/onlyframes-library-selector.mjs

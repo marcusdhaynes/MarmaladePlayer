@@ -456,6 +456,7 @@
     const token=++generation;
     setGameStatus('LOADING VIDEO…');syncControls();
     try{
+      player()?.setGameFrameMode?.(true);
       await mediaLibrary().playGameVideo(video.libraryId,video.id);
       if(token!==generation)return;
       const duration=await waitForMediaDuration(token);
@@ -513,6 +514,9 @@
       hint.textContent='Choose a nonempty Media Library to start OnlyFrames.';
       action.disabled=true;return;
     }
+    // Acquire game playback ownership before selecting a random file.
+    // The player stays paused while loading metadata and seeking.
+    player()?.setGameFrameMode?.(true);
     activeGame='onlyframes';selectedLibrary=chosen;mode=selectedMode();
     history=[];cursor=-1;pendingChoice=null;eventLog=[];renderLog();
     appendLog('start','OnlyFrames started',

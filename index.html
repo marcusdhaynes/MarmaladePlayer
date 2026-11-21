@@ -1097,6 +1097,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     hostMonitorRequested: false, hostMonitorSeekAt: 0,
     theaterMode: false, broadcastStarting: false, streamWaitTimer: null,
     guestQualitySample: null, qualityTimer: null, hostPlaying: false,
+    // Game-owned playback is frame selection, never normal video playback.
+    gameFrameMode: false,
     sourceHeight: 0, sourceWidth: 0, requestedQuality: localPreference('guest-quality',estimatedStartingLevel()),
     userChoseQuality: localPreference('guest-quality','')!=='', sharedTime: 0, sharedDuration: 0, sharedAt: 0,
     seeking: false, transportRevision: 0, controlPending: false, mediaReconnectAt: 0,
@@ -1323,6 +1325,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return new File([bytes],filename||'searched.srt',{type:archive?'application/zip':'text/plain'});
   }
   function saveWatchPosition(force=false){
+    // A game frame must never overwrite the viewer's real resume position.
+    if(state.gameFrameMode)return;
     const keys=progressKeys();
     if(!keys.length)return;
     const now=Date.now();
@@ -1351,6 +1355,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.lastProgressSaveAt=now;
   }
   function restoreWatchPosition(){
+    if(state.gameFrameMode)return;
     if(state.role!=='host'||!['file','native','hosted'].includes(state.source)||
       state.resumeChecked||!Number.isFinite(stableMovieDuration())||stableMovieDuration()<=0)return;
     if(media.currentTime>2||!media.paused){state.resumeChecked=true;return;}
@@ -1838,6 +1843,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // Everyone controls ONE authoritative media clock: the host's local file.
   // Guests never seek their live MediaStream (which has no seekable timeline).
   function applyTransport(action, value, commandPeer = '', commandId = 0) {
+    // While a game owns the player, its rules alone control the displayed
+    // frame. The ordinary play, skip and scrub handlers must not override it.
+    if(state.gameFrameMode){
+      if(!media.paused)media.pause();
+      return;
+    }
     if (state.role !== 'host' || !['file','native','hosted'].includes(state.source) || !state.fileReady) return;
     if (action === 'toggle') action = media.paused ? 'play' : 'pause';
     if (action === 'play') void media.play().catch(() => notify('Playback blocked. Tap play again.'));
@@ -2771,11 +2782,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!state.peer&&!state.connecting)void createRoom();
     void restoreSavedSubtitle();
     updateRoomPanel();updateTransport();
-    const started=media.play();
-    if(started?.catch)void started.catch(error=>{
-      console.warn('Native library playback requires user activation',error);
-      needsTapToPlay(true);
-    });
+    // Normal library playback retains its existing immediate Play behavior.
+    // OnlyFrames must decode/seek while paused, never advance the movie.
+    if(!state.gameFrameMode){
+      const started=media.play();
+      if(started?.catch)void started.catch(error=>{
+        console.warn('Native library playback requires user activation',error);
+        needsTapToPlay(true);
+      });
+    }else media.pause();
     // WebView2 may render the MKV picture but cannot decode its Dolby/DTS
     // soundtrack. Unlike Firefox, Minternet streams a native HTTP URL rather
     // than a File: feed its byte ranges into the SAME FFmpeg/WASM remuxer.
@@ -4431,6 +4446,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return new MediaStream([track, ...audioTracks].filter(Boolean));
   }
   function autoStartIfPlaying() {
+    if(state.gameFrameMode)return;
     if (state.role === 'host' && state.peer?.open && ['file','native'].includes(state.source) && state.fileReady &&
         !media.paused && !state.broadcasting && !state.broadcastStarting) {
       void startBroadcast();
@@ -4520,6 +4536,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     syncState();
   }
   async function togglePlay(origin='button') {
+    if(state.gameFrameMode){if(!media.paused)media.pause();return;}
     if(state.role==='host'&&['file','native'].includes(state.source) &&
        (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio output pending',error));
@@ -6088,23 +6105,50 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // changes capture tracks, sender parameters, quality selection or transport.
   // Safe game integration reuses the same host transport and hard-stop path
   // as the normal playback controls (no separate video pipeline).
+  function setGameFrameMode(enabled){
+    state.gameFrameMode=!!enabled;
+    if(state.gameFrameMode){
+      media.autoplay=false;
+      media.pause();
+    }
+    return state.gameFrameMode;
+  }
   function pauseAndSeekGameFrame(seconds){
-    if(state.role!=='host'||!['file','native'].includes(state.source))return false;
+    if(!state.gameFrameMode||state.role!=='host'||
+       !['file','native'].includes(state.source))return false;
     const duration=stableMovieDuration(),point=Number(seconds);
     if(!Number.isFinite(duration)||duration<=0||!Number.isFinite(point))return false;
-    applyTransport('pause');
-    applyTransport('seek',Math.max(0,Math.min(duration-.05,point)));
-    return true;
+    const target=Math.max(0,Math.min(Math.max(0,duration-.05),point));
+    // Bypass ordinary transport, which is intentionally locked during
+    // games. Only this game-specific API is allowed to position the frame.
+    media.pause();
+    try{media.currentTime=target;}catch{return false;}
+    media.pause();
+    issueKeyframe();
+    state.transportRevision++;
+    updateTransport();
+    syncState();
+    return media.paused;
   }
   function stopGameVideo(){
     if(state.role!=='host')return false;
-    if(!state.source)return true;
-    stopPlaybackToPicker();
-    return state.source===null;
+    try{
+      if(!state.source)return true;
+      stopPlaybackToPicker();
+      return state.source===null;
+    }finally{setGameFrameMode(false);}
+  }
+  // Last-resort protection against async decoders or extensions calling
+  // play() after a game selects a new source. It cannot play past the chosen
+  // frame while the game owns the video element.
+  for(const event of ['play','playing']){
+    media.addEventListener(event,()=>{
+      if(state.gameFrameMode&&!media.paused)media.pause();
+    });
   }
   window.MarmaladeAddonBridge={state,media,el,ensureAudioPlayback,
     chooseVideo:selectHostFile,chooseNativeStream,openMoviePicker,notify,
-    pauseAndSeekGameFrame,stopGameVideo};
+    pauseAndSeekGameFrame,stopGameVideo,setGameFrameMode};
   // Offline app shell is optional; room signaling and WebRTC require connectivity.
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
