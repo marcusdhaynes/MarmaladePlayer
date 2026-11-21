@@ -70,7 +70,8 @@ try{
   assert.equal(byId.get('test-empty').count,0);
   assert.equal(byId.get('extlib:test').count,38);
   assert.equal(byId.get('extlib:test').playableCount,0);
-  assert.equal(byId.get('addon:test').playableCount,1);
+  assert.equal(byId.get('addon:test').playableCount,0,
+    'Minternet-only loopback URLs are not playable in other browsers');
   await page.locator('#settingsBtn').click();
   await page.locator('#gamesVisibilityToggle').check();
   await page.locator('#closeSettingsPanel').click();
