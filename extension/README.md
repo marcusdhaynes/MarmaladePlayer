@@ -1,6 +1,6 @@
 # Marmalade Library — Independent Browser Extensions v0.2.0
 
-This is one shared seven-file WebExtension packaged for Chrome, Edge, Brave, Opera, Vivaldi, Firefox and Safari. **No Minternet native module, .mext media server, local HTTP server or native file bridge is required.**
+This is one shared five-file WebExtension packaged for Chrome, Edge, Brave, Opera, Vivaldi, Firefox and Safari. **No Minternet native module, .mext media server, local HTTP server or native file bridge is required.**
 
 ## What is retained
 
