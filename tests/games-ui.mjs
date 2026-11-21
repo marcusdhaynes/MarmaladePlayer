@@ -87,10 +87,12 @@ try{
        .map(el=>el.getBoundingClientRect());
      const controlBar=document.querySelector('#gamesControls').getBoundingClientRect();
      const dpad=document.querySelector('.games-dpad').getBoundingClientRect();
+     const gamePanel=document.querySelector('#gamesPanel').getBoundingClientRect();
      return {stageWidth:stage.width,leftGutter:stage.left,rightGutter:innerWidth-stage.right,
        panelsInside:panels.every(p=>p.left>=stage.left-1&&p.right<=stage.right+1),
        stacked:panels.every((p,i)=>i===0||p.top>=panels[i-1].bottom-1),
-       dpadTop:dpad.top-controlBar.top,dpadBottom:controlBar.bottom-dpad.bottom};
+       dpadTop:dpad.top-controlBar.top,dpadBottom:controlBar.bottom-dpad.bottom,
+       topDividerGap:dpad.top-controlBar.top,bottomWindowGap:gamePanel.bottom-dpad.bottom};
    });
    assert(Math.abs(mobile.leftGutter-mobile.rightGutter)<=2,
      'The mobile player needs equal screen gutters: '+JSON.stringify({width,...mobile}));
@@ -98,8 +100,20 @@ try{
      'Mobile panels must fit and stack beneath the player: '+JSON.stringify({width,...mobile}));
    assert(mobile.dpadTop<=6&&mobile.dpadBottom<=6,
      'Game controls must hug the D-Pad vertically: '+JSON.stringify({width,...mobile}));
+   assert(Math.abs(mobile.topDividerGap-mobile.bottomWindowGap)<=1,
+     'The gap between the divider and D-Pad must equal the gap between D-Pad and panel bottom: '+
+     JSON.stringify({width,...mobile}));
  }
  await page.setViewportSize({width:1440,height:850});
+ const desktopVerticalSpacing=await page.evaluate(()=>{
+   const dpad=document.querySelector('.games-dpad').getBoundingClientRect();
+   const divider=document.querySelector('#gamesControls').getBoundingClientRect();
+   const windowEnd=document.querySelector('#gamesPanel').getBoundingClientRect();
+   return {top:dpad.top-divider.top,bottom:windowEnd.bottom-dpad.bottom};
+ });
+ assert(Math.abs(desktopVerticalSpacing.top-desktopVerticalSpacing.bottom)<=1,
+   'Desktop divider-to-pad and pad-to-bottom vertical spacing must match: '+
+   JSON.stringify(desktopVerticalSpacing));
  assert.equal(await page.locator('#mlSettingsBtn').isVisible(),true);
  await page.locator('#mlSettingsBtn').click();
  assert.equal(await page.locator('#mlSettingsPanel').isVisible(),true);
