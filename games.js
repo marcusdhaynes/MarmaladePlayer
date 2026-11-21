@@ -207,6 +207,8 @@
   const videoMore=$('onlyFramesVideoMore'),videoColumns=$('onlyFramesVideoColumns');
   const librarySelect=$('onlyFramesLibrary'),hint=$('onlyFramesHint');
   const connectAction=$('onlyFramesConnectLibrary'),connectFiles=$('onlyFramesConnectFiles');
+  const fileActions=$('onlyFramesFileActions'),chooseVideos=$('onlyFramesChooseVideos');
+  const directVideos=$('onlyFramesDirectVideos');
   const timeRange=$('onlyFramesTimeRange'),timeValue=$('onlyFramesTimeValue');
   const timeInput=$('onlyFramesTimeInput'),timeError=$('onlyFramesTimeError');
   const confirmTime=$('onlyFramesConfirmTime');
@@ -421,26 +423,27 @@
     const unlinked=chosen?Math.max(0,Number.isFinite(chosen.unlinkedCount)?
       chosen.unlinkedCount:chosen.count-playable):0;
     const hasCatalog=!!chosen&&chosen.count>0;
-    action.disabled=!chosen||!hasCatalog;
-    action.textContent=hasCatalog&&playable===0?'Connect & Play':'Play Game';
-    connectAction.hidden=!chosen||unlinked===0;
-    connectAction.disabled=!hasCatalog;
-    connectAction.textContent=unlinked>0&&playable>0?
-      'Connect Remaining Videos ('+unlinked+')':'Connect Video Folder';
+    action.disabled=!chosen;
+    action.textContent=chosen&&playable===0?'Choose & Play':'Play Game';
+    fileActions.hidden=!chosen;
+    connectAction.disabled=!chosen;
+    chooseVideos.disabled=!chosen;
+    connectAction.textContent='Choose Video Folder';
+    chooseVideos.textContent='Choose Video Files';
     if(!libs.length){
       hint.textContent='No libraries found. Create a Media Library to get started.';
     }else if(!chosen){
       hint.textContent='Choose a Media Library to begin.';
     }else if(playable>0){
-      hint.textContent=playable+' ready to play in '+chosen.name+
-        (unlinked?' · '+unlinked+' indexed video'+(unlinked===1?' needs':'s need')+
-          ' folder access.':' · All indexed videos are available.');
+      hint.textContent=playable+' playable video'+(playable===1?'':'s')+' in '+chosen.name+
+        (unlinked?' · '+unlinked+' legacy catalog title'+(unlinked===1?' needs':'s need')+
+          ' local files.':' · Ready to play in any supported browser.');
     }else if(chosen.count>0){
-      hint.textContent=chosen.name+' is indexed with '+chosen.count+
-        ' video'+(chosen.count===1?'':'s')+
-        '. Connect the original video folder once to play here. Files remain on your device.';
+      hint.textContent=chosen.name+' lists '+chosen.count+' video title'+
+        (chosen.count===1?'':'s')+', but this browser has no playable files yet. '+
+        'Choose Video Files or a video folder to create a local, browser-independent library.';
     }else{
-      hint.textContent=chosen.name+' is empty. Add videos to this library to play.';
+      hint.textContent=chosen.name+' has no videos yet. Choose Video Files or a folder to add them here.';
     }
   }
   let libraryCatalogSignature='';
@@ -813,61 +816,59 @@
     void displayVideo(history[cursor-1],{existingIndex:cursor-1,direction:'Previous'});
   }
 
-  // This is the only browser-permission recovery path. A click directly
-  // opens the original folder picker; no network request, no O(n) rescan,
-  // no deletion or duplication of indexed library data.
+
+  // Standard file inputs are the primary implementation, not a fallback
+  // behind showDirectoryPicker/Minternet. The browser itself produces the
+  // File objects, so no directory permission or extension is required.
   let pendingGameFiles=null;
-  async function connectGameSource(playWhenConnected=false){
-    if(activeGame||busy)return;
-    const libraryId=librarySelect.value;
-    if(!libraryId)return;
-    const api=mediaLibrary();
-    if(!api?.connectGameLibrary)return;
-    if(typeof window.showDirectoryPicker!=='function'){
-      pendingGameFiles={libraryId,playWhenConnected};
-      connectFiles.value='';
-      connectFiles.click();
-      return;
-    }
-    connectAction.disabled=true;
-    action.disabled=true;
-    try{
-      const result=await api.connectGameLibrary(libraryId,()=>
-        window.showDirectoryPicker({mode:'read'}));
-      populateLibraries();
-      if(result?.connected){
-        hint.textContent='Connected '+result.folder+' · '+result.playableCount+
-          ' video'+(result.playableCount===1?'':'s')+' ready.';
-        if(playWhenConnected)beginGame();
-      }else if(result?.cancelled){
-        hint.textContent='Folder selection cancelled. Indexed videos are unchanged.';
-      }else{
-        hint.textContent='Choose the original indexed video folder to enable playback.';
-      }
-    }catch(error){
-      hint.textContent=error?.name==='AbortError'?
-        'Folder selection cancelled. Indexed videos are unchanged.':
-        'Folder access: '+(error?.message||'Unable to open the selected folder.');
-    }finally{
-      updateLibrarySelection();
-    }
+  function openGameFilePicker(kind='files',playWhenConnected=false){
+    if(activeGame||busy||!librarySelect.value)return;
+    pendingGameFiles={libraryId:librarySelect.value,playWhenConnected,kind};
+    const input=kind==='folder'?connectFiles:directVideos;
+    input.value='';
+    input.click(); // In the original user gesture, without prior await.
   }
-  connectFiles.addEventListener('change',()=>{
+  async function receiveGameFiles(event){
     const pending=pendingGameFiles;
     pendingGameFiles=null;
-    if(!pending||!connectFiles.files?.length)return;
-    const result=mediaLibrary()?.connectGameFiles?.(pending.libraryId,connectFiles.files);
-    populateLibraries();
-    if(result?.connected){
-      hint.textContent=result.playableCount+' video'+(result.playableCount===1?'':'s')+
-        ' ready for this session. A browser without persistent folder access may need a new selection after restarting.';
-      if(pending.playWhenConnected)beginGame();
-    }else{
-      hint.textContent='No indexed videos matched the chosen folder. Select the original media folder.';
+    const input=event.currentTarget;
+    const files=Array.from(input.files||[]);
+    input.value='';
+    if(!pending||!files.length)return;
+    const api=mediaLibrary();
+    if(typeof api?.importGameFiles!=='function'){
+      hint.textContent='Update the Media Library to use browser-local video selection.';
+      return;
     }
-    connectFiles.value='';
-  });
-  connectAction.addEventListener('click',()=>void connectGameSource());
+    connectAction.disabled=true;chooseVideos.disabled=true;action.disabled=true;
+    try{
+      const result=await api.importGameFiles(pending.libraryId,files);
+      if(!result?.connected){
+        hint.textContent=result?.reason||
+          'No video files were selected. Use Choose Video Files to pick actual movie files.';
+        return;
+      }
+      populateLibraries();
+      if(result.libraryId){
+        librarySelect.value=result.libraryId;
+        selectedLibrary=result.libraryId;
+        updateLibrarySelection();
+      }
+      hint.textContent=result.imported+' playable video'+(result.imported===1?'':'s')+
+        ' added locally to '+result.name+'. No extension or browser folder permission required.';
+      if(pending.playWhenConnected)beginGame();
+    }catch(error){
+      console.warn('OnlyFrames local file selection failed',error);
+      hint.textContent='Could not import selected videos: '+(error?.message||error)+
+        '. Try Choose Video Files directly.';
+    }finally{updateLibrarySelection();}
+  }
+  connectFiles.addEventListener('change',event=>{void receiveGameFiles(event);});
+  directVideos.addEventListener('change',event=>{void receiveGameFiles(event);});
+  connectFiles.addEventListener('cancel',()=>{pendingGameFiles=null;});
+  directVideos.addEventListener('cancel',()=>{pendingGameFiles=null;});
+  connectAction.addEventListener('click',()=>openGameFilePicker('folder'));
+  chooseVideos.addEventListener('click',()=>openGameFilePicker('files'));
   function beginGame(){
     if(activeGame)return;
     const chosen=librarySelect.value;
@@ -941,7 +942,7 @@
     if(activeGame){endGame();return;}
     const candidates=mediaLibrary()?.getGameVideos?.(librarySelect.value)||[];
     if(candidates.length)beginGame();
-    else void connectGameSource(true);
+    else openGameFilePicker('files',true);
   });
   launch.addEventListener('click',showDetails);
   close.addEventListener('click',closeDetails);
@@ -954,6 +955,10 @@
   });
   librarySelect.addEventListener('change',()=>{
     selectedLibrary=librarySelect.value||null;
+    // Keep Media Library and OnlyFrames focused on the same collection.
+    // This prevents a 38-video selection from appearing next to a different
+    // empty library, which looked like a failed scan.
+    if(selectedLibrary)mediaLibrary()?.select?.(selectedLibrary);
     updateLibrarySelection();
   });
   timeRange.addEventListener('input',updateTimeLabel);
