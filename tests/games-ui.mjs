@@ -94,7 +94,11 @@ try{
  assert.equal(await page.locator('#onlyFramesLaunch img').evaluate(img=>img.complete&&img.naturalWidth>0),true);
  await page.locator('#onlyFramesLaunch').click();
  assert.equal(await page.locator('#onlyFramesDialog').isVisible(),true);
- assert.match(await page.locator('#onlyFramesDialog').textContent(),/rules.*provided/i);
+ assert.match(await page.locator('#onlyFramesDialog').textContent(),/RULES[\s\S]*WIN \/ LOSE CONDITION/i);
+ assert.equal(await page.locator('#gamesPrevious').isDisabled(),true);
+ assert.equal(await page.locator('#gamesNext').isDisabled(),true);
+ assert.equal(await page.locator('#gamesLogToggle').isDisabled(),true);
+ assert.equal(await page.locator('#gamesUp').isDisabled(),true);
  await page.locator('#onlyFramesClose').click();
  assert.equal(await page.locator('.game-score-card').count(),1);
  assert.equal(await page.locator('.game-score-value').first().textContent(),'00');

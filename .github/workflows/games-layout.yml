@@ -31,3 +31,5 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Check Games window height and scoreboard alignment
         run: node tests/games-ui.mjs
+      - name: Verify OnlyFrames session, random videos, timestamp picker and End Game
+        run: node tests/onlyframes-game-flow.mjs
