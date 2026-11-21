@@ -103,6 +103,30 @@ try{
    JSON.stringify(posterFit));
  assert(Math.abs(posterFit.imageRatio-2/3)<.025,
    'Poster must retain its natural 2:3 image ratio');
+ const nav=await page.locator('.games-split-pill').evaluate(group=>{
+   const controls=[...group.querySelectorAll('button')];
+   const computed=controls.map(button=>{
+     const bounds=button.getBoundingClientRect();
+     const style=getComputedStyle(button);
+     return {width:bounds.width,height:bounds.height,rounded:style.borderRadius,
+       background:style.backgroundImage,disabled:button.disabled,
+       icons:button.querySelectorAll('.games-nav-orb svg path').length,
+       label:button.querySelector('.games-nav-label')?.textContent,
+       order:[...button.children].map(n=>n.className.baseVal||n.className)};
+   });
+   return computed;
+ });
+ assert.equal(nav.length,2);
+ assert(Math.abs(nav[0].width-nav[1].width)<1,
+   'Previous and Next must occupy equal-width halves');
+ assert(nav.every(x=>x.height>=40&&x.rounded.includes('999px')&&x.icons===1),
+   'Both nav pills need circular double-chevron ends');
+ assert(nav[0].background.includes('255, 212, 89')&&
+        nav[1].background.includes('177, 235, 120'),
+   'Previous must be yellow and Next green to match the approved reference');
+ assert(nav.every(x=>x.disabled),'Both games controls must start inactive');
+ assert.equal(nav[0].label,'PREV');
+ assert.equal(nav[1].label,'NEXT');
  await page.locator('#onlyFramesLaunch').click();
  assert.equal(await page.locator('#onlyFramesDialog').isVisible(),true);
  assert.match(await page.locator('#onlyFramesDialog').textContent(),/RULES[\s\S]*WIN \/ LOSE CONDITION/i);

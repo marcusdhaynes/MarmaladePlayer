@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-sharp-frames-safe-poster-v6">
+<link rel="stylesheet" href="./games.css?v=20261121-onlyframes-game-nav-v7">
 </head>
 <body>
   <div class="app-shell">
@@ -757,8 +757,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             </div>
             <section class="games-controls" id="gamesControls" aria-label="Game Controls">
               <div class="games-split-pill" role="group" aria-label="Previous or Next">
-                <button type="button" id="gamesPrevious" disabled title="Previous video and frame" aria-label="Previous"> <span aria-hidden="true">‹</span><small>Previous</small></button>
-                <button type="button" id="gamesNext" disabled title="Next video and frame" aria-label="Next"><small>Next</small><span aria-hidden="true">›</span></button>
+                <button type="button" id="gamesPrevious" class="games-nav-button games-nav-prev" disabled title="Previous video and frame" aria-label="Previous">
+                  <span class="games-nav-orb" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="5.1" stroke-linecap="round" stroke-linejoin="round"><path d="M19 8 7 20l12 12M31 8 19 20l12 12"/></svg></span>
+                  <span class="games-nav-label" aria-hidden="true">PREV</span>
+                </button>
+                <button type="button" id="gamesNext" class="games-nav-button games-nav-next" disabled title="Next video and frame" aria-label="Next">
+                  <span class="games-nav-label" aria-hidden="true">NEXT</span>
+                  <span class="games-nav-orb" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="5.1" stroke-linecap="round" stroke-linejoin="round"><path d="m9 8 12 12L9 32M21 8l12 12-12 12"/></svg></span>
+                </button>
               </div>
               <div class="games-control-spacer"></div>
               <div class="games-dpad" role="group" aria-label="Directional game pad">

@@ -42,7 +42,13 @@ try{
     Object.defineProperty(media,'currentTime',{configurable:true,
       get:()=>currentTime,set:value=>{currentTime=value;counter.seeks.push(value);}});
     bridge.el.stage.classList.add('poster-preview-active');
+    const nameVisibleBeforeGame=getComputedStyle(
+      document.getElementById('mediaInfoToggle')).display!=='none';
     bridge.setGameFrameMode(true);
+    const nameHiddenDuringGame=getComputedStyle(
+      document.getElementById('mediaInfoToggle')).display==='none';
+    const viewersRemainVisible=getComputedStyle(
+      document.querySelector('.theater-title .watchers')).display!=='none';
     const previewRemovedOnStart=!bridge.el.stage.classList.contains('poster-preview-active');
     // Simulate an async artwork preview trying to reappear after game start.
     bridge.el.stage.classList.add('poster-preview-active');
@@ -71,17 +77,28 @@ try{
     media.dispatchEvent(new Event('pause'));
     const progressAfter=localStorage.getItem('marmalade:watch-progress:v1');
     bridge.setGameFrameMode(false);
+    const nameRestoredAfterGame=getComputedStyle(
+      document.getElementById('mediaInfoToggle')).display!=='none';
     bridge.chooseNativeStream({url,name:'Sample.mp4',size:1000,id:'normal-video'});
     const normalPlayAttempts=counter.plays;
     bridge.stopGameVideo();
     return {selected,gameActive,durationReady,playAttemptsDuringGame,
       afterMetadata,afterPlayButton,positioned,afterSeek,seekTime,
       previewRemovedOnStart,previewHiddenByGameCSS,
-      progressUnchanged:progressBefore===progressAfter,
+      nameVisibleBeforeGame,nameHiddenDuringGame,nameRestoredAfterGame,
+      viewersRemainVisible,progressUnchanged:progressBefore===progressAfter,
       normalPlayAttempts,gameModeAfterStop:bridge.state.gameFrameMode};
   });
   assert.equal(check.selected,true,'Native Media Library game video should select');
   assert.equal(check.gameActive,true);
+  assert.equal(check.nameVisibleBeforeGame,true,
+    'Movie title normally appears in the video controls');
+  assert.equal(check.nameHiddenDuringGame,true,
+    'OnlyFrames must never reveal the movie title in its video controls');
+  assert.equal(check.viewersRemainVisible,true,
+    'OnlyFrames hides just the movie name, not the spectators');
+  assert.equal(check.nameRestoredAfterGame,true,
+    'Ending OnlyFrames must restore the normal player title');
   assert.equal(check.previewRemovedOnStart,true,
     'OnlyFrames must dismiss pre-play artwork even while video stays paused');
   assert.equal(check.previewHiddenByGameCSS,true,
