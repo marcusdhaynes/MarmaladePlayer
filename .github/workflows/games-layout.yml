@@ -8,6 +8,10 @@ on:
       - 'media-library.css'
       - 'index.html'
       - 'tests/games-ui.mjs'
+      - 'tests/onlyframes-game-flow.mjs'
+      - 'tests/game-no-autoplay.mjs'
+      - 'tests/onlyframes-library-selector.mjs'
+      - 'media-library.js'
       - '.github/workflows/games-layout.yml'
   pull_request:
     branches: [main]
