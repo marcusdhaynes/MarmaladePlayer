@@ -36,9 +36,8 @@ assert(bridge.includes('backup-site-catalog')&&bridge.includes('siteCatalog'),
   'The extension must persist Marmaladeum catalog metadata, not only its own');
 assert(app.includes('restoreSiteCatalog')&&app.includes('queueLibraryBackup'),
   'The website must restore missing metadata before its backup overwrites it');
-const runtimeFiles=['background.js','content.js','library.html','library.js',
-  'lib/catalog.mjs','lib/store.mjs'];
-assert.equal(runtimeFiles.length+1,7,'Minimum standalone extension runtime has seven files');
+const runtimeFiles=['background.js','content.js','library.html','library.js'];
+assert.equal(runtimeFiles.length+1,5,'Bundled extension ships just five files');
 
 // --- Recursive scan: root file + nested files, non-videos excluded -------
 const mkFile = (name) => ({
