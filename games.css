@@ -373,3 +373,42 @@ body>.games-dialog[hidden],body>.games-dialog:not([open]){
 .games-loading-end:hover{background:#654256;color:white}
 .games-loading-end:focus-visible{outline:2px solid #b8ecff;outline-offset:2px}
 @media(prefers-reduced-motion:reduce){.games-loading-spinner{animation:none}}
+
+
+/* OnlyFrames: preserve the selected decoded frame instead of the blurred
+   pre-play artwork layer. Does not affect ordinary video poster previews. */
+.stage.game-frame-mode .stage-poster-preview{
+  display:none!important;
+  opacity:0!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+
+/* Keep the entire illustrated card visible even within a narrow/scrollable
+   Games column, including its active border, glow and outer frame corners. */
+.games-collection .games-cards{
+  box-sizing:border-box;
+  padding:5px 4px 10px;
+}
+.games-collection .games-card{
+  box-sizing:border-box;
+  min-width:0;
+  width:100%;
+  padding:0 8px;
+}
+.games-collection .games-card img{
+  box-sizing:border-box;
+  display:block;
+  max-width:100%;
+  width:100%;
+  height:auto;
+  object-fit:contain;
+}
+
+/* The native OnlyFrames dialog is still modal and above the player,
+   but its scrim must never apply a blur to the video or its still frame. */
+body>.games-dialog::backdrop{
+  background:rgba(5,6,17,.46)!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}

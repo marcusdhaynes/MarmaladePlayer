@@ -41,7 +41,14 @@ try{
     let currentTime=0;
     Object.defineProperty(media,'currentTime',{configurable:true,
       get:()=>currentTime,set:value=>{currentTime=value;counter.seeks.push(value);}});
+    bridge.el.stage.classList.add('poster-preview-active');
     bridge.setGameFrameMode(true);
+    const previewRemovedOnStart=!bridge.el.stage.classList.contains('poster-preview-active');
+    // Simulate an async artwork preview trying to reappear after game start.
+    bridge.el.stage.classList.add('poster-preview-active');
+    const previewHiddenByGameCSS=getComputedStyle(
+      document.getElementById('stagePosterPreview')).display==='none';
+    bridge.el.stage.classList.remove('poster-preview-active');
     const url='http://127.0.0.1:18761/video/test-clip';
     const selected=bridge.chooseNativeStream({
       url,name:'Sample.mp4',size:1000,id:'game-video'
@@ -69,11 +76,16 @@ try{
     bridge.stopGameVideo();
     return {selected,gameActive,durationReady,playAttemptsDuringGame,
       afterMetadata,afterPlayButton,positioned,afterSeek,seekTime,
+      previewRemovedOnStart,previewHiddenByGameCSS,
       progressUnchanged:progressBefore===progressAfter,
       normalPlayAttempts,gameModeAfterStop:bridge.state.gameFrameMode};
   });
   assert.equal(check.selected,true,'Native Media Library game video should select');
   assert.equal(check.gameActive,true);
+  assert.equal(check.previewRemovedOnStart,true,
+    'OnlyFrames must dismiss pre-play artwork even while video stays paused');
+  assert.equal(check.previewHiddenByGameCSS,true,
+    'Late artwork preview may never cover the game frame');
   assert.equal(check.playAttemptsDuringGame,0,'No native video autoplay at selection');
   assert.equal(check.afterMetadata,0,'Metadata must not trigger playback during a game');
   assert.equal(check.afterPlayButton,0,'Normal play button must remain inactive in game mode');

@@ -92,11 +92,28 @@ try{
  assert(filters.every(item=>Math.abs(item.top-filters[0].top)<3 && item.width>0),
    'Sort and filter dropdowns must fit on a single row');
  assert.equal(await page.locator('#onlyFramesLaunch img').evaluate(img=>img.complete&&img.naturalWidth>0),true);
+ const posterFit=await page.locator('#onlyFramesLaunch').evaluate(card=>{
+   const art=card.querySelector('img');
+   const outer=card.getBoundingClientRect(),inner=art.getBoundingClientRect();
+   return {leftInset:inner.left-outer.left,rightInset:outer.right-inner.right,
+     imageRatio:inner.width/inner.height};
+ });
+ assert(posterFit.leftInset>=7 && posterFit.rightInset>=7,
+   'Poster needs a safe horizontal inset so its outer artwork cannot be cut off: '+
+   JSON.stringify(posterFit));
+ assert(Math.abs(posterFit.imageRatio-2/3)<.025,
+   'Poster must retain its natural 2:3 image ratio');
  await page.locator('#onlyFramesLaunch').click();
  assert.equal(await page.locator('#onlyFramesDialog').isVisible(),true);
  assert.match(await page.locator('#onlyFramesDialog').textContent(),/RULES[\s\S]*WIN \/ LOSE CONDITION/i);
  assert.equal(await page.locator('#onlyFramesDialog').evaluate(el=>el.open&&el.parentElement===document.body),true,
    'Game dialog is modal in the top layer, outside app layout stacking contexts');
+ const scrim=await page.locator('#onlyFramesDialog').evaluate(el=>{
+   const style=getComputedStyle(el,'::backdrop');
+   return {filter:style.backdropFilter,webkitFilter:style.webkitBackdropFilter};
+ });
+ assert([scrim.filter,scrim.webkitFilter].every(value=>!value||value==='none'),
+   'Game dialog backdrop must never blur the player: '+JSON.stringify(scrim));
  assert.equal(await page.locator('#gamesPrevious').isDisabled(),true);
  assert.equal(await page.locator('#gamesNext').isDisabled(),true);
  assert.equal(await page.locator('#gamesLogToggle').isDisabled(),true);

@@ -8,6 +8,7 @@
  <rect width="480" height="720" fill="url(#bg)"/>
  <path d="M-40 570Q100 420 240 510Q380 610 520 440" fill="none" stroke="#008ded" stroke-width="60" opacity=".24"/>
  <path d="M-20 605Q130 460 275 550Q390 620 500 475" fill="none" stroke="#13dbfa" stroke-width="18" opacity=".5" filter="url(#glow)"/>
+ <g id="poster-safe-art" transform="translate(26 0) scale(.90 1)">
  <g opacity=".9"><rect x="51" y="188" width="270" height="313" rx="20" transform="rotate(-14 180 330)" fill="#0b3060" stroke="url(#bright)" stroke-width="10"/>
  <rect x="176" y="232" width="252" height="318" rx="18" transform="rotate(10 280 375)" fill="#0b346b" stroke="url(#bright)" stroke-width="9"/></g>
  <g fill="none" stroke="#e8faff" stroke-linejoin="round" stroke-width="7">
@@ -26,5 +27,6 @@
  <text x="169" y="548" font-size="59" fill="url(#bright)">Frames</text>
  </g>
  <path d="M55 569Q212 603 419 570" fill="none" stroke="#1beefa" stroke-width="8" stroke-linecap="round"/>
+ </g>
  <path d="M0 678Q240 587 480 635" fill="none" stroke="#00afff" stroke-width="32" opacity=".15"/>
 </svg>

@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-wait-media-ready-v5">
+<link rel="stylesheet" href="./games.css?v=20261121-sharp-frames-safe-poster-v6">
 </head>
 <body>
   <div class="app-shell">
@@ -977,7 +977,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   const posterPreview=document.getElementById('stagePosterPreview');
   let posterHasPlayed=false;
   window.addEventListener('marmalade:video-selected',()=>{
-    posterHasPlayed=false;
+    // Game frames must show decoded video, even though playback never starts.
+    // A normal movie instead retains its pre-playback artwork preview.
+    posterHasPlayed=!!state.gameFrameMode;
     posterPreview.style.backgroundImage='';
     el.stage.classList.remove('poster-preview-active');
   });
@@ -988,11 +990,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   });
   window.addEventListener('marmalade:movie-artwork',event=>{
     const url=event.detail?.backdrop||event.detail?.poster;
-    if(posterHasPlayed||!url||!/^https:\/\//i.test(url))return;
+    if(state.gameFrameMode||posterHasPlayed||!url||!/^https:\/\//i.test(url))return;
     // An Image loader rejects broken remote metadata URLs and avoids injecting CSS.
     const artwork=new Image();
     artwork.onload=()=>{
-      if(posterHasPlayed)return;
+      // Artwork could finish downloading after the game selected a frame.
+      if(state.gameFrameMode||posterHasPlayed)return;
       posterPreview.style.backgroundImage='url("'+artwork.src.replace(/"/g,'%22')+'")';
       el.stage.classList.add('poster-preview-active');
     };
@@ -6116,7 +6119,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // as the normal playback controls (no separate video pipeline).
   function setGameFrameMode(enabled){
     state.gameFrameMode=!!enabled;
+    // The film-artwork preview was previously dismissed only by 'play'.
+    // Still-frame games never play; hide the preview directly instead.
+    el.stage.classList.toggle('game-frame-mode',state.gameFrameMode);
     if(state.gameFrameMode){
+      posterHasPlayed=true;
+      posterPreview.style.backgroundImage='';
+      el.stage.classList.remove('poster-preview-active');
       media.autoplay=false;
       media.pause();
     }
