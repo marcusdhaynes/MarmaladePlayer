@@ -39,7 +39,9 @@ jobs:
             cd ../../..
           done
           cp dist/extension-packages/marmalade-library-firefox.zip dist/extension-packages/marmalade-library-firefox-unsigned.xpi
-          python3 -c "import glob,zipfile; files=glob.glob('dist/extension-packages/*.zip'); assert len(files)==7; assert all(len([n for n in zipfile.ZipFile(f).namelist() if not n.endswith('/')])==7 for f in files)"
+          python3 -c "import glob,zipfile; files=glob.glob('dist/extension-packages/*.zip'); assert len(files)==7; assert all(len([n for n in zipfile.ZipFile(f).namelist() if not n.endswith('/')])==5 for f in files)"
+          node --input-type=module --check < dist/media-extensions/chrome/library.js
+          node --input-type=module --check < dist/media-extensions/firefox/library.js
       - uses: actions/upload-artifact@v4
         with:
           name: marmalade-library-extensions-v0.2.0
@@ -50,7 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view marmalade-library-v0.2.0 || gh release create marmalade-library-v0.2.0 --prerelease --title 'Marmalade Library v0.2.0' --notes 'Independent seven-file browser extensions. Unsigned Firefox and Safari source need platform signing for permanent installation.'
+          gh release view marmalade-library-v0.2.0 || gh release create marmalade-library-v0.2.0 --prerelease --title 'Marmalade Library v0.2.0' --notes 'Independent five-file browser extensions. Unsigned Firefox and Safari source need platform signing for permanent installation.'
           gh release upload marmalade-library-v0.2.0 dist/extension-packages/* --clobber
   safari-project:
     needs: package
