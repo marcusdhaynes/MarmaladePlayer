@@ -53,6 +53,13 @@ try{
     'Primary folder import must avoid the system-files restriction');
   assert.equal(await page.evaluate(()=>window.__standardCalls),1,
     'Primary folder import must use browser-standard file input');
+  // A blocked/cancelled picker must not silently save an empty collection.
+  await page.locator('#mlDialogSave').click();
+  assert.match(await page.locator('#mlScanPreview').textContent(),
+    /No video files have been added/i);
+  assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getGameLibraries()
+    .some(lib=>lib.name==='Browser Movies')),false,
+    'A failed folder selection must not create an empty indexed library');
   // Chromium (and current Firefox/Safari) provide webkitRelativePath for
   // folder-input selections, including nested videos.
   await page.locator('#mlDirectoryInput').setInputFiles(directory);
