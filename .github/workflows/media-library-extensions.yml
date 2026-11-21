@@ -38,7 +38,46 @@ jobs:
           mkdir -p dist/extension-packages
           for target in chrome edge brave opera vivaldi firefox safari; do
             (cd "dist/media-extensions/$target" && zip -q -r "../../extension-packages/marmalade-library-$target.zip" .)
-            test "$(unzip -Z1 "dist/extension-packages/marmalade-library-$target.zip" | wc -l)" -eq 7
+            test "$(unzip -Z1 "dist/extension-packages/marmalade-library-$target.zip" | grep -v '/
+          done
+          cp dist/extension-packages/marmalade-library-firefox.zip dist/extension-packages/marmalade-library-firefox-unsigned.xpi
+          unzip -p dist/extension-packages/marmalade-library-firefox.zip manifest.json | node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync(0,'utf8')); if(m.background.scripts[0]!=='background.js')process.exit(1)"
+      - name: Upload all browser packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: marmalade-library-extensions-v0.2.0
+          path: dist/extension-packages/*
+          retention-days: 90
+      - name: Publish durable pre-release artifacts
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=marmalade-library-v0.2.0
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --prerelease --title "Marmalade Library v0.2.0 · Browser extensions" --notes "Independent 7-file media library extension packages for Chromium browsers, Firefox and Safari source. Firefox XPI is unsigned and requires signing for permanent installation; Safari source requires Apple packaging/signing. Catalog backup does not bypass browser file permissions."
+          fi
+          gh release upload "$tag" dist/extension-packages/* --clobber
+  safari-project:
+    needs: package
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/build-media-extensions.mjs
+      - name: Package macOS Safari Xcode project (signing happens separately)
+        run: |
+          mkdir -p dist/safari-xcode
+          xcrun safari-web-extension-packager --copy-resources --no-open --no-prompt --swift --macos-only --app-name 'Marmalade Library' --bundle-identifier com.somniel.marmaladelibrary --project-location "$PWD/dist/safari-xcode" "$PWD/dist/media-extensions/safari"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marmalade-library-safari-xcode-unsigned
+          path: dist/safari-xcode
+          retention-days: 90
+ | wc -l)" -eq 7
           done
           cp dist/extension-packages/marmalade-library-firefox.zip dist/extension-packages/marmalade-library-firefox-unsigned.xpi
           unzip -p dist/extension-packages/marmalade-library-firefox.zip manifest.json | node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync(0,'utf8')); if(m.background.scripts[0]!=='background.js')process.exit(1)"
