@@ -58,6 +58,32 @@
    return row;
  }
  into('qualitySelect','video','settings-quality-row');
+ // Mobile only: keep the stage 16:9 by default, or follow the actual video's
+ // intrinsic aspect ratio when the user opts in. Fullscreen and PiP are never
+ // changed by this setting, and desktop remains completely unaffected.
+ const aspectRow=document.createElement('label');
+ aspectRow.id='mobileAspectSetting';
+ aspectRow.className='settings-row settings-toggle-row';
+ aspectRow.innerHTML='<span>Match Video Aspect Ratio <small>Mobile · 16:9 by default</small></span>'+
+   '<input type="checkbox" id="mobileMatchVideoAspect" aria-label="Match video aspect ratio on mobile">';
+ pages.get('video').querySelector('.settings-stack').append(aspectRow);
+ const aspectToggle=$('mobileMatchVideoAspect'),stage=$('dropZone'),sourceVideo=$('player');
+ const aspectKey='marmalade:mobile:match-video-aspect';
+ try{aspectToggle.checked=localStorage.getItem(aspectKey)==='true';}catch{}
+ function syncMobileAspect(){
+   if(!stage)return;
+   const width=Number(sourceVideo?.videoWidth)||0,height=Number(sourceVideo?.videoHeight)||0;
+   const valid=aspectToggle.checked&&width>0&&height>0;
+   stage.style.setProperty('--mobile-stage-aspect',
+     valid?String(width)+' / '+String(height):'16 / 9');
+ }
+ aspectToggle.addEventListener('change',()=>{
+   try{localStorage.setItem(aspectKey,String(aspectToggle.checked));}catch{}
+   syncMobileAspect();
+ });
+ for(const event of ['loadedmetadata','resize','emptied','loadstart'])
+   sourceVideo?.addEventListener(event,syncMobileAspect);
+ syncMobileAspect();
  const qualityHint=$('qualityHint');
  if(qualityHint){
    qualityHint.classList.add('settings-hint');
