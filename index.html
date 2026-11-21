@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-mobile-width-layout-v1">
+<link rel="stylesheet" href="./games.css?v=20261121-onlyframes-dual-choice-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -791,16 +791,27 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <div id="onlyFramesOverview" class="games-overview">
                   <div class="games-rule-grid">
                     <section><small>DESCRIPTION</small><p>A frame-selection game that pulls surprise moments from your own video collection.</p></section>
-                    <section><small>FORMAT</small><p>One random video per turn. Automatic or Player's Choice timestamp mode.</p></section>
-                    <section><small>RULES</small><p>Choose a Media Library. A random video is selected. Automatic chooses a random moment; Player's Choice lets you choose an exact time. The player displays the frame and pauses there. Next draws another video; Previous revisits an earlier frame.</p></section>
+                    <section><small>FORMAT</small><p>Choose random or library-selected videos, and random or player-selected timestamps.</p></section>
+                    <section><small>RULES</small><p>Choose a Media Library. Video: Random draws a title, Choice opens the video picker. Timestamp: Random draws a moment, Choice opens the exact timestamp picker. Next advances; Previous restores an earlier frame.</p></section>
                     <section><small>WIN / LOSE CONDITION</small><p>Not specified yet. Keep scores manually until the win/lose rules are provided.</p></section>
                   </div>
                   <div class="games-start-options" id="onlyFramesOptions">
                     <div class="games-mode-field">
-                      <span id="onlyFramesModeLabel" class="games-option-label">Mode</span>
-                      <div id="onlyFramesMode" class="games-mode-pill" role="group" aria-labelledby="onlyFramesModeLabel">
-                        <button type="button" id="onlyFramesModeAutomatic" aria-pressed="true">Automatic</button>
-                        <button type="button" id="onlyFramesModeChoice" aria-pressed="false">Player's Choice</button>
+                      <div id="onlyFramesMode" class="games-mode-dual" aria-label="OnlyFrames selection modes">
+                        <div class="games-mode-group">
+                          <span class="games-option-label" id="onlyFramesVideoLabel">Video</span>
+                          <div class="games-mode-pill" role="group" aria-labelledby="onlyFramesVideoLabel">
+                            <button type="button" id="onlyFramesVideoRandom" aria-pressed="true">Random</button>
+                            <button type="button" id="onlyFramesVideoChoice" aria-pressed="false">Choice</button>
+                          </div>
+                        </div>
+                        <div class="games-mode-group">
+                          <span class="games-option-label" id="onlyFramesTimestampLabel">Timestamp</span>
+                          <div class="games-mode-pill" role="group" aria-labelledby="onlyFramesTimestampLabel">
+                            <button type="button" id="onlyFramesModeAutomatic" aria-pressed="true">Random</button>
+                            <button type="button" id="onlyFramesModeChoice" aria-pressed="false">Choice</button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <label>Video Library<select id="onlyFramesLibrary" aria-label="OnlyFrames Video Library"><option value="">Choose a Library…</option></select></label>
@@ -810,7 +821,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 </div>
                 <div id="onlyFramesTimeStep" class="games-timestamp-step" hidden>
                   <small>PLAYER'S CHOICE</small><strong>Pick Your Frame</strong>
-                  <p id="onlyFramesPickedVideo">Loading random video…</p>
+                  <p id="onlyFramesPickedVideo">Preparing selected video…</p>
                   <label for="onlyFramesTimeRange">Timestamp</label>
                   <input id="onlyFramesTimeRange" type="range" min="0" max="0" step="1" value="0" aria-label="Choose a timestamp within the selected video">
                   <div class="games-time-labels"><output id="onlyFramesTimeValue">00:00</output><span id="onlyFramesTimeDuration">00:00</span></div>
@@ -825,6 +836,32 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                   </div>
                   <button type="button" id="onlyFramesConfirmTime" class="games-primary-action">Show Frame</button>
                 </div>
+                <section id="onlyFramesVideoStep" class="games-video-step" aria-label="Video Choice Window" hidden>
+                  <div class="games-video-header">
+                    <div><small>VIDEO CHOICE</small><strong>Select a Video</strong></div>
+                    <output id="onlyFramesVideoCount" aria-live="polite">0 videos</output>
+                  </div>
+                  <div class="games-video-toolbar">
+                    <input id="onlyFramesVideoSearch" type="search" autocomplete="off" placeholder="Search selected library…" aria-label="Search library videos">
+                    <select id="onlyFramesVideoFilter" aria-label="Filter available videos">
+                      <option value="all">All Videos</option>
+                      <option value="movie">Movies</option>
+                      <option value="tv">TV Shows</option>
+                      <option value="favorite">Favorites</option>
+                    </select>
+                    <div class="games-video-density" role="group" aria-label="Videos per row">
+                      <button id="onlyFramesVideoMinus" type="button" title="Fewer videos per row" aria-label="Fewer videos per row">−</button>
+                      <output id="onlyFramesVideoColumns">3 / row</output>
+                      <button id="onlyFramesVideoPlus" type="button" title="More videos per row" aria-label="More videos per row">+</button>
+                    </div>
+                  </div>
+                  <div id="onlyFramesVideoResults" class="games-video-results" role="group" aria-label="Videos in the chosen library"></div>
+                  <div class="games-video-footer">
+                    <span id="onlyFramesVideoShown"></span>
+                    <button type="button" id="onlyFramesVideoMore" hidden>Show More</button>
+                    <button type="button" id="onlyFramesVideoCancel">Cancel</button>
+                  </div>
+                </section>
                 <div id="onlyFramesLoadingStep" class="games-loading-step" role="status" aria-live="polite" hidden>
                   <span id="onlyFramesLoadingSpinner" class="games-loading-spinner" aria-hidden="true"></span>
                   <strong id="onlyFramesLoadingTitle">Preparing Video</strong>
@@ -6200,7 +6237,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261121-all-game-libraries-v4" defer></script>
-<script src="./games.js?v=20261121-exact-timestamp-v6" defer></script>
+<script src="./games.js?v=20261121-onlyframes-dual-choice-v1" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
