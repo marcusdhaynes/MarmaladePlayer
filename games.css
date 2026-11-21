@@ -788,3 +788,22 @@ body>.games-dialog::backdrop{
   .games-video-card{padding:5px;gap:4px;min-height:44px}
   .games-video-mark{flex-basis:17px;width:17px;height:19px;font-size:8px}
 }
+
+/* OnlyFrames: recover indexed libraries in place. This authorization is
+   explicit; browsers do not allow a website to take a browser extension's
+   file handles without a user-selected folder. */
+.games-dialog .games-connect-library{
+  align-self:center;display:inline-flex;align-items:center;justify-content:center;
+  min-height:32px;max-width:100%;padding:6px 13px;margin:-4px auto 0;
+  background:linear-gradient(155deg,#173547,#102439);
+  color:#d7f7ff;border:1px solid #57a8c5;border-radius:8px;
+  font:750 11px/1.25 system-ui,sans-serif;cursor:pointer;
+  box-shadow:inset 0 1px 0 #ffffff16;
+}
+.games-dialog .games-connect-library:not(:disabled):hover{
+  background:#245771;border-color:#78d6ed;color:#fff
+}
+.games-dialog .games-connect-library:focus-visible{
+  outline:2px solid #c4faff;outline-offset:2px
+}
+.games-dialog .games-connect-library[hidden]{display:none!important}
