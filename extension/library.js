@@ -41,7 +41,7 @@ async function rememberFolder() {
   let lib = libraries.find((l) => l.name.toLowerCase() === name.toLowerCase());
   if (!lib) {
     lib = { id: newId(), name, kind, folders: [], items: [], createdAt: Date.now(), lastScan: 0 };
-    libraries.push(lib);
+    // Only add a new library AFTER one or more video files were indexed.
   }
   if (typeof window.showDirectoryPicker === 'function') {
     try {
@@ -70,7 +70,10 @@ async function rememberFolder() {
 let pendingFallbackLib = null;
 async function onFallbackFiles(files) {
   const lib = pendingFallbackLib; pendingFallbackLib = null;
-  if (!lib || !files.length) return;
+  if (!lib || !files.length) {
+    status('No files selected. Existing catalogs are unchanged.');
+    return;
+  }
   const valid=files.filter(file=>isVideoName(file.name));
   if(!valid.length){status('No videos found. Nothing was saved.');return;}
   const root = files.some(file=>file.webkitRelativePath)?
@@ -105,8 +108,9 @@ async function onFallbackFiles(files) {
 
 async function rescan(lib, folder) {
   if (!folder.handle) {
-    status('This folder was imported without a remembered handle. Re-pick it with + Add Folder to rescan.');
-    return;
+    $('libName').value=lib.name;$('libKind').value=lib.kind;
+    status('Select the original folder again. The extension keeps existing titles and metadata.');
+    chooseStandard('folder');return;
   }
   // Click = user gesture, so requestPermission is allowed here.
   if (!await ensureHandlePermission(folder.handle, true)) {
@@ -182,6 +186,7 @@ function render() {
     const del = document.createElement('button');
     del.className = 'secondary'; del.textContent = 'Remove Library';
     del.addEventListener('click', async () => {
+      if(!confirm('Remove '+lib.name+' from the extension catalog? The original video files will not be deleted.'))return;
       libraries = libraries.filter((l) => l.id !== lib.id);
       await deleteLibrary(lib.id); await mirrorSnapshot(); render();
     });
