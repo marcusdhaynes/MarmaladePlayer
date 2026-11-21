@@ -168,7 +168,7 @@
 .games-split-pill button small{font:700 9px/1.4 system-ui,sans-serif;
  text-overflow:ellipsis;overflow:hidden;max-width:100%}
 .games-split-pill button:not(:disabled):hover{background:#514362;color:#fff}
-.games-controls button:disabled{opacity:.29!important;
+.games-controls button:disabled{opacity:.5!important;
  filter:grayscale(.8);cursor:not-allowed!important;box-shadow:none!important}
 .games-dpad{flex:0 0 84px;width:84px;height:84px;
  display:grid;place-items:center;grid-template-columns:repeat(3,1fr);
@@ -275,7 +275,7 @@
  padding:9px 16px;cursor:pointer;background:linear-gradient(125deg,#128ab3,#1261a0);
  color:#ffffff;font:800 12px system-ui;box-shadow:0 5px 20px #028bd63d}
 .games-primary-action:hover:not(:disabled){background:linear-gradient(125deg,#1dbbdf,#1678bc)}
-.games-primary-action:disabled{opacity:.4;filter:grayscale(.7);cursor:not-allowed}
+.games-primary-action:disabled{opacity:.5;filter:grayscale(.7);cursor:not-allowed}
 .games-primary-action.games-end-action{background:linear-gradient(130deg,#622f47,#3a2d48);
  border-color:#b07386;box-shadow:none}
 .games-primary-action.games-end-action:hover{background:#7b354d}
@@ -531,7 +531,7 @@ body>.games-dialog::backdrop{
   z-index:1;
 }
 .games-panel .games-controls .games-nav-button:disabled{
-  opacity:.38!important;
+  opacity:.5!important;
   filter:none!important;
   cursor:not-allowed!important;
   transform:none!important;
