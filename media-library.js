@@ -1800,7 +1800,8 @@
       kind:lib?.kind||'movie',
       folders:(lib?.folders||[]).map(folder=>({...folder})),
       items:(lib?.items||[]).slice(),hiddenIds:(lib?.hiddenIds||[]).slice(),
-      createdAt:lib?.createdAt||now(),lastScan:lib?.lastScan||0
+      createdAt:lib?.createdAt||now(),lastScan:lib?.lastScan||0,
+      importAttempted:false
     };
     ui.dialogTitle.textContent=lib?'Manage Library':'Create Library';
     ui.save.textContent=(lib?.items||[]).length?
@@ -1872,6 +1873,7 @@
   // Firefox/Safari/WebViews without that API; it indexes the same files
   // for the current session and its catalog still persists.
   function pickFolder(){
+    if(state.pending)state.pending.importAttempted=true;
     if(!state.pending){
       notify('Choose or create a library before selecting a media folder.');
       return;
@@ -2014,6 +2016,12 @@
   }
   async function saveEditor(){
     const pending=currentPending();if(!pending)return;
+    if(pending.importAttempted&&!(pending.items||[]).length){
+      scanPreview('No video files have been added. Choose Add Folder or Add Videos and select playable files before saving.');
+      notify('No videos imported. Your library was not overwritten with an empty catalog.');
+      return;
+    }
+    delete pending.importAttempted;
     const name=ui.name.value.replace(/\s+/g,' ').trim();
     if(!name){ui.name.setCustomValidity('Give this library a name.');ui.name.reportValidity();return;}
     ui.name.setCustomValidity('');
@@ -2146,6 +2154,7 @@
     ui.pick.addEventListener('click',pickFolder);
     $('mlChooseVideos').addEventListener('click',()=>{
       if(!currentPending())return;
+      state.pending.importAttempted=true;
       scanPreview('Select one or more videos from any folder. No folder permission is needed.');
       ui.videoInput.value='';
       ui.videoInput.click();
