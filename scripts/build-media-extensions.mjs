@@ -13,7 +13,8 @@ const shared=['background.js','content.js','library.html'];
 const chrome=JSON.parse(readFileSync(resolve(src,'manifest.json'),'utf8'));
 const firefox=JSON.parse(readFileSync(resolve(src,'targets/firefox/manifest.json'),'utf8'));
 const targets=[['chrome',chrome],['edge',chrome],['brave',chrome],
-  ['opera',chrome],['vivaldi',chrome],['firefox',firefox],['safari',chrome]];
+  ['opera',chrome],['vivaldi',chrome],['minternet',chrome],
+  ['firefox',firefox],['safari',chrome]];
 const read=path=>readFileSync(resolve(src,path),'utf8');
 const unexport=source=>source.replace(/^export\s+/gm,'');
 const library=read('library.js').replace(
@@ -39,5 +40,5 @@ for(const [name,manifest] of targets){
   assert(!JSON.stringify(manifest).toLowerCase().includes('minternet'));
   assert.deepEqual([...manifest.permissions].sort(),['storage','unlimitedStorage']);
 }
-console.log('Built seven independent FIVE-file extensions: '+
+console.log('Built eight independent FIVE-file extensions: '+
   targets.map(x=>x[0]).join(', '));
