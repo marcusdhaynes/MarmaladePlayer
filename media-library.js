@@ -1422,8 +1422,13 @@
   }
   function gameItemPlayable(folder,item){
     if(!folder)return false;
+    // A localhost Minternet URL is not transferable to Chrome, Firefox or
+    // Safari. Never report that metadata as playable without the native
+    // add-on actually connected in this browser.
+    const nativeAvailable=!!nativeLibraryApi()&&
+      typeof window.MarmaladeAddonBridge?.chooseNativeStream==='function';
     return !!(folder.playHandle||folder.handle||state.sessionFiles.has(item.id)||
-      (folder.source==='native'&&item.url));
+      (folder.source==='native'&&item.url&&nativeAvailable));
   }
   function getGameLibraries(){
     return state.libraries.map(lib=>{
@@ -1661,7 +1666,8 @@
     const bridge=window.MarmaladeAddonBridge;
     if(bridge?.state?.role!=='host')
       throw Error('Only the host can select the game video. End your guest session before playing.');
-    if(folder.source==='native'&&item.url&&!folder.playHandle&&!state.sessionFiles.has(item.id)){
+    if(folder.source==='native'&&item.url&&nativeLibraryApi()&&
+       !folder.playHandle&&!state.sessionFiles.has(item.id)){
       if(!bridge.chooseNativeStream?.({url:item.url,name:item.name||item.title,
         size:item.size,id:item.id}))
         throw Error('The Minternet library stream could not open. Rescan the source in Minternet.');
