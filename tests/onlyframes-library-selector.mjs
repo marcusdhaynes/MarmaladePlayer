@@ -99,58 +99,94 @@ try{
   await page.locator('#onlyFramesModeChoice').click();
   assert.equal(await page.locator('#onlyFramesModeChoice').getAttribute('aria-pressed'),'true');
   await page.locator('#onlyFramesLibrary').selectOption('test-empty');
-  assert.equal(await page.locator('#onlyFramesAction').isDisabled(),true);
-  assert.match(await page.locator('#onlyFramesHint').textContent(),/empty/i);
-  await page.locator('#onlyFramesLibrary').selectOption('extlib:test');
   assert.equal(await page.locator('#onlyFramesAction').isEnabled(),true,
-    'Indexed extension libraries must offer an in-place connection path');
-  assert.equal(await page.locator('#onlyFramesAction').textContent(),'Connect & Play');
+    'An empty library must offer Choose & Play, not trap the user');
+  assert.equal(await page.locator('#onlyFramesFileActions').isVisible(),true);
+  assert.match(await page.locator('#onlyFramesHint').textContent(),/no videos yet/i);
+  await page.locator('#onlyFramesLibrary').selectOption('extlib:test');
+  assert.equal(await page.locator('#onlyFramesAction').isEnabled(),true);
+  assert.equal(await page.locator('#onlyFramesAction').textContent(),'Choose & Play');
+  assert.equal(await page.locator('#onlyFramesChooseVideos').isVisible(),true);
   assert.equal(await page.locator('#onlyFramesConnectLibrary').isVisible(),true);
-  assert.doesNotMatch(await page.locator('#onlyFramesHint').textContent(),/none can be opened here/i);
-  // Mimic a genuine user-authorized folder handle, with a real File object
-  // returned when a catalog relative path is opened.
+  // The native directory API may be blocked (system files) or absent.
+  // A normal FileList must work without ever calling that API.
   await page.evaluate(()=>{
-    window.__linkedFileName='';
-    const root={
-      kind:'directory',
-      queryPermission:async()=> 'granted',
-      getFileHandle:async name=>{
-        if(name!=='ext.mp4')throw Error('Unknown file');
-        return {kind:'file',getFile:async()=>new File(['video'],'ext.mp4',{type:'video/mp4'})};
-      }
+    window.__nativePickerCalls=0;window.__playedLocalName='';
+    window.showDirectoryPicker=async()=>{
+      window.__nativePickerCalls++;throw new DOMException('Contains system files','AbortError');
     };
-    window.showDirectoryPicker=async()=>root;
-  });
-  await page.locator('#onlyFramesConnectLibrary').click();
-  await page.waitForFunction(()=>
-    window.MarmaladeMediaLibrary.getGameLibraries()
-      .find(lib=>lib.id==='extlib:test')?.playableCount===1);
-  await page.waitForFunction(()=>
-    document.querySelector('#onlyFramesAction')?.textContent==='Play Game'&&
-    document.querySelector('#onlyFramesConnectLibrary')?.hidden===true);
-  assert.equal(await page.locator('#onlyFramesConnectLibrary').isVisible(),false);
-  assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getGameVideos('extlib:test').length),1);
-  await page.evaluate(async()=>{
+    delete window.MinternetMediaLibrary;
+    delete window.MarmaladeNativeLibrary;
     const bridge=window.MarmaladeAddonBridge;
     bridge.state.role='host';
-    bridge.chooseVideo=file=>{window.__linkedFileName=file.name;return true;};
-    await window.MarmaladeMediaLibrary.playGameVideo('extlib:test','ext-video');
+    bridge.chooseVideo=file=>{window.__playedLocalName=file.name;return true;};
   });
-  assert.equal(await page.evaluate(()=>window.__linkedFileName),'ext.mp4',
-    'The reconnected video must open in Marmaladeum, not in an extension tab');
-  // An extension refresh must preserve the website-origin connection.
-  await page.evaluate(async()=>{
-    window.MarmaladeNativeLibrary={
-      getCatalog:async()=>({libraries:[{id:'test',name:'Extension Vault',kind:'movie',
-        folders:[{id:'ext-folder',name:'Ext Folder'}],
-        items:[{id:'ext-video',folderId:'ext-folder',title:'Extension Video',
-          name:'ext.mp4',path:'ext.mp4'}]}]})
-    };
-    await window.MarmaladeMediaLibrary.syncFromExtension();
-    delete window.MarmaladeNativeLibrary;
+  await page.locator('#onlyFramesChooseVideos').click();
+  await page.locator('#onlyFramesDirectVideos').setInputFiles([
+    {name:'ext.mp4',mimeType:'video/mp4',buffer:Buffer.from('fake-video-bytes')},
+    {name:'second.mkv',mimeType:'video/x-matroska',buffer:Buffer.from('fake-video-bytes')}
+  ]);
+  await page.waitForFunction(()=>{
+    const local=window.MarmaladeMediaLibrary.getGameLibraries()
+      .find(lib=>lib.name.includes('Browser Library'));
+    return local?.playableCount===2;
   });
-  assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getGameVideos('extlib:test').length),1,
-    'Refreshing the extension catalog must not drop the authorized file handle');
+  const localId=await page.evaluate(()=>{
+    return window.MarmaladeMediaLibrary.getGameLibraries()
+      .find(lib=>lib.name.includes('Browser Library'))?.id;
+  });
+  assert(localId&&localId!=='extlib:test',
+    'Migrating extension-only metadata must create an independent local library');
+  assert.equal(await page.locator('#onlyFramesLibrary').inputValue(),localId);
+  assert.equal(await page.evaluate(()=>window.__nativePickerCalls),0,
+    'The browser-independent file flow must never invoke a blocked directory picker');
+  await page.evaluate(async id=>{
+    const entry=window.MarmaladeMediaLibrary.getGameVideos(id)
+      .find(video=>video.name==='ext.mp4');
+    await window.MarmaladeMediaLibrary.playGameVideo(id,entry.id);
+  },localId);
+  assert.equal(await page.evaluate(()=>window.__playedLocalName),'ext.mp4',
+    'Local File object must open directly in Marmaladeum, not the extension');
+  // Re-adding the same video selection should refresh its live File objects,
+  // not create duplicates or another disconnected folder.
+  for(let round=0;round<10;round++){
+    const snap=await page.evaluate(async id=>{
+      const files=[new File(['v'+Date.now()],'ext.mp4',{type:'video/mp4'}),
+        new File(['other'],'second.mkv',{type:'video/x-matroska'})];
+      return window.MarmaladeMediaLibrary.importGameFiles(id,files);
+    },localId);
+    assert.equal(snap.connected,true,'Local import round '+round);
+    assert.equal(snap.playableCount,2,'No duplicates on import round '+round);
+    assert.equal(snap.libraryId,localId,
+      'Local reimport must retain its independent ID on round '+round);
+  }
+  assert.equal(await page.evaluate(()=>window.__nativePickerCalls),0,
+    'Ten consecutive local reimports must stay independent of the blocked native picker');
+  // Persisted catalog survives a reload; when session File objects cannot,
+  // the library is retained for safe re-selection rather than being erased.
+  await page.keyboard.press('Escape');
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
+  const persisted=await page.evaluate(id=>
+    window.MarmaladeMediaLibrary.getGameLibraries().find(lib=>lib.id===id),localId);
+  assert.equal(persisted.count,2);
+  assert.equal(persisted.playableCount,0,
+    'After reloading, never claim cached metadata is an openable File');
+  await page.evaluate(async id=>{
+    const files=[new File(['restored'],'ext.mp4',{type:'video/mp4'}),
+      new File(['restored2'],'second.mkv',{type:'video/x-matroska'})];
+    await window.MarmaladeMediaLibrary.importGameFiles(id,files);
+    const bridge=window.MarmaladeAddonBridge;
+    bridge.state.role='host';
+    bridge.chooseVideo=file=>{window.__playedLocalName=file.name;return true;};
+    const video=window.MarmaladeMediaLibrary.getGameVideos(id)[0];
+    await window.MarmaladeMediaLibrary.playGameVideo(id,video.id);
+  },localId);
+  assert.equal(await page.evaluate(()=>window.__playedLocalName),'ext.mp4',
+    'Reauthorization after reload must reopen a real local File');
+  await page.locator('#settingsBtn').click();
+  await page.locator('#closeSettingsPanel').click();
+  await page.locator('#onlyFramesLaunch').click();
   await page.locator('#onlyFramesLibrary').selectOption('addon:test');
   assert.equal(await page.locator('#onlyFramesAction').isEnabled(),true,
     'A connected native source can be selected for play');
@@ -169,7 +205,7 @@ try{
   assert.equal(await page.locator('#onlyFramesDialog').evaluate(el=>el.open),false);
   assert.equal(await page.evaluate(()=>window.MarmaladeGames.isGameActive()),false);
   assert.deepEqual(errors,[],'No browser errors');
-  console.log('PASS extension library reauthorization and in-player playback, modal layer, mode pills and catalog preservation');
+  console.log('PASS 10x browser-only video import, protected-folder bypass, independent catalog, persistence, and direct playback');
 }finally{
   await browser.close();
   await new Promise(resolve=>server.close(resolve));
