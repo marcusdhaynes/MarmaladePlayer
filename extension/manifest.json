@@ -20,7 +20,7 @@
       "run_at": "document_start"
     }
   ],
-  "description": "Independent Marmaladeum media library catalog backup; remembers Chromium folder handles when permitted. No Minternet dependency.",
+  "description": "Independent persistent Marmaladeum media library catalog; optional remembered Chromium folder access.",
   "manifest_version": 3,
   "name": "Marmalade Library",
   "options_page": "library.html",
