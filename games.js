@@ -259,8 +259,8 @@
   }
   function syncControls(){
     const c=selectedControls();
-    control.previous.disabled=!c.previous||busy||!!pendingChoice||cursor<=0;
-    control.next.disabled=!c.next||busy||!!pendingChoice;
+    control.previous.disabled=!c.previous||busy||!!pendingChoice||!!loadFailure||cursor<=0;
+    control.next.disabled=!c.next||busy||!!pendingChoice||!!loadFailure;
     control.log.disabled=!c.log;
     for(const key of ['up','down','left','right'])
       control[key].disabled=!c.dpad||busy;
@@ -377,53 +377,136 @@
     }
   }
   function showDetails(){
-    openOverview();
-    showGameDialog();
-    void refreshLibrariesAfterLoad();
+    if(busy){
+      showLoading(loadingTitle.textContent,loadingMessage.textContent);
+    }else if(loadFailure){
+      showLoadFailure(loadFailure);
+    }else if(pendingChoice){
+      overview.hidden=true;loadingStep.hidden=true;step.hidden=false;showGameDialog();
+    }else{
+      loadingStep.hidden=true;openOverview();showGameDialog();
+      void refreshLibrariesAfterLoad();
+    }
     close.focus();
   }
   function closeDetails(){
     ++libraryRefreshToken;
     hideGameDialog();
-    if(pendingChoice){
+    if(pendingChoice&&!busy){
+      // Closing the chooser cancels this optional timestamp phase without
+      // claiming the frame loaded. The player remains paused.
       pendingChoice=null;
-      setGameStatus('CHOOSE NEXT FRAME');
+      setGameStatus('FRAME NOT SELECTED');
       syncControls();
       appendLog('notice','Frame skipped','No timestamp was chosen.');
     }
     launch.focus();
   }
-  function waitForMediaDuration(token){
-    const bridge=player(),video=bridge?.media;
-    if(!video) return Promise.reject(Error('The video player is unavailable.'));
+  // Gate every phase on decoded video data, not merely metadata. Streaming
+  // movies may never be fully buffered: HAVE_CURRENT_DATA is the correct
+  // condition for the current frame to be available without autoplay.
+  const MEDIA_READY_TIMEOUT_MS=30000;
+  let cancelMediaWait=null;
+  let loadFailure=null,retryWork=null;
+  const loadingStep=$('onlyFramesLoadingStep');
+  const loadingTitle=$('onlyFramesLoadingTitle');
+  const loadingMessage=$('onlyFramesLoadingMessage');
+  const loadingSpinner=$('onlyFramesLoadingSpinner');
+  const loadingRetry=$('onlyFramesRetryLoad');
+
+  function showLoading(title,message){
+    overview.hidden=true;step.hidden=true;loadingStep.hidden=false;
+    loadingTitle.textContent=title;
+    loadingMessage.textContent=message;
+    loadingSpinner.hidden=false;
+    loadingRetry.hidden=true;
+    showGameDialog();
+    setGameStatus('WAITING FOR VIDEO');
+  }
+  function showLoadFailure(message){
+    overview.hidden=true;step.hidden=true;loadingStep.hidden=false;
+    loadingTitle.textContent='Video Not Ready';
+    loadingMessage.textContent=message+' No game phase has advanced. Retry the same selection or end the game.';
+    loadingSpinner.hidden=true;loadingRetry.hidden=false;
+    showGameDialog();
+    setGameStatus('VIDEO NOT READY');
+    syncControls();
+  }
+  function cancelWait(){
+    const cancel=cancelMediaWait;
+    cancelMediaWait=null;
+    cancel?.();
+  }
+  function waitForMedia(token,valid,message){
+    const video=player()?.media;
+    if(!video)return Promise.reject(Error('Video player is unavailable.'));
     return new Promise((resolve,reject)=>{
-      let timer;
-      const valid=()=>token===generation&&activeGame==='onlyframes'&&
-        video.readyState>=1&&Number.isFinite(video.duration)&&video.duration>0&&!video.error;
+      let timer,settleTimer,done=false,settling=false;
+      const events=['loadedmetadata','durationchange','loadeddata','canplay',
+        'seeked','progress','timeupdate','error','abort','emptied'];
       const cleanup=()=>{
-        video.removeEventListener('loadedmetadata',onReady);
-        video.removeEventListener('durationchange',onReady);
-        video.removeEventListener('error',onError);
         clearTimeout(timer);
+        clearTimeout(settleTimer);
+        for(const name of events)video.removeEventListener(name,check);
+        if(cancelMediaWait===cancel)cancelMediaWait=null;
       };
-      const onReady=()=>{
-        if(token!==generation){cleanup();reject(Error('Game selection changed.'));return;}
-        if(!valid())return;
-        cleanup();resolve(video.duration);
+      const finish=(error,value)=>{
+        if(done)return;
+        done=true;cleanup();
+        if(error)reject(error);
+        else resolve(value);
       };
-      const onError=()=>{
-        cleanup();reject(Error('This selected video could not be decoded.'));
+      const cancel=()=>finish(Error('Game selection canceled.'));
+      const check=()=>{
+        if(done)return;
+        if(token!==generation||activeGame!=='onlyframes')return cancel();
+        if(video.error)return finish(Error('The video could not be decoded. Try another video or reconnect the source.'));
+        if(!valid(video))return;
+        if(settling)return;
+        // Confirm readiness a second time after allowing the decoded frame
+        // to reach the rendering pipeline. Metadata alone is insufficient.
+        settling=true;
+        settleTimer=setTimeout(()=>{
+          settling=false;
+          if(token!==generation||activeGame!=='onlyframes')return cancel();
+          if(video.error)return finish(Error('Video decoding failed.'));
+          if(valid(video))finish(null,video.duration);
+        },40);
       };
-      video.addEventListener('loadedmetadata',onReady);
-      video.addEventListener('durationchange',onReady);
-      video.addEventListener('error',onError);
-      timer=setTimeout(()=>{cleanup();reject(Error('The video did not report a playable duration.'));},18000);
-      onReady();
+      cancelMediaWait=cancel;
+      for(const name of events)video.addEventListener(name,check);
+      timer=setTimeout(()=>finish(Error(message)),MEDIA_READY_TIMEOUT_MS);
+      check();
     });
+  }
+  const hasDecodedVideo=video=>
+    video.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA &&
+    Number.isFinite(video.duration)&&video.duration>0 &&
+    video.videoWidth>0&&video.videoHeight>0&&
+    video.paused&&!video.error;
+  function waitForPlayableVideo(token){
+    return waitForMedia(token,hasDecodedVideo,
+      'This video has not produced a playable picture yet. Check its format, connection, or folder permissions.');
+  }
+  async function seekToLoadedFrame(token,seconds,duration){
+    const bridge=player(),video=bridge?.media;
+    if(!video)throw Error('The player is unavailable.');
+    const target=Math.max(0,Math.min(Math.max(0,duration-.05),Number(seconds)||0));
+    if(!bridge.pauseAndSeekGameFrame?.(target))
+      throw Error('Unable to select a frame from this video.');
+    await waitForMedia(token,media=>
+      hasDecodedVideo(media)&&!media.seeking&&
+      Math.abs(media.currentTime-target)<.25,
+      'The requested frame has not finished loading or seeking.');
+    if(token!==generation||activeGame!=='onlyframes')
+      throw Error('Game selection canceled.');
+    video.pause();
+    return target;
   }
   function displayTimePicker(video,duration){
     pendingChoice={...video,duration};
-    overview.hidden=true;step.hidden=false;showGameDialog();
+    overview.hidden=true;loadingStep.hidden=true;step.hidden=false;
+    showGameDialog();
     pickedTitle.textContent=video.title+' · '+video.libraryName;
     const max=Math.max(0,Math.floor(duration-0.05));
     timeRange.max=String(max);timeRange.value=String(Math.floor(max/2));
@@ -434,10 +517,8 @@
     timeRange.focus();
   }
   function updateTimeLabel(){timeValue.textContent=timeText(Number(timeRange.value));}
+  // Update gameplay and history only AFTER a real video frame is available.
   function recordFrame(video,duration,timestamp,fromHistoryIndex=null,direction='Frame'){
-    const bridge=player();
-    if(!bridge?.pauseAndSeekGameFrame?.(timestamp))
-      throw Error('Unable to show the chosen frame. The video may not be ready.');
     const time=Math.max(0,Math.min(Math.max(0,duration-.05),Number(timestamp)||0));
     if(fromHistoryIndex===null){
       history=history.slice(0,cursor+1);
@@ -452,34 +533,43 @@
   }
   async function displayVideo(video,{existingIndex=null,direction='Frame'}={}){
     if(activeGame!=='onlyframes'||busy)return;
-    busy=true;pendingChoice=null;
+    cancelWait();
+    busy=true;pendingChoice=null;loadFailure=null;retryWork=null;
     const token=++generation;
-    setGameStatus('LOADING VIDEO…');syncControls();
+    const options={existingIndex,direction};
+    showLoading('Loading Video',video.title+' · Waiting for a decoded picture before advancing.');
+    syncControls();
     try{
       player()?.setGameFrameMode?.(true);
       await mediaLibrary().playGameVideo(video.libraryId,video.id);
       if(token!==generation)return;
-      const duration=await waitForMediaDuration(token);
+      const duration=await waitForPlayableVideo(token);
       if(token!==generation)return;
       if(existingIndex!==null){
-        recordFrame(video,duration,video.timestamp,existingIndex,direction);
+        showLoading('Preparing Frame','Loading the earlier frame before restoring this game turn.');
+        const frame=await seekToLoadedFrame(token,video.timestamp,duration);
+        if(token!==generation)return;
+        recordFrame(video,duration,frame,existingIndex,direction);
         hideGameDialog();
       }else if(mode==='choice'){
+        // Player Choice is never shown before the video has loaded a picture.
         displayTimePicker(video,duration);
       }else{
         const max=Math.max(0,Math.floor(duration-0.05));
-        recordFrame(video,duration,randomIndex(max+1),null,direction);
+        const frameTime=randomIndex(max+1);
+        showLoading('Preparing Random Frame','Seeking to the random timestamp. Gameplay starts once the frame is ready.');
+        const frame=await seekToLoadedFrame(token,frameTime,duration);
+        if(token!==generation)return;
+        recordFrame(video,duration,frame,null,direction);
         hideGameDialog();
       }
     }catch(error){
       if(token!==generation)return;
-      const message=error?.message||'Could not select the video.';
-      setGameStatus('SELECTION FAILED');
-      hint.textContent=message;
-      appendLog('error','Selection failed',message);
-      // The game remains selected, so Next can recover after a transient
-      // failure without losing the player's scoreboard.
-      if(dialog.hidden)player()?.notify?.(message);
+      const message=error?.message||'The selected video has not loaded.';
+      loadFailure=message;
+      retryWork=()=>displayVideo(video,options);
+      appendLog('error','Video loading failed',message);
+      showLoadFailure(message);
     }finally{
       if(token===generation){busy=false;syncControls();}
     }
@@ -527,7 +617,8 @@
   }
   function endGame(){
     if(activeGame!=='onlyframes')return;
-    ++generation;busy=false;pendingChoice=null;
+    ++generation;cancelWait();busy=false;pendingChoice=null;
+    loadFailure=null;retryWork=null;
     const success=player()?.stopGameVideo?.();
     if(!success){
       hint.textContent='Could not stop the player. Use Stop in the video controls.';
@@ -537,21 +628,34 @@
     for(const item of players)item.score=0;
     persist();renderScores();
     activeGame=null;selectedLibrary=null;history=[];cursor=-1;
+    loadingStep.hidden=true;
     setGameStatus('SELECT A GAME');
     toggleLog(false);syncControls();
     hideGameDialog();step.hidden=true;overview.hidden=false;launch.focus();
   }
-  function confirmChoice(){
+  async function confirmChoice(){
     const choice=pendingChoice;
     if(!choice||activeGame!=='onlyframes'||busy)return;
+    busy=true;loadFailure=null;retryWork=null;
+    const token=++generation;
+    const timestamp=Number(timeRange.value);
+    showLoading('Preparing Chosen Frame','Waiting for the selected timestamp to decode before continuing.');
+    syncControls();
     try{
-      recordFrame(choice,choice.duration,Number(timeRange.value),null,'Player Choice');
-      pendingChoice=null;hideGameDialog();step.hidden=true;overview.hidden=false;
-      syncControls();
+      const frame=await seekToLoadedFrame(token,timestamp,choice.duration);
+      if(token!==generation)return;
+      recordFrame(choice,choice.duration,frame,null,'Player Choice');
+      pendingChoice=null;loadingStep.hidden=true;step.hidden=true;overview.hidden=false;
+      hideGameDialog();
     }catch(error){
-      hint.textContent=error?.message||'Unable to seek to this time.';
-      setGameStatus('SEEK FAILED');
-      player()?.notify?.(hint.textContent);
+      if(token!==generation)return;
+      const message=error?.message||'The selected frame has not loaded.';
+      loadFailure=message;
+      retryWork=()=>confirmChoice();
+      appendLog('error','Frame loading failed',message);
+      showLoadFailure(message);
+    }finally{
+      if(token===generation){busy=false;syncControls();}
     }
   }
   action.addEventListener('click',()=>activeGame?endGame():beginGame());
@@ -569,7 +673,15 @@
     updateLibrarySelection();
   });
   timeRange.addEventListener('input',updateTimeLabel);
-  $('onlyFramesConfirmTime').addEventListener('click',confirmChoice);
+  $('onlyFramesConfirmTime').addEventListener('click',()=>void confirmChoice());
+  loadingRetry.addEventListener('click',()=>{
+    const retry=retryWork;
+    if(!busy&&activeGame==='onlyframes'&&retry){
+      loadFailure=null;retryWork=null;
+      void retry();
+    }
+  });
+  $('onlyFramesEndLoading').addEventListener('click',endGame);
   control.previous.addEventListener('click',previousVideo);
   control.next.addEventListener('click',nextVideo);
   control.log.addEventListener('click',()=>toggleLog(logPanel.hidden));

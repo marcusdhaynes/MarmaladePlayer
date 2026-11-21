@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261112-compact-v2">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-modal-pill-libraries-v4">
+<link rel="stylesheet" href="./games.css?v=20261121-wait-media-ready-v5">
 </head>
 <body>
   <div class="app-shell">
@@ -809,6 +809,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                   <input id="onlyFramesTimeRange" type="range" min="0" max="0" step="1" value="0" aria-label="Choose a timestamp within the selected video">
                   <div class="games-time-labels"><output id="onlyFramesTimeValue">00:00</output><span id="onlyFramesTimeDuration">00:00</span></div>
                   <button type="button" id="onlyFramesConfirmTime" class="games-primary-action">Show Frame</button>
+                </div>
+                <div id="onlyFramesLoadingStep" class="games-loading-step" role="status" aria-live="polite" hidden>
+                  <span id="onlyFramesLoadingSpinner" class="games-loading-spinner" aria-hidden="true"></span>
+                  <strong id="onlyFramesLoadingTitle">Preparing Video</strong>
+                  <p id="onlyFramesLoadingMessage">Waiting for the video to load before continuing.</p>
+                  <div class="games-loading-actions">
+                    <button id="onlyFramesRetryLoad" class="games-primary-action" type="button" hidden>Retry Loading</button>
+                    <button id="onlyFramesEndLoading" class="games-loading-end" type="button">End Game</button>
+                  </div>
                 </div>
               </div>
             </dialog>
@@ -6167,7 +6176,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261121-all-game-libraries-v4" defer></script>
-<script src="./games.js?v=20261121-modal-pill-libraries-v4" defer></script>
+<script src="./games.js?v=20261121-wait-media-ready-v5" defer></script>
 <script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
