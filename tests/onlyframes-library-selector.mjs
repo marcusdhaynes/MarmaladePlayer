@@ -125,7 +125,9 @@ try{
   await page.waitForFunction(()=>
     window.MarmaladeMediaLibrary.getGameLibraries()
       .find(lib=>lib.id==='extlib:test')?.playableCount===1);
-  assert.equal(await page.locator('#onlyFramesAction').textContent(),'Play Game');
+  await page.waitForFunction(()=>
+    document.querySelector('#onlyFramesAction')?.textContent==='Play Game'&&
+    document.querySelector('#onlyFramesConnectLibrary')?.hidden===true);
   assert.equal(await page.locator('#onlyFramesConnectLibrary').isVisible(),false);
   assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getGameVideos('extlib:test').length),1);
   await page.evaluate(async()=>{
