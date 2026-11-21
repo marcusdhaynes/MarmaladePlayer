@@ -1545,18 +1545,21 @@
     // folder. This covers Firefox/Safari FileList sessions across page reloads
     // as well as users selecting individual video files from a prior folder.
     const allPrevious=lib.items||[];
-    const byName=new Map();
+    const byName=new Map(),byPath=new Map();
     for(const item of allPrevious){
-      const key=String(item.name||'').toLocaleLowerCase();
-      if(!byName.has(key))byName.set(key,[]);
-      byName.get(key).push(item);
+      const nameKey=String(item.name||'').toLocaleLowerCase();
+      const pathKey=String(item.path||'').toLocaleLowerCase();
+      if(!byName.has(nameKey))byName.set(nameKey,[]);
+      if(!byPath.has(pathKey))byPath.set(pathKey,[]);
+      byName.get(nameKey).push(item);
+      byPath.get(pathKey).push(item);
     }
     const pendingFiles=[];
     let linkedCount=0;
     for(const file of files){
       const parts=String(file.webkitRelativePath||'').split('/').filter(Boolean);
       const relative=parts.length>=2?parts.slice(1).join('/'):file.name;
-      const matches=allPrevious.filter(item=>item.path===relative);
+      const matches=byPath.get(relative.toLocaleLowerCase())||[];
       const named=byName.get(file.name.toLocaleLowerCase())||[];
       const exact=matches.length===1?matches[0]:named.length===1?named[0]:null;
       if(exact){
@@ -1863,7 +1866,7 @@
       await handleFolderSelection(handle);
     }catch(error){
       if(error?.name==='AbortError'){
-        scanPreview('Folder selection canceled. No changes were saved.');
+        scanPreview('Folder selection was canceled or blocked by browser security. No files changed. Use Add Folder or Add Videos instead.');
         return;
       }
       // A blocked native picker must never dead-end or fake success:
@@ -2132,7 +2135,7 @@
         // Honest failure for system webviews (Minternet without its add-on,
         // app WebViews): the picker can appear to work yet return nothing
         // to the page. Say so plainly instead of silently indexing 0.
-        scanPreview('No files were received from the folder picker — the library has not been changed. If you are in Minternet or another app webview, its built-in picker cannot return folders to web pages: enable Minternet\u2019s Local Media Library add-on, or open Marmalade in Chrome, Edge or Firefox instead.');
+        scanPreview('The browser returned no files, so nothing was changed. Use Add Videos to select movie files directly if the folder is protected.');
         state.autoAttachDraft=null;
         return;
       }
