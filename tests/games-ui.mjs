@@ -78,6 +78,27 @@ try{
  const mobileAlignment=await headerAlignment();
  assert(mobileAlignment.topPadding>=0&&mobileAlignment.bottomPadding>=0,
    'Mobile score boxes must remain wholly visible: '+JSON.stringify(mobileAlignment));
+ for(const width of [780,390,320]){
+   await page.setViewportSize({width,height:844});
+   const mobile=await page.evaluate(()=>{
+     const stage=document.querySelector('#dropZone').getBoundingClientRect();
+     const row=document.querySelector('#movieInfoRow');
+     const panels=[...row.querySelectorAll(':scope > section:not([hidden])')]
+       .map(el=>el.getBoundingClientRect());
+     const controlBar=document.querySelector('#gamesControls').getBoundingClientRect();
+     const dpad=document.querySelector('.games-dpad').getBoundingClientRect();
+     return {stageWidth:stage.width,leftGutter:stage.left,rightGutter:innerWidth-stage.right,
+       panelsInside:panels.every(p=>p.left>=stage.left-1&&p.right<=stage.right+1),
+       stacked:panels.every((p,i)=>i===0||p.top>=panels[i-1].bottom-1),
+       dpadTop:dpad.top-controlBar.top,dpadBottom:controlBar.bottom-dpad.bottom};
+   });
+   assert(Math.abs(mobile.leftGutter-mobile.rightGutter)<=2,
+     'The mobile player needs equal screen gutters: '+JSON.stringify({width,...mobile}));
+   assert(mobile.stageWidth<=width&&mobile.panelsInside&&mobile.stacked,
+     'Mobile panels must fit and stack beneath the player: '+JSON.stringify({width,...mobile}));
+   assert(mobile.dpadTop<=6&&mobile.dpadBottom<=6,
+     'Game controls must hug the D-Pad vertically: '+JSON.stringify({width,...mobile}));
+ }
  await page.setViewportSize({width:1440,height:850});
  assert.equal(await page.locator('#mlSettingsBtn').isVisible(),true);
  await page.locator('#mlSettingsBtn').click();

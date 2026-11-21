@@ -128,7 +128,7 @@
    framework for controls contributed by individual games. */
 .games-panel{
   display:grid;
-  grid-template-rows:minmax(0,3fr) minmax(105px,1fr);
+  grid-template-rows:minmax(0,1fr) auto;
   min-height:420px;isolation:isolate;
 }
 .games-collection{min-width:0;min-height:0;overflow:auto;scrollbar-width:thin;
@@ -148,8 +148,8 @@
  border:1px solid #42c7db;font:800 8px/1 system-ui;letter-spacing:.8px;color:#d6ffff}
 .games-card-active[hidden]{display:none!important}
 .games-controls{box-sizing:border-box;display:flex;align-items:center;
- min-width:0;min-height:105px;width:100%;height:100%;gap:10px;
- padding:11px 3px 0;margin-top:0;border-top:1px solid #c2a5c12b;
+ min-width:0;min-height:0;width:100%;height:auto;gap:10px;
+ padding:3px 3px 2px;margin-top:0;border-top:1px solid #c2a5c12b;
  position:relative}
 .games-controls::before{content:"";position:absolute;left:0;right:0;top:-1px;height:1px;
  background:linear-gradient(90deg,transparent,#c699b566 20%,#c699b566 80%,transparent);
@@ -200,7 +200,7 @@
  background:#53415e;border-color:#ab81c9;color:white}
 .games-log-panel[hidden]{display:none!important}
 .games-log-panel{position:absolute;z-index:10;
- left:12px;right:12px;top:12px;bottom:calc(25% + 8px);
+ left:12px;right:12px;top:12px;bottom:calc(var(--game-dpad-size,84px) + 13px);
  display:flex;flex-direction:column;min-height:0;overflow:hidden;
  border:1px solid #917a96;border-radius:13px;
  background:linear-gradient(140deg,rgba(36,30,47,.97),rgba(14,18,30,.98));
@@ -289,6 +289,7 @@
  font:750 12px ui-monospace,monospace;color:#c4ecf7}
 .games-timestamp-step .games-primary-action{margin:8px auto 2px}
 @media(max-width:930px){
+ .games-panel{--game-dpad-size:75px}
  .games-controls{gap:5px}
  .games-split-pill{flex-basis:118px;min-width:100px}
  .games-dpad{flex-basis:75px;width:75px;height:75px}
@@ -296,8 +297,8 @@
   height:25px;min-height:25px;padding-inline:2px}
 }
 @media(max-width:520px){
- .games-panel{grid-template-rows:minmax(0,3fr) minmax(98px,1fr)}
- .games-controls{gap:4px;min-height:98px;padding:10px 0 0}
+ .games-panel{--game-dpad-size:70px}
+ .games-controls{gap:4px;min-height:0;padding:3px 0 2px}
  .games-split-pill{flex:0 1 118px;min-width:95px}
  .games-dpad{flex:0 0 70px;width:70px;height:70px}
  .games-log-toggle{flex:0 0 38px;min-width:38px;width:38px;
@@ -635,4 +636,63 @@ body>.games-dialog::backdrop{
   margin:0 auto 8px;
   border-radius:7px;
   box-shadow:0 4px 16px #050a1e55;
+}
+
+
+/* Mobile viewport layout: identical left/right safe-area gutters, fluid
+   16:9 theater width, and natural source ordering for all visible panels.
+   Keep the native fullscreen/floating player rules independent. */
+@media(max-width:800px){
+  body:not(.theater-open) .app-shell{
+    --mobile-equal-gutter:max(clamp(10px,2.8vw,20px),env(safe-area-inset-left,0px),env(safe-area-inset-right,0px));
+    --mobile-panel-gap:clamp(8px,2.2vw,14px);
+    width:100%;max-width:100%;padding-inline:var(--mobile-equal-gutter)!important;
+  }
+  body:not(.theater-open) .workspace{
+    display:grid;grid-template-columns:minmax(0,1fr)!important;
+    width:100%;max-width:100%;min-width:0;
+    gap:var(--mobile-panel-gap);margin-inline:0;
+  }
+  body:not(.theater-open) .screen-column{
+    box-sizing:border-box;min-width:0;width:100%;max-width:100%;
+  }
+  body:not(.theater-open) .stage:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive){
+    box-sizing:border-box;width:100%;max-width:100%;height:auto;
+    aspect-ratio:16 / 9;margin-inline:auto;
+  }
+  body:not(.theater-open) .movie-info-row,
+  body:not(.theater-open) .movie-info-row[data-panel-count="2"],
+  body:not(.theater-open) .movie-info-row[data-panel-count="3"]{
+    display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+    gap:var(--mobile-panel-gap)!important;min-width:0;width:100%;
+    max-width:100%;align-items:start!important;
+  }
+  body:not(.theater-open) .movie-info-row>section:not([hidden]){
+    box-sizing:border-box;grid-column:auto!important;grid-row:auto!important;
+    min-width:0;width:100%;max-width:100%;margin:0!important;
+  }
+  body:not(.theater-open) .ml-panel,
+  body:not(.theater-open) .games-panel,
+  body:not(.theater-open) .media-info{
+    padding:clamp(10px,2.5vw,16px);
+  }
+  body:not(.theater-open) .ml-workspace,
+  body:not(.theater-open) .ml-main,
+  body:not(.theater-open) .games-collection{
+    min-width:0;max-width:100%;
+  }
+}
+@media(max-width:480px){
+  body:not(.theater-open) .ml-workspace{
+    grid-template-columns:minmax(0,1fr);
+  }
+  body:not(.theater-open) .ml-panel .ml-filters{
+    flex-wrap:wrap!important;
+  }
+  body:not(.theater-open) .ml-panel .ml-filters>*{
+    min-width:0;max-width:100%;
+  }
+  body:not(.theater-open) .ml-panel #mlSearch{
+    flex:1 1 100%;
+  }
 }
