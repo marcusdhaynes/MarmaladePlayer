@@ -1373,9 +1373,9 @@
     // website. A separately authorized same-origin handle can resolve it
     // without copying huge video files or creating a duplicate library.
     const root=folder.playHandle||folder.handle;
-    if(!root)throw Error('The indexed video folder needs file access. Use Connect Video Folder in OnlyFrames.');
+    if(!root)throw Error('Indexed titles are not playable until you select their local files. Use Choose Video Files in OnlyFrames.');
     if(!await permissions({handle:root},true))
-      throw Error('Folder permission is not granted. Use Connect Video Folder in OnlyFrames to authorize it.');
+      throw Error('The browser blocked that directory. Use Choose Video Files to select individual videos.');
     const pieces=item.path.split('/').filter(Boolean);
     let directory=root;
     for(const part of pieces.slice(0,-1))directory=await directory.getDirectoryHandle(part);
@@ -1685,7 +1685,7 @@
     if(!lib||!item)throw Error('That video is no longer in this library. Rescan the library and try again.');
     const folder=gameFolder(lib,item);
     if(!folder||!gameItemPlayable(folder,item))
-      throw Error('This video needs folder authorization. Select Connect Video Folder in OnlyFrames.');
+      throw Error('This video has only catalog metadata. Choose Video Files in OnlyFrames to play it locally.');
     const bridge=window.MarmaladeAddonBridge;
     if(bridge?.state?.role!=='host')
       throw Error('Only the host can select the game video. End your guest session before playing.');
