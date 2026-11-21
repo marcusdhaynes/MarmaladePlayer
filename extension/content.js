@@ -4,7 +4,17 @@
    extension/browser; only sanitized metadata crosses the window bridge. */
 'use strict';
 const ext=globalThis.browser||globalThis.chrome;
+const usesPromises=!!globalThis.browser;
 const ORIGIN=location.origin;
+const getStore=keys=>usesPromises?ext.storage.local.get(keys):
+  new Promise(resolve=>ext.storage.local.get(keys,result=>resolve(result||{})));
+const setStore=value=>usesPromises?ext.storage.local.set(value):
+  new Promise((resolve,reject)=>ext.storage.local.set(value,()=>{
+    const error=ext.runtime.lastError;
+    error?reject(new Error(error.message)):resolve();
+  }));
+const send=message=>usesPromises?ext.runtime.sendMessage(message):
+  new Promise(resolve=>ext.runtime.sendMessage(message,reply=>resolve(reply)));
 document.documentElement.dataset.marmaladeExtension='installed';
 
 function toPage(message){
@@ -50,33 +60,33 @@ window.addEventListener('message',event=>{
   const data=event.data;
   if(!data||data.source!=='marmalade-web')return;
   if(data.type==='ping'){
-    ext.runtime.sendMessage({type:'marmalade:ping'},reply=>{
-      // No access to filesystem handles is exposed to web origins.
-      toPage({type:'pong',version:reply?.version||'0.2.0'});
-    });
+    void send({type:'marmalade:ping'})
+      .then(reply=>toPage({type:'pong',version:reply?.version||'0.2.0'}))
+      .catch(()=>toPage({type:'pong',version:'0.2.0'}));
     return;
   }
   if(data.type==='get-catalog'){
-    ext.storage.local.get(['catalogSnapshot','siteCatalog'],result=>{
-      toPage({type:'catalog',
+    void getStore(['catalogSnapshot','siteCatalog'])
+      .then(result=>toPage({type:'catalog',
         libraries:Array.isArray(result?.catalogSnapshot)?result.catalogSnapshot:[],
         siteLibraries:Array.isArray(result?.siteCatalog?.libraries)?
-          result.siteCatalog.libraries:[]});
-    });
+          result.siteCatalog.libraries:[]}))
+      .catch(()=>toPage({type:'catalog',libraries:[],siteLibraries:[]}));
     return;
   }
   if(data.type==='backup-site-catalog'){
     const libraries=cleanLibraries(data.libraries);
     const revision=Number(data.revision)||Date.now();
     // Store only metadata in extension storage. Never store media bytes.
-    void Promise.resolve(ext.storage.local.set({
+    void setStore({
       siteCatalog:{libraries,revision,updatedAt:Date.now()}
-    })).then(()=>toPage({type:'backup-saved',revision}))
+    }).then(()=>toPage({type:'backup-saved',revision}))
       .catch(()=>toPage({type:'backup-error',revision}));
     return;
   }
   if(data.type==='play'){
-    ext.runtime.sendMessage({type:'marmalade:open-library',
-      itemId:safeText(data.itemId,680)},()=>toPage({type:'play-accepted'}));
+    void send({type:'marmalade:open-library',
+      itemId:safeText(data.itemId,680)})
+      .then(()=>toPage({type:'play-accepted'})).catch(()=>{});
   }
 });
