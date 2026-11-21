@@ -1393,9 +1393,9 @@
     }
     // Extension-held items play in the extension library page, which owns
     // the stored folder handles. The web page never receives handles/bytes.
-    if(ownerFolder?.source==='extension'){
-      window.postMessage({source:'marmalade-web',type:'play',itemId:item.id},location.origin);
-      notify('Opening in the Marmalade Library extension… If nothing opens, click the extension icon and choose Open Library.');
+    if(ownerFolder?.source==='extension'&&!state.sessionFiles.has(item.id)&&
+       !ownerFolder?.playHandle&&!ownerFolder?.handle){
+      notify('This title came from a metadata-only catalog. Use Add Video Files in the Media Library to create a playable, independent local library.');
       return;
     }
     const bridge=window.MarmaladeAddonBridge;
@@ -2136,6 +2136,27 @@
     ui.quickAdd.addEventListener('click',()=>{
       const lib=selectedLibrary();
       if(lib)chooseAndAttachFolder(lib);
+      else openEditor(null);
+    });
+    // Independent, one-click video import from any selected library or the
+    // All Videos shelf. Direct file selection sidesteps blocked system
+    // directories and works with ordinary browsers, even without extensions.
+    const quickFiles=$('mlQuickFiles'),quickButton=$('mlQuickAddVideos');
+    quickButton.addEventListener('click',()=>{
+      quickFiles.value='';
+      quickFiles.click();
+    });
+    quickFiles.addEventListener('change',event=>{
+      const files=Array.from(event.target.files||[]);
+      event.target.value='';
+      if(!files.length)return;
+      void (async()=>{
+        const result=await importGameFiles(
+          state.selected==='all'?null:state.selected,files);
+        if(result.connected){
+          notify(countLabel(result.imported)+' added locally. Click a video poster to play.');
+        }else notify(result.reason||'No supported video files were selected.');
+      })().catch(error=>notify('Unable to add videos: '+(error?.message||error)));
     });
     ui.art.addEventListener('click',()=>void findArtwork());
     ui.manage.addEventListener('click',()=>openEditor(selectedLibrary()));
