@@ -15,7 +15,10 @@ const setStore=value=>usesPromises?ext.storage.local.set(value):
   }));
 const send=message=>usesPromises?ext.runtime.sendMessage(message):
   new Promise(resolve=>ext.runtime.sendMessage(message,reply=>resolve(reply)));
-document.documentElement.dataset.marmaladeExtension='installed';
+if(document.documentElement)document.documentElement.dataset.marmaladeExtension='installed';
+else document.addEventListener('DOMContentLoaded',()=>{
+  if(document.documentElement)document.documentElement.dataset.marmaladeExtension='installed';
+},{once:true});
 
 function toPage(message){
   window.postMessage({source:'marmalade-extension',...message},ORIGIN);
