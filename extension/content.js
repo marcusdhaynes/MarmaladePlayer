@@ -49,7 +49,17 @@ function cleanLibraries(value){
         year:Number(entry.year)||null,season:Number(entry.season)||null,
         episode:Number(entry.episode)||null,
         favorite:entry.favorite===true,watched:entry.watched===true,
-        addedAt:Number(entry.addedAt)||0
+        watchlist:entry.watchlist===true,addedAt:Number(entry.addedAt)||0,
+        poster:safeText(entry.poster,250000),
+        posterCustomized:entry.posterCustomized===true,
+        overview:safeText(entry.overview,3500),
+        runtimeSec:Number(entry.runtimeSec)||null,
+        collections:Array.isArray(entry.collections)?entry.collections.slice(0,100)
+          .map(x=>safeText(x,180)):[],
+        playlists:Array.isArray(entry.playlists)?entry.playlists.slice(0,100)
+          .map(x=>safeText(x,180)):[],
+        metadataSource:safeText(entry.metadataSource,180),
+        customized:entry.customized===true,analyzedAt:Number(entry.analyzedAt)||null
       });
     }
     return [{id,name:safeText(lib.name,240),kind:safeText(lib.kind,16),
