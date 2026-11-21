@@ -106,7 +106,10 @@ try{
  const inspectNav=()=>page.locator('.games-split-pill').evaluate(group=>{
    const buttons=[...group.querySelectorAll('button')];
    const outer=group.getBoundingClientRect();
-   const controls=group.closest('.games-controls').getBoundingClientRect();
+   const footer=group.closest('.games-controls');
+   const controls=footer.getBoundingClientRect();
+   const dpadLeft=footer.querySelector('#gamesLeft').getBoundingClientRect();
+   const dpadRight=footer.querySelector('#gamesRight').getBoundingClientRect();
    const halves=buttons.map(button=>{
      const rect=button.getBoundingClientRect();
      const style=getComputedStyle(button);
@@ -114,6 +117,11 @@ try{
        width:rect.width,height:rect.height,disabled:button.disabled,
        icons:button.querySelectorAll('.games-nav-orb svg path').length,
        label:button.querySelector('.games-nav-label')?.textContent,
+       labelFits:(()=>{const label=button.querySelector('.games-nav-label');
+         const rect=label.getBoundingClientRect();
+         return label.scrollWidth<=label.clientWidth+1 &&
+           rect.left>=button.getBoundingClientRect().left-1 &&
+           rect.right<=button.getBoundingClientRect().right+1;})(),
        background:style.backgroundColor};
    });
    const style=getComputedStyle(group);
@@ -121,7 +129,8 @@ try{
    return {outer:{left:outer.left,right:outer.right,width:outer.width,
        height:outer.height},controls:{left:controls.left,right:controls.right},
      radius:style.borderRadius,gap:style.columnGap,background:style.backgroundImage,
-     dividerWidth:divider.width,halves};
+     dividerWidth:divider.width,dpadLeftHeight:dpadLeft.height,
+     dpadRightHeight:dpadRight.height,halves};
  });
  let nav=await inspectNav();
  assert.equal(nav.halves.length,2);
@@ -136,17 +145,25 @@ try{
  assert(nav.radius!=='0px'&&nav.dividerWidth==='1px'&&
    nav.background.includes('linear-gradient'),
    'A single rounded glass shell with a subtle center divider is required');
- assert(nav.outer.width<=184.5&&nav.outer.height<=44.5&&
+ assert(nav.outer.width<=112.5&&nav.outer.width>=103.5 &&
    nav.outer.left>=nav.controls.left-1&&nav.outer.right<=nav.controls.right+1,
-   'Connected toggle must stay compact and within the Games footer');
+   'Connected toggle must use only enough width for the icons and both labels');
+ assert(nav.halves.every(x=>x.labelFits),
+   'PREV and NEXT must remain fully readable without truncation');
+ assert(nav.halves.every(x=>Math.abs(x.height-nav.dpadLeftHeight)<.75)&&
+   Math.abs(nav.dpadLeftHeight-nav.dpadRightHeight)<.75,
+   'PREV and NEXT heights must exactly match the D-pad Left/Right buttons');
  for(const width of [780,390]){
    await page.setViewportSize({width,height:800});
    nav=await inspectNav();
    assert(Math.abs(nav.halves[0].width-nav.halves[1].width)<1 &&
      Math.abs(nav.halves[0].right-nav.halves[1].left)<1 &&
+     nav.halves.every(x=>x.labelFits &&
+       Math.abs(x.height-nav.dpadLeftHeight)<.75) &&
+     nav.outer.width<=108.5 &&
      nav.outer.left>=nav.controls.left-1 &&
      nav.outer.right<=nav.controls.right+1,
-     'Connected navigation must fit and stay symmetrical at '+width+'px: '+
+     'Compact navigation must fit, match D-pad height and retain labels at '+width+'px: '+
      JSON.stringify(nav));
  }
  await page.setViewportSize({width:1440,height:850});

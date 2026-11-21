@@ -414,41 +414,43 @@ body>.games-dialog::backdrop{
 }
 
 
-/* Marmaladeum Games navigation: one compact, connected, two-sided glass
-   control. The slim center rule separates equal interactive halves, while
-   the shared shell matches the dark crystalline transport and D-pad. */
+/* Size the connected game navigation to the actual side-cell height of the
+   D-pad (84/3, 75/3 or 70/3px). A shared inset outline avoids adding a
+   border to that height. Width is content-tight, with two equal halves. */
 .games-panel .games-split-pill{
+  --game-nav-height:28px;
+  --game-nav-width:112px;
   box-sizing:border-box;
-  position:relative;
   display:grid!important;
   grid-template-columns:repeat(2,minmax(0,1fr))!important;
-  flex:0 1 clamp(112px,44%,184px)!important;
-  width:clamp(112px,44%,184px)!important;
-  min-width:112px!important;
-  height:44px!important;
-  padding:2px!important;
+  flex:0 0 var(--game-nav-width)!important;
+  width:var(--game-nav-width)!important;
+  min-width:var(--game-nav-width)!important;
+  max-width:var(--game-nav-width)!important;
+  height:var(--game-nav-height)!important;
+  min-height:0!important;
+  padding:0!important;
   gap:0!important;
+  border:0!important;
+  border-radius:7px!important;
   align-items:stretch!important;
   overflow:hidden!important;
-  border:1px solid #716777!important;
-  border-radius:11px!important;
   background:linear-gradient(155deg,#373341,#24232d 65%,#1d202a)!important;
-  box-shadow:inset 0 1px 0 #ffffff18,0 3px 12px #0005!important;
+  box-shadow:inset 0 0 0 1px #716777,inset 0 1px 0 #ffffff18,0 2px 7px #0005!important;
 }
 .games-panel .games-split-pill .games-nav-button{
   box-sizing:border-box;
   position:relative;
-  isolation:isolate;
   display:flex!important;
   flex-direction:row!important;
   align-items:center!important;
   justify-content:center!important;
+  min-width:0!important;
   width:100%!important;
   height:100%!important;
-  min-width:0!important;
   margin:0!important;
-  padding:4px 3px!important;
-  gap:3px!important;
+  padding:2px 2px!important;
+  gap:2px!important;
   border:0!important;
   border-radius:0!important;
   background:transparent!important;
@@ -457,34 +459,27 @@ body>.games-dialog::backdrop{
   cursor:pointer;
   transition:background-color .15s ease,color .15s ease,opacity .15s ease;
 }
-.games-panel .games-split-pill .games-nav-prev{
-  border-radius:8px 0 0 8px!important;
-}
-.games-panel .games-split-pill .games-nav-next{
-  border-radius:0 8px 8px 0!important;
-}
+.games-panel .games-split-pill .games-nav-prev{border-radius:7px 0 0 7px!important}
+.games-panel .games-split-pill .games-nav-next{border-radius:0 7px 7px 0!important}
 .games-panel .games-split-pill .games-nav-next::before{
   content:"";
   position:absolute;
-  left:0;
-  top:6px;
-  bottom:6px;
-  width:1px;
+  left:0;top:5px;bottom:5px;width:1px;
   background:linear-gradient(180deg,transparent,#bba7be82 22%,#bba7be82 78%,transparent);
   pointer-events:none;
 }
 .games-panel .games-split-pill .games-nav-orb{
   box-sizing:border-box;
-  flex:0 0 23px!important;
-  width:23px!important;
-  height:26px!important;
+  flex:0 0 19px!important;
+  width:19px!important;
+  height:20px!important;
   min-width:0!important;
-  max-width:23px!important;
+  max-width:19px!important;
   aspect-ratio:auto!important;
   display:grid;
   place-items:center;
   border:1px solid #ffffff12!important;
-  border-radius:6px!important;
+  border-radius:5px!important;
   background:#ffffff0b!important;
   box-shadow:inset 0 1px #ffffff0a!important;
   color:#d7c9da!important;
@@ -492,20 +487,23 @@ body>.games-dialog::backdrop{
 .games-panel .games-split-pill .games-nav-orb::after{content:none!important}
 .games-panel .games-split-pill .games-nav-orb svg{
   display:block;
-  width:17px!important;
-  height:17px!important;
+  width:14px!important;
+  height:14px!important;
   overflow:visible;
 }
 .games-panel .games-split-pill .games-nav-label{
-  flex:0 1 auto;
-  min-width:0;
-  overflow:hidden;
+  box-sizing:border-box;
+  display:block;
+  flex:0 0 auto!important;
+  min-width:max-content!important;
+  max-width:none!important;
+  width:auto!important;
+  overflow:visible!important;
   white-space:nowrap;
-  text-overflow:clip;
   text-align:center;
   color:inherit;
   font:750 9px/1.15 system-ui,sans-serif!important;
-  letter-spacing:.025em!important;
+  letter-spacing:0!important;
   text-shadow:none!important;
 }
 .games-panel .games-split-pill .games-nav-button:hover:not(:disabled){
@@ -531,41 +529,31 @@ body>.games-dialog::backdrop{
 }
 @media(max-width:930px){
   .games-panel .games-split-pill{
-    flex-basis:clamp(112px,44%,164px)!important;
-    width:clamp(112px,44%,164px)!important;
-    height:42px!important;
-  }
-  .games-panel .games-split-pill .games-nav-button{
-    padding:3px 2px!important;
-    gap:2px!important;
+    --game-nav-height:25px;
+    --game-nav-width:108px;
   }
   .games-panel .games-split-pill .games-nav-orb{
-    flex-basis:21px!important;
-    width:21px!important;height:24px!important;max-width:21px!important;
+    flex-basis:17px!important;
+    width:17px!important;height:19px!important;max-width:17px!important;
   }
   .games-panel .games-split-pill .games-nav-orb svg{
-    width:15px!important;height:15px!important;
+    width:13px!important;height:13px!important;
   }
 }
 @media(max-width:520px){
   .games-panel .games-split-pill{
-    flex-basis:clamp(108px,44%,152px)!important;
-    width:clamp(108px,44%,152px)!important;
-    min-width:108px!important;
-    height:40px!important;
-    border-radius:9px!important;
+    --game-nav-height:calc(70px / 3);
+    --game-nav-width:104px;
+    border-radius:6px!important;
   }
   .games-panel .games-split-pill .games-nav-orb{
-    flex-basis:19px!important;
-    width:19px!important;height:22px!important;max-width:19px!important;
+    flex-basis:16px!important;
+    width:16px!important;height:17px!important;max-width:16px!important;
   }
   .games-panel .games-split-pill .games-nav-orb svg{
-    width:14px!important;height:14px!important;
+    width:12px!important;height:12px!important;
   }
-  .games-panel .games-split-pill .games-nav-label{
-    font-size:8px!important;
-    letter-spacing:0!important;
-  }
+  .games-panel .games-split-pill .games-nav-label{font-size:8px!important}
 }
 @media(prefers-reduced-motion:reduce){
   .games-panel .games-split-pill .games-nav-button{transition:none}
