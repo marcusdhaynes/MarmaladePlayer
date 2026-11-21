@@ -105,7 +105,7 @@ try{
    };
  });
  assert(officialArtwork.sameSource,'Game card and dialog use the exact same official image');
- assert.match(officialArtwork.cardSource,/onlyframes-official-poster\\.png$/);
+ assert.match(officialArtwork.cardSource,/onlyframes-official-poster\.png$/);
  assert.equal(officialArtwork.dialogSource,officialArtwork.cardSource);
  assert.deepEqual(officialArtwork.cardDimensions,[1024,1536],
    'Official poster must retain its full original 1024×1536 resolution');
@@ -200,6 +200,9 @@ try{
  await page.setViewportSize({width:1440,height:850});
  await page.locator('#onlyFramesLaunch').click();
  assert.equal(await page.locator('#onlyFramesDialog').isVisible(),true);
+ assert.deepEqual(await page.locator('#onlyFramesDialog .games-dialog-logo')
+   .evaluate(img=>[img.naturalWidth,img.naturalHeight]),[1024,1536],
+   'Game modal must display the full exact uploaded OnlyFrames poster');
  assert.equal(await page.locator('#onlyFramesTimeInput').getAttribute('inputmode'),'numeric',
    'Player Choice provides a numeric HH:MM:SS timestamp input');
  assert.match(await page.locator('#onlyFramesDialog').textContent(),/RULES[\s\S]*WIN \/ LOSE CONDITION/i);
