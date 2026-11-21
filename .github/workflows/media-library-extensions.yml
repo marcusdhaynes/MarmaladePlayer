@@ -33,13 +33,13 @@ jobs:
         run: |
           node scripts/build-media-extensions.mjs
           mkdir -p dist/extension-packages
-          for target in chrome edge brave opera vivaldi firefox safari; do
+          for target in chrome edge brave opera vivaldi minternet firefox safari; do
             cd "dist/media-extensions/$target"
             zip -q -r "../../extension-packages/marmalade-library-$target.zip" .
             cd ../../..
           done
           cp dist/extension-packages/marmalade-library-firefox.zip dist/extension-packages/marmalade-library-firefox-unsigned.xpi
-          python3 -c "import glob,zipfile; files=glob.glob('dist/extension-packages/*.zip'); assert len(files)==7; assert all(len([n for n in zipfile.ZipFile(f).namelist() if not n.endswith('/')])==5 for f in files)"
+          python3 -c "import glob,zipfile; files=glob.glob('dist/extension-packages/*.zip'); assert len(files)==8; assert all(len([n for n in zipfile.ZipFile(f).namelist() if not n.endswith('/')])==5 for f in files)"
           node --input-type=module --check < dist/media-extensions/chrome/library.js
           node --input-type=module --check < dist/media-extensions/firefox/library.js
       - uses: actions/upload-artifact@v4
