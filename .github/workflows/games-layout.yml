@@ -34,7 +34,7 @@ jobs:
           node --check games.js
           node --check tests/games-ui.mjs
       - run: npm install --no-save --no-package-lock playwright@1.56.1
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox webkit
       - name: Check Games window height and scoreboard alignment
         run: node tests/games-ui.mjs
       - name: Verify OnlyFrames session, random videos, timestamp picker and End Game
@@ -45,5 +45,8 @@ jobs:
         run: node tests/game-no-autoplay.mjs
       - name: Show every Media Library in the top-layer game selector
         run: node tests/onlyframes-library-selector.mjs
-      - name: Verify browser-only video folder, files and ten repeated relinks
-        run: node tests/browser-local-video-fallback.mjs
+      - name: Verify local files in Chromium, Firefox and WebKit (ten passes each)
+        run: |
+          for browser in chromium firefox webkit; do
+            MARMALADE_BROWSER="$browser" node tests/browser-local-video-fallback.mjs
+          done
