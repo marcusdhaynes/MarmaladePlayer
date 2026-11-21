@@ -201,7 +201,7 @@
     catch(error){
       // WebViews can disallow structured-cloning directory handles. Catalog
       // metadata survives, while folder access must be reauthorized.
-      const plain={...lib,folders:lib.folders.map(f=>({...f,handle:null}))};
+      const plain={...lib,folders:lib.folders.map(f=>({...f,handle:null,playHandle:null}))};
       try{await dbOperation('readwrite','put',plain);
         notify('Library saved. This browser requires folder access again after reopening.');}
       catch{notify('Unable to save this library on this device. It remains available until this tab closes.');}
@@ -1354,16 +1354,17 @@
     const lib=state.libraries.find(l=>l.id===item.libraryId);
     const folder=lib?.folders.find(f=>f.id===item.folderId);
     if(!folder)throw Error('This source folder is no longer in your library.');
-    if(folder.source==='extension')throw Error('This video is held by the Marmalade Library extension. Use Play and it will open in the extension library.');
-    if(folder.source==='session'){
-      const file=state.sessionFiles.get(item.id);
-      if(file)return {file,handle:null};
-      throw Error('Folder access expired. Choose Manage Library and reconnect the folder.');
-    }
-    if(!folder.handle)throw Error('Folder access expired. Choose Manage Library and reconnect it.');
-    if(!await permissions(folder,true))throw Error('Folder access was not granted. Reconnect the folder.');
+    const sessionFile=state.sessionFiles.get(item.id);
+    if(sessionFile)return {file:sessionFile,handle:null};
+    // A browser-extension catalog cannot transfer directory handles to the
+    // website. A separately authorized same-origin handle can resolve it
+    // without copying huge video files or creating a duplicate library.
+    const root=folder.playHandle||folder.handle;
+    if(!root)throw Error('The indexed video folder needs file access. Use Connect Video Folder in OnlyFrames.');
+    if(!await permissions({handle:root},true))
+      throw Error('Folder permission is not granted. Use Connect Video Folder in OnlyFrames to authorize it.');
     const pieces=item.path.split('/').filter(Boolean);
-    let directory=folder.handle;
+    let directory=root;
     for(const part of pieces.slice(0,-1))directory=await directory.getDirectoryHandle(part);
     const handle=await directory.getFileHandle(pieces[pieces.length-1]);
     const file=await handle.getFile();
@@ -1412,48 +1413,115 @@
       notify('Playing '+file.name+' · Your video stays on this device.');
     }catch(error){notify(error?.message||'This video cannot be accessed. Reconnect the folder.');}
   }
-  // A restricted game bridge: returns safe catalog metadata and delegates
-  // random selections through exactly the same native/file playback paths.
-  // Every actual library appears in the Games dropdown, including empty,
-  // disconnected, and extension-only libraries. Playability is separate.
+  // Library catalogs and file access are different. Browser extensions
+  // cannot give a web page their FileSystemDirectoryHandles; the website
+  // can acquire its own folder handle and remember it alongside the catalog.
   function gameFolder(lib,item){
     return (lib.folders||[]).find(folder=>folder.id===item.folderId)||
       (lib.id.startsWith('addon:')&&item.url?{source:'native'}:null);
   }
+  function gameItemPlayable(folder,item){
+    if(!folder)return false;
+    return !!(folder.playHandle||folder.handle||state.sessionFiles.has(item.id)||
+      (folder.source==='native'&&item.url));
+  }
   function getGameLibraries(){
-    return state.libraries.map(lib=>({
-      id:lib.id,name:lib.name,kind:lib.kind,
-      count:(lib.items||[]).length,
-      playableCount:getGameVideos(lib.id).length
-    }));
+    return state.libraries.map(lib=>{
+      let playableCount=0,unlinkedCount=0;
+      for(const item of lib.items||[]){
+        if(gameItemPlayable(gameFolder(lib,item),item))playableCount++;
+        else unlinkedCount++;
+      }
+      return {id:lib.id,name:lib.name,kind:lib.kind,
+        count:(lib.items||[]).length,playableCount,unlinkedCount};
+    });
   }
   function getGameVideos(libraryId){
     const lib=state.libraries.find(lib=>lib.id===libraryId);
     if(!lib)return [];
-    return (lib.items||[]).filter(item=>{
-      const folder=gameFolder(lib,item);
-      if(!folder||folder.source==='extension')return false;
-      if(folder.source==='native')return !!item.url;
-      if(folder.source==='session')return state.sessionFiles.has(item.id);
-      return !!folder.handle;
-    }).map(item=>({id:item.id,title:item.title||item.name,
+    return (lib.items||[]).filter(item=>
+      gameItemPlayable(gameFolder(lib,item),item)).map(item=>({
+      id:item.id,title:item.title||item.name,
       name:item.name||item.title||'Library Video',runtimeSec:Number(item.runtimeSec)||null,
       kind:item.type==='tv'||item.type==='movie'?item.type:(lib.kind==='tv'?'tv':'movie'),
       year:item.year||null,favorite:item.favorite===true,
-      libraryId:lib.id,libraryName:lib.name}));
+      libraryId:lib.id,libraryName:lib.name
+    }));
+  }
+  // Acquire a same-origin handle only after a user deliberately asks to
+  // connect the folder. No silent permission bypass or file transfer.
+  // Confirm an existing indexed relative path before storing the handle:
+  // choosing an unrelated folder can never count as a successful repair.
+  async function connectGameLibrary(libraryId,chooseFolder){
+    const lib=state.libraries.find(lib=>lib.id===libraryId);
+    if(!lib)throw Error('Library not found.');
+    const folder=(lib.folders||[]).find(candidate=>
+      !candidate.handle&&!candidate.playHandle&&
+      (lib.items||[]).some(item=>item.folderId===candidate.id&&!state.sessionFiles.has(item.id)));
+    if(!folder)return {connected:false,remaining:0};
+    const entries=lib.items.filter(item=>item.folderId===folder.id);
+    if(!entries.length)throw Error('The selected library folder contains no indexed video.');
+    // This callback opens showDirectoryPicker directly in the user click.
+    const handle=await chooseFolder(folder);
+    if(!handle)return {connected:false,cancelled:true};
+    if(handle.kind!=='directory'||!await permissions({handle},true))
+      throw Error('The video folder was not authorized.');
+    let matched=false;
+    for(const entry of entries){
+      try{
+        const parts=String(entry.path||entry.name||'').split('/').filter(Boolean);
+        if(!parts.length)continue;
+        let dir=handle;
+        for(const part of parts.slice(0,-1))dir=await dir.getDirectoryHandle(part);
+        const fileHandle=await dir.getFileHandle(parts[parts.length-1]);
+        if(fileHandle?.kind==='file'){matched=true;break;}
+      }catch{/* Try another indexed file; the folder may have changed. */}
+    }
+    if(!matched)throw Error('The folder does not contain any of the indexed videos. Choose the original folder.');
+    folder.playHandle=handle;
+    await persist(lib);
+    render();
+    const stats=getGameLibraries().find(item=>item.id===libraryId);
+    return {connected:true,folder:folder.name,playableCount:stats?.playableCount||0,
+      remaining:stats?.unlinkedCount||0};
+  }
+  // Browser engines without persistent directory handles may provide only
+  // a FileList. Use each selected File in place, keeping its catalog ID.
+  function connectGameFiles(libraryId,files){
+    const lib=state.libraries.find(lib=>lib.id===libraryId);
+    if(!lib)return {connected:false,remaining:0};
+    const available=new Map();
+    for(const file of Array.from(files||[])){
+      const parts=String(file.webkitRelativePath||file.name).split('/').filter(Boolean);
+      const relative=parts.length>1?parts.slice(1).join('/'):file.name;
+      available.set(relative,file);
+    }
+    const folder=(lib.folders||[]).find(candidate=>
+      (lib.items||[]).some(item=>item.folderId===candidate.id&&
+        !gameItemPlayable(candidate,item)&&available.has(item.path)));
+    if(!folder)return {connected:false,remaining:(getGameLibraries().find(l=>l.id===libraryId)?.unlinkedCount||0)};
+    for(const item of lib.items||[]){
+      if(item.folderId!==folder.id)continue;
+      const file=available.get(item.path);
+      if(file)state.sessionFiles.set(item.id,file);
+    }
+    render();
+    const stats=getGameLibraries().find(item=>item.id===libraryId);
+    return {connected:true,folder:folder.name,playableCount:stats?.playableCount||0,
+      remaining:stats?.unlinkedCount||0,sessionOnly:true};
   }
   async function playGameVideo(libraryId,itemId){
     const lib=state.libraries.find(lib=>lib.id===libraryId);
     const item=lib?.items.find(item=>item.id===itemId);
     if(!lib||!item)throw Error('That video is no longer in this library. Rescan the library and try again.');
     const folder=gameFolder(lib,item);
-    if(!folder||folder.source==='extension')
-      throw Error('This source cannot play inside Marmaladeum. Choose a connected local or Minternet library.');
+    if(!folder||!gameItemPlayable(folder,item))
+      throw Error('This video needs folder authorization. Select Connect Video Folder in OnlyFrames.');
     const bridge=window.MarmaladeAddonBridge;
     if(bridge?.state?.role!=='host')
       throw Error('Only the host can select the game video. End your guest session before playing.');
-    if(folder.source==='native'){
-      if(!item.url||!bridge.chooseNativeStream?.({url:item.url,name:item.name||item.title,
+    if(folder.source==='native'&&item.url&&!folder.playHandle&&!state.sessionFiles.has(item.id)){
+      if(!bridge.chooseNativeStream?.({url:item.url,name:item.name||item.title,
         size:item.size,id:item.id}))
         throw Error('The Minternet library stream could not open. Rescan the source in Minternet.');
     }else{
@@ -2085,9 +2153,16 @@
     for(const extLib of libraries||[]){
       if(!extLib?.id||!Array.isArray(extLib.items))continue;
       const libId='extlib:'+extLib.id;
-      const folders=(extLib.folders||[]).map(f=>({id:f.id,name:f.name,source:'extension',handle:null}));
-      const items=extLib.items.map(item=>{const copy={...item};delete copy.libraryId;return copy;});
       const existing=state.libraries.find(l=>l.id===libId);
+      // Keep the user's website-authorized folder handles when a new
+      // extension metadata snapshot arrives. Otherwise every resync breaks
+      // a previously playable game library.
+      const oldFolders=new Map((existing?.folders||[]).map(f=>[f.id,f]));
+      const folders=(extLib.folders||[]).map(f=>({
+        id:f.id,name:f.name,source:'extension',handle:null,
+        playHandle:oldFolders.get(f.id)?.playHandle||null
+      }));
+      const items=extLib.items.map(item=>{const copy={...item};delete copy.libraryId;return copy;});
       const record={id:libId,name:extLib.name||'Extension Library',kind:extLib.kind||'movie',
         folders,items,hiddenIds:extLib.hiddenIds||existing?.hiddenIds||[],
         createdAt:existing?.createdAt||now(),lastScan:extLib.lastScan||now()};
@@ -2179,7 +2254,7 @@
     getLibraries:()=>state.libraries.map(l=>({id:l.id,name:l.name,kind:l.kind,
       folders:l.folders.map(f=>({id:f.id,name:f.name,source:f.source})),
       count:l.items.length})),
-    getGameLibraries,getGameVideos,playGameVideo,
+    getGameLibraries,getGameVideos,playGameVideo,connectGameLibrary,connectGameFiles,
     isVisible:()=>!panel.hidden,refresh:()=>{const l=selectedLibrary();return l?scanLibrary(l,{ask:true}):Promise.resolve();}
   };
 })();
