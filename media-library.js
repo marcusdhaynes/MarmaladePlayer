@@ -1438,6 +1438,8 @@
       return !!folder.handle;
     }).map(item=>({id:item.id,title:item.title||item.name,
       name:item.name||item.title||'Library Video',runtimeSec:Number(item.runtimeSec)||null,
+      kind:item.type==='tv'||item.type==='movie'?item.type:(lib.kind==='tv'?'tv':'movie'),
+      year:item.year||null,favorite:item.favorite===true,
       libraryId:lib.id,libraryName:lib.name}));
   }
   async function playGameVideo(libraryId,itemId){
