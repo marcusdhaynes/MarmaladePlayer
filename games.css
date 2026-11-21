@@ -1122,3 +1122,12 @@ body>.games-dialog::backdrop{
     .mi-credentials{padding:6px;margin:3px 0 8px}
   }
 }
+
+/* In the mobile panel grid, the Games footer itself defines the bottom
+   inset. Do not add a second card padding below it (which offsets the
+   divider-to-D-pad and D-pad-to-window spacing). */
+@media(max-width:800px){
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row>.games-panel:not([hidden]){
+    padding-bottom:0!important;
+  }
+}
