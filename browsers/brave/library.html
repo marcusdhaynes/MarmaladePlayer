@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Marmalade Library</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif}
+*{box-sizing:border-box}
+body{background:#111827;color:#f0f8ff;max-width:950px;margin:0 auto;padding:15px}
+h1{font-size:21px;margin:0 0 5px}h2{font-size:14px;margin:0}
+p{margin:6px 0}small,.muted{color:#a8bed0;font-size:11px}
+.toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0}
+button,input,select{font:12px system-ui,sans-serif;border-radius:7px;min-height:29px}
+button{background:#166083;color:white;border:1px solid #458aac;cursor:pointer;padding:5px 11px;font-weight:650}
+button:hover{background:#23779b}button:disabled{opacity:.5}
+button.secondary{background:#203149}
+input,select{background:#162638;color:white;border:1px solid #405973;padding:4px 8px;min-width:0}
+#libName{width:clamp(125px,24vw,220px)}.status{min-height:18px;color:#80d7ec}
+.card{display:flex;align-items:center;justify-content:space-between;gap:6px;
+ padding:7px 9px;background:#1a2939;border:1px solid #324960;border-radius:7px;margin:4px 0}
+.card span{overflow-wrap:anywhere;min-width:0}
+section.library{margin:9px 0;padding:10px;border:1px solid #41566b;border-radius:10px;background:#142233}
+.line{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+#playerWrap{margin:9px 0}video{background:#000;width:100%;max-height:52vh}
+#librarySearch{width:min(240px,100%)}[hidden]{display:none!important}
+footer{margin-top:16px;border-top:1px solid #38546b;padding-top:7px}
+</style>
+</head>
+<body>
+<h1>Marmalade Library</h1>
+<p class="muted">Browser-independent catalog retention for marmaladeum.com. The extension backs up
+library names, videos, folders and metadata automatically. Chrome/Edge can additionally remember
+authorized folder handles. Firefox and Safari may require selecting files again after restart.
+Your video bytes are never uploaded or copied into extension storage.</p>
+<div class="toolbar">
+<input type="text" id="libName" placeholder="Library name" maxlength="80" aria-label="Library name">
+<select id="libKind" aria-label="Library type"><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="mixed">Other Videos</option></select>
+<button id="addFolder" type="button">+ Folder</button>
+<button id="addFiles" type="button">+ Videos</button>
+<button id="rememberFolder" class="secondary" type="button" hidden>Remember Folder</button>
+</div>
+<input type="file" id="dirInput" webkitdirectory directory multiple hidden>
+<input type="file" id="filesInput" multiple accept="video/*,.mkv,.mp4,.avi,.mov,.webm,.m4v,.wmv" hidden>
+<p id="status" role="status" class="status"></p>
+<div id="playerWrap" hidden>
+  <div class="line"><strong id="nowPlaying"></strong><button id="closePlayer" type="button" class="secondary">Close</button></div>
+  <video id="player" controls></video>
+</div>
+<div class="toolbar"><input type="search" id="librarySearch" placeholder="Search saved videos…"></div>
+<div id="libraries"></div>
+<footer>
+  <p id="backupStatus" class="muted">Checking Marmaladeum backup…</p>
+  <div class="toolbar">
+    <button id="exportBackup" class="secondary" type="button">Export Catalog Backup</button>
+    <button id="importBackup" class="secondary" type="button">Restore Catalog Backup</button>
+    <input id="backupFile" type="file" accept=".json,application/json" hidden>
+  </div>
+  <small>Catalog backups do not include movie files. Uninstalling this extension or clearing extension data removes its local storage unless you exported a backup.</small>
+</footer>
+<script type="module" src="library.js"></script>
+</body></html>

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 164" role="img" aria-label="OnlyFrames">
-<defs>
- <linearGradient id="word" x1="0" y1="0" x2="0.9" y2="1"><stop stop-color="#24f1f4"/><stop offset="0.5" stop-color="#04b8ef"/><stop offset="1" stop-color="#0b8af5"/></linearGradient>
- <filter id="glow"><feGaussianBlur stdDeviation="4"/></filter>
-</defs>
-<text x="25" y="105" fill="#f7ffff" font-family="Arial,Helvetica,sans-serif" font-size="91" font-style="italic" font-weight="900" letter-spacing="-5">Only</text>
-<text x="251" y="105" fill="url(#word)" font-family="Arial,Helvetica,sans-serif" font-size="91" font-style="italic" font-weight="900" letter-spacing="-5">Frames</text>
-<path d="M45 128Q220 154 418 127Q517 114 605 132" fill="none" stroke="#10daf5" stroke-width="10" stroke-linecap="round"/>
-</svg>
