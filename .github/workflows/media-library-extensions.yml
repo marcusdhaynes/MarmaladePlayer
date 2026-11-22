@@ -42,6 +42,17 @@ jobs:
           python3 -c "import glob,zipfile; files=glob.glob('dist/extension-packages/*.zip'); assert len(files)==8; assert all(len([n for n in zipfile.ZipFile(f).namelist() if not n.endswith('/')])==5 for f in files)"
           node --input-type=module --check < dist/media-extensions/chrome/library.js
           node --input-type=module --check < dist/media-extensions/firefox/library.js
+      - name: Build outer ZIP that also imports in older Minternet builds
+        run: |
+          set -euo pipefail
+          mkdir -p dist/universal-direct-import/browser-packages
+          for file in manifest.json background.js content.js library.html library.js; do
+            cp "dist/media-extensions/minternet/$file" "dist/universal-direct-import/$file"
+          done
+          cp dist/extension-packages/*.zip dist/universal-direct-import/browser-packages/
+          printf '%s\n' 'Minternet: select THIS OUTER ZIP from Extensions > Minternet > Import. Its manifest.json and runtime files are at the ZIP root for compatibility with older importers. The browser-specific ZIPs remain inside browser-packages/. File permissions still follow browser/OS rules.' > dist/universal-direct-import/DIRECT-IMPORT.txt
+          (cd dist/universal-direct-import && zip -q -r ../extension-packages/marmalade-library-universal-direct-import.zip manifest.json background.js content.js library.html library.js DIRECT-IMPORT.txt browser-packages)
+          python3 -c "import zipfile,json; p='dist/extension-packages/marmalade-library-universal-direct-import.zip'; z=zipfile.ZipFile(p); assert z.testzip() is None; assert json.loads(z.read('manifest.json'))['manifest_version']==3; assert len([x for x in z.namelist() if x.endswith('.zip')])==8; print('PASS: outer ZIP imports directly and includes eight nested browser packages')"
       - uses: actions/upload-artifact@v4
         with:
           name: marmalade-library-extensions-v0.2.0
