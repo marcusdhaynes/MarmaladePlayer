@@ -72,9 +72,9 @@
  const turn=document.createElement('details');
  turn.className='rapid-turn';turn.id='rapidTurn';turn.innerHTML=
    '<summary>VPN / Restricted Network Relay</summary>'+
-   '<p class="rapid-turn-tip">Some VPNs block direct peer connections. A working TURN relay is required on those networks. Configure it on each device before joining.</p>'+
+   '<p class="rapid-turn-tip">Direct connections are tried automatically. Managed TURN is used when configured by the deployment. Restricted VPNs may need authenticated TURN over TLS/TCP 443. Manual routes are optional.</p>'+
    '<div class="rapid-turn-fields">'+
-   '<label>TURN address<input id="rapidTurnUrl" type="text" maxlength="250" placeholder="turns:relay.example.com:5349"></label>'+
+   '<label>TURN addresses<input id="rapidTurnUrl" type="text" maxlength="1200" placeholder="turns:relay.example.com:443?transport=tcp"></label>'+
    '<label>Username<input id="rapidTurnUser" type="text" maxlength="200" autocomplete="off" placeholder="Username"></label>'+
    '<label>Password<input id="rapidTurnPassword" type="password" maxlength="300" autocomplete="off" placeholder="Credential"></label>'+
    '<label class="rapid-turn-force"><input id="rapidTurnForce" type="checkbox"> Force relay (VPN only)</label>'+
@@ -91,8 +91,8 @@
  $('rapidTurnSave').addEventListener('click',()=>{
    const url=$('rapidTurnUrl').value.trim(),user=$('rapidTurnUser').value.trim();
    const pass=$('rapidTurnPassword').value;
-   if(url&&!/^(?:turn|turns):[A-Za-z0-9.:[\]-]+(?::\d{1,5})?(?:\?transport=(?:tcp|udp))?$/.test(url)){
-     $('rapidTurnStatus').textContent='Enter a valid turn: or turns: address with no spaces.';return;
+   if(url&&!url.split(/[\s,;]+/).filter(Boolean).every(item=>/^(?:turn|turns):[A-Za-z0-9.:[\]-]+(?::\d{1,5})?(?:\?transport=(?:tcp|udp))?$/.test(item))){
+     $('rapidTurnStatus').textContent='Enter valid turn: or turns: addresses separated by commas or spaces.';return;
    }
    if(url&&(!user||!pass)){
      $('rapidTurnStatus').textContent='This relay requires both a username and password.';return;
@@ -105,7 +105,7 @@
    window.MarmaladeConfigureIce?.();
    $('rapidTurnStatus').textContent=url?
      'Relay configured for the next room/guest connection. Reconnect if already online.':
-     'Custom relay cleared. Public STUN only; restrictive VPNs may still block streaming.';
+     'Custom relay cleared. Managed TURN is used if configured; otherwise direct STUN routes only.';
  });
  const LAST_ROOM_KEY='marmalade:last-joined-room-code';
  const lastJoinedRoom=()=>{
