@@ -1360,7 +1360,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(enableGuestAudioRelay(media.srcObject)){state.audioUnlockRequired=false;applyVolume();return;}
       stopGuestAudioRelay(false);
     }
-    if(state.guestAudioFallback&&!running)stopGuestAudioRelay(false);
+    if(state.guestAudioFallback&&!running){stopGuestAudioRelay(false);state.audioUnlockRequired=false;}
     if(running&&(state.volumePercent>100||state.audioUnlockRequired||graphBlocked||media.muted)){
       if(enableGuestAudioRelay(media.srcObject)){
         state.audioUnlockRequired=false;applyVolume();return;
@@ -1368,6 +1368,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     // Prefer native audible output whenever there is no running relay. Never
     // leave a muted video latched merely because a Web Audio resume is pending.
+    if(graphBlocked){state.audioUnlockRequired=true;void state.audioContext.resume().catch(()=>{});}
     if(!graphBlocked&&(!state.audioUnlockRequired||navigator.userActivation?.isActive)){
       state.audioUnlockRequired=false;applyVolume();
     }
@@ -4547,6 +4548,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const Context=window.AudioContext||window.webkitAudioContext;
       if(!Context)return false;
       state.audioContext=new Context({latencyHint:'interactive'});
+      state.audioContext.addEventListener('statechange',()=>{
+        if(state.audioContext?.state==='running'&&state.role==='guest'&&state.source==='remote')recoverGuestSound();
+      });
     }
     const connectGraph=()=>{
       if(state.audioSourceNode)return;
@@ -4616,6 +4620,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(next===state.volumePercent&&(!state.soundMuted||next===0))return;
     state.volumePercent=next;
     if(next){state.lastVolume=next/100;state.soundMuted=false;}
+    else state.soundMuted=false;
     rememberPreference('volume-level',next);
     applyVolume();
     if(state.source==='remote'&&state.role==='guest'){
@@ -4633,6 +4638,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }));
     $('volumeTicks').hidden=!volumeSnap.checked;
     state.volumePercent=quantizeVolume(state.volumePercent,volumeStep,volumeMax,false);
+    state.lastVolume=Math.min(volumeMax/100,state.volumePercent>0?state.volumePercent/100:state.lastVolume);
     rememberPreference('volume-level',state.volumePercent);
     applyVolume();
   }
@@ -6143,7 +6149,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     });
   }
   el.mute.addEventListener('click', () => {
-    state.soundMuted = !state.soundMuted;
+    state.soundMuted = state.volumePercent>0&&!state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = Math.min(volumeMax,Math.round(state.lastVolume*100/volumeStep)*volumeStep||100);
     applyVolume();
     // Unmuting cannot be treated as Play: keep the current transport
@@ -6564,7 +6570,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261126-subtitle-compact-v3"></script>
-<script src="./settings-layout.js?v=20261126-word-sync-glass-v1"></script>
+<script src="./settings-layout.js?v=20261126-volume-controls-v1"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261126-docked-local-resume-v1"></script>
