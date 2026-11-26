@@ -98,6 +98,18 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
     private static ViewGroup originalParent;
     private static ViewGroup.LayoutParams originalLayout;
     private static int originalIndex;
+    private static float floatingAspect=16f/9f;
+    private static Rational videoAspect(PluginCall call){
+        int w=Math.max(1,call.getInt("width",16)),h=Math.max(1,call.getInt("height",9));
+        return new Rational(w,h);
+    }
+    private static Rational systemPipAspect(PluginCall call){
+        Rational r=videoAspect(call);
+        // Android system PiP accepts only ratios between 1:2.39 and 2.39:1.
+        if(r.floatValue()>2.39f)return new Rational(239,100);
+        if(r.floatValue()<1f/2.39f)return new Rational(100,239);
+        return r;
+    }
     private static Activity originalActivity;
     private static final Handler floatingHeartbeat=new Handler(Looper.getMainLooper());
     private static final Runnable refreshCaptions=new Runnable(){
@@ -142,7 +154,7 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
                     // The OS WindowManager still enforces physical limits.
                     int width=Math.max(1,startWidth+dx);
                     floatingParams.width=width;
-                    floatingParams.height=Math.round(width*9f/16f);
+                    floatingParams.height=Math.max(1,Math.round(width/floatingAspect));
                     floatingParams.y=Math.max(0,Math.min(startY+dy,
                         display.heightPixels-floatingParams.height));
                 }else{
@@ -210,8 +222,9 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
                 floatingManager=(WindowManager)activity.getApplicationContext()
                     .getSystemService(Context.WINDOW_SERVICE);
                 DisplayMetrics metrics=activity.getResources().getDisplayMetrics();
-                int width=Math.min(dp(activity,340),metrics.widthPixels-dp(activity,24));
-                floatingParams=new WindowManager.LayoutParams(width,Math.round(width*9f/16f),
+                floatingAspect=videoAspect(call).floatValue();
+                int width=Math.max(1,Math.min(Math.min(dp(activity,340),metrics.widthPixels-dp(activity,24)),Math.round((metrics.heightPixels-dp(activity,24))*floatingAspect)));
+                floatingParams=new WindowManager.LayoutParams(width,Math.max(1,Math.round(width/floatingAspect)),
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -306,7 +319,7 @@ public class MarmaladePictureInPicturePlugin extends Plugin {
                 RemoteAction forwardAction=mediaAction(activity,"app.marmaladeplayer.PIP_FORWARD",
                     91,android.R.drawable.ic_media_ff,"Forward 10 seconds");
                 PictureInPictureParams.Builder builder=new PictureInPictureParams.Builder()
-                    .setAspectRatio(new Rational(16, 9))
+                    .setAspectRatio(systemPipAspect(call))
                     .setActions(Arrays.asList(rewindAction,playAction,forwardAction));
                 // Android 13+ can intercept the PiP X button and bring the
                 // existing activity back instead of leaving a fullscreen WebView.
