@@ -153,28 +153,53 @@
  let last=null,choosingLast=false,positionWriteAt=0,cacheQueue=Promise.resolve();
  const cacheDirectory=async()=>{const root=await navigator.storage.getDirectory();return root.getDirectoryHandle('marmaladeum-resume',{create:true});};
  async function readCached(record){
-   if(!record?.cacheId||!navigator.storage?.getDirectory)return null;
-   try{const dir=await cacheDirectory(),entry=await dir.getFileHandle(record.cacheId),blob=await entry.getFile();
+   if(!record?.cacheId)return null;
+   try{
+     if(record.cacheBackend==='idb'){
+       const chunks=[];let bytes=0;
+       for(let i=0;i<record.cacheChunks;i++){
+         const chunk=await cacheChunk('get',record.cacheId+':'+i);
+         if(!(chunk instanceof Blob))return null;chunks.push(chunk);bytes+=chunk.size;
+       }
+       return bytes===record.size?new File(chunks,record.name,{type:record.mime||'',lastModified:record.lastModified||0}):null;
+     }
+     if(!navigator.storage?.getDirectory)return null;
+     const dir=await cacheDirectory(),entry=await dir.getFileHandle(record.cacheId),blob=await entry.getFile();
      if(blob.size!==record.size)return null;
      return new File([blob],record.name,{type:record.mime||blob.type,lastModified:record.lastModified||0});
    }catch{return null;}
  }
  function queueCache(file,record){
-   if(!navigator.storage?.getDirectory||record.source==='native')return;
+   if(record.source==='native')return;
    cacheQueue=cacheQueue.catch(()=>{}).then(async()=>{
      if(last!==record||await readCached(record))return;
      const id='recent-'+(crypto.randomUUID?.()||Date.now()+'-'+Math.random().toString(36).slice(2));let dir;
      try{
-       dir=await cacheDirectory();
-       for await(const [name] of dir.entries())if(name.startsWith('recent-')&&name!==record.cacheId)await dir.removeEntry(name).catch(()=>{});
-       const estimate=await navigator.storage.estimate?.();
+       await cacheChunk('clear').catch(()=>{});
+       if(navigator.storage?.getDirectory){try{dir=await cacheDirectory();for await(const [name] of dir.entries())if(name.startsWith('recent-')&&name!==record.cacheId)await dir.removeEntry(name).catch(()=>{});}catch{dir=null;}}
+       const estimate=await navigator.storage?.estimate?.();
        if(Number.isFinite(estimate?.quota)&&Number.isFinite(estimate?.usage)&&estimate.quota-estimate.usage<file.size+1024*1024)throw Error('Not enough browser storage');
-       const handle=await dir.getFileHandle(id,{create:true}),writer=await handle.createWritable();
-       await file.stream().pipeTo(writer);
-       if((await handle.getFile()).size!==file.size)throw Error('Incomplete local cache');
-       if(last!==record){await dir.removeEntry(id).catch(()=>{});return;}
-       record.cacheId=id;record.mime=file.type;await store('write',record);reflectRecent();
-     }catch(error){if(dir)await dir.removeEntry(id).catch(()=>{});if(last===record){record.cacheId=null;reflectRecent();console.debug('Local resume cache unavailable',error);}}
+       let backend='opfs',chunks=0;
+       try{
+         if(!dir)throw Error('OPFS unavailable');
+         const handle=await dir.getFileHandle(id,{create:true}),writer=await handle.createWritable();
+         await file.stream().pipeTo(writer);
+         if((await handle.getFile()).size!==file.size)throw Error('Incomplete local cache');
+       }catch(error){
+         if(dir)await dir.removeEntry(id).catch(()=>{});
+         // Older WebViews and browsers without writable OPFS: independently
+         // persisted 8 MiB chunks, never a movie-sized ArrayBuffer.
+         backend='idb';
+         const size=8*1024*1024;
+         for(let offset=0;offset<file.size;offset+=size){
+           if(last!==record){await cacheChunk('clear');return;}
+           const bytes=await file.slice(offset,offset+size).arrayBuffer();
+           await cacheChunk('put',id+':'+chunks++,new Blob([bytes]));
+         }
+       }
+       if(last!==record){if(dir)await dir.removeEntry(id).catch(()=>{});if(backend==='idb')await cacheChunk('clear');return;}
+       record.cacheId=id;record.cacheBackend=backend;record.cacheChunks=chunks;record.mime=file.type;await store('write',record);reflectRecent();
+     }catch(error){if(dir)await dir.removeEntry(id).catch(()=>{});await cacheChunk('clear').catch(()=>{});if(last===record){record.cacheId=null;reflectRecent();console.debug('Local resume cache unavailable',error);}}
    });
  }
  const media=bridge.media, webview=window.chrome?.webview;
@@ -234,11 +259,19 @@
    savePosition();if(last)void store('write',last).catch(()=>{});
  });
  const database=()=>new Promise((resolve,reject)=>{
-   const request=indexedDB.open(LAST_DB,1);
-   request.onupgradeneeded=()=>request.result.createObjectStore('recents');
+   const request=indexedDB.open(LAST_DB,2);
+   request.onupgradeneeded=()=>{for(const name of ['recents','videoChunks'])if(!request.result.objectStoreNames.contains(name))request.result.createObjectStore(name);};
    request.onsuccess=()=>resolve(request.result);
    request.onerror=()=>reject(request.error);
  });
+ async function cacheChunk(mode,key,value){
+   const db=await database();
+   try{return await new Promise((resolve,reject)=>{
+     const tx=db.transaction('videoChunks',mode==='get'?'readonly':'readwrite'),os=tx.objectStore('videoChunks');
+     const req=mode==='get'?os.get(key):mode==='clear'?os.clear():os.put(value,key);
+     tx.oncomplete=()=>resolve(req.result);tx.onerror=tx.onabort=()=>reject(tx.error||Error('Video cache transaction failed'));
+   });}finally{db.close();}
+ }
  async function store(mode,value){
    const db=await database();
    try{return await new Promise((resolve,reject)=>{
@@ -264,7 +297,7 @@
    const previous=last;
    const same=previous?.name===file.name&&previous?.size===file.size&&previous?.lastModified===(file.lastModified||0);
    const record={name:file.name,size:file.size,lastModified:file.lastModified||0,mime:file.type,
-     cacheId:same?previous.cacheId||null:null,handle:event.detail.handle||null,updated:Date.now(),
+     cacheId:same?previous.cacheId||null:null,cacheBackend:same?previous.cacheBackend||'opfs':'opfs',cacheChunks:same?previous.cacheChunks||0:0,handle:event.detail.handle||null,updated:Date.now(),
      positionSeconds:previous?.name===file.name&&previous?.size===file.size?
        Math.max(0,Number(previous.positionSeconds)||0):0};
    last=record;rememberNative(file,event.detail.handle||null);reflectRecent();
