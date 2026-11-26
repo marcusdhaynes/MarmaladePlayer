@@ -599,7 +599,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 #dropZone .theater-volume-group #muteBtn{flex:0 0 auto}
 #dropZone .theater-volume-group .volume-track{flex:1 1 0;min-width:0;position:relative;display:flex;align-items:center}
 #dropZone .theater-volume-group #volume{width:100%!important;min-width:0!important;max-width:none!important;flex:1 1 0!important;margin:0!important;touch-action:none;position:relative;z-index:1;background:transparent}
-#dropZone .theater-volume-group #volumeTicks{position:absolute;inset:0 5px;pointer-events:none;z-index:0}
+#dropZone .theater-volume-group #volumeTicks{position:absolute;inset:0 5px;pointer-events:none;z-index:2}
 #dropZone .theater-volume-group #volumeTicks[hidden]{display:none}
 #volumeTicks i{position:absolute;top:50%;width:1px;height:9px;transform:translate(-50%,-50%);background:currentColor;opacity:.42}
 #dropZone .theater-volume-group .vol-mark{flex:0 0 auto;min-width:4ch!important;text-align:center;font-variant-numeric:tabular-nums}
@@ -1356,7 +1356,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(state.soundMuted||state.volumePercent===0){applyVolume();return;}
     const running=state.guestAudioContext?.state==='running';
     const graphBlocked=!!state.audioSourceNode&&state.audioContext?.state!=='running';
-    if(state.guestAudioFallback&&running){state.audioUnlockRequired=false;applyVolume();return;}
+    if(state.guestAudioFallback&&running){
+      if(enableGuestAudioRelay(media.srcObject)){state.audioUnlockRequired=false;applyVolume();return;}
+      stopGuestAudioRelay(false);
+    }
     if(state.guestAudioFallback&&!running)stopGuestAudioRelay(false);
     if(running&&(state.volumePercent>100||state.audioUnlockRequired||graphBlocked||media.muted)){
       if(enableGuestAudioRelay(media.srcObject)){
@@ -1365,7 +1368,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     // Prefer native audible output whenever there is no running relay. Never
     // leave a muted video latched merely because a Web Audio resume is pending.
-    if(!graphBlocked){state.audioUnlockRequired=false;applyVolume();}
+    if(!graphBlocked&&(!state.audioUnlockRequired||navigator.userActivation?.isActive)){
+      state.audioUnlockRequired=false;applyVolume();
+    }
   }
   function stopGuestAudioRelay(closeContext=false){
     try{state.guestAudioSource?.disconnect();}catch{}
@@ -4563,6 +4568,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       return false;
     }
     if(state.audioContext.state!=='running')return false;
+    if(state.role==='guest'&&state.source==='remote'){recoverGuestSound();return false;}
     connectGraph();
     applyVolume();
     return true;
@@ -4572,7 +4578,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Native mute is a hard safety gate even when Web Audio exists but is suspended.
     // Gain is applied to speakers only; it is never part of the outgoing P2P track.
     const hardMute = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;
-    media.muted = hardMute || (state.guestAudioFallback&&state.guestAudioContext?.state==='running');
+    media.muted = hardMute || (state.guestAudioFallback&&state.guestAudioContext?.state==='running') || (state.role==='guest'&&state.source==='remote'&&state.audioUnlockRequired);
     if(state.guestAudioGain && state.guestAudioContext){
       try{
         const ctx=state.guestAudioContext;
@@ -4607,6 +4613,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   function setVolume(raw,fromPointer=false) {
     const next=quantizeVolume(raw,volumeStep,volumeMax,fromPointer&&volumeSnap.checked);
+    if(next===state.volumePercent&&(!state.soundMuted||next===0))return;
     state.volumePercent=next;
     if(next){state.lastVolume=next/100;state.soundMuted=false;}
     rememberPreference('volume-level',next);
@@ -4933,27 +4940,30 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       's to match guests · guests remain live':
       'Ready · waiting for a guest delay measurement.';
   }
-  let hostMonitorAudioContext=null,hostMonitorAudioGain=null;
+  let hostMonitorAudioContext=null,hostMonitorAudioGain=null,hostMonitorGainPending=false;
   function updateHostMonitorGain(){
     if(!state.hostMonitorActive)return;
-    if((state.volumePercent>100 || hostMonitorAudioGain) && !hostMonitorAudioContext){
+    if(state.volumePercent>100&&!hostMonitorAudioGain&&!hostMonitorGainPending){
       const Context=window.AudioContext||window.webkitAudioContext;
       if(Context){
         try{
-          hostMonitorAudioContext=new Context({latencyHint:'interactive'});
-          const source=hostMonitorAudioContext.createMediaElementSource(hostMonitor);
-          hostMonitorAudioGain=hostMonitorAudioContext.createGain();
-          source.connect(hostMonitorAudioGain);
-          hostMonitorAudioGain.connect(hostMonitorAudioContext.destination);
-        }catch(error){console.debug('Host delayed monitor audio boost unavailable',error);}
+          const ctx=hostMonitorAudioContext||new Context({latencyHint:'interactive'});
+          hostMonitorAudioContext=ctx;hostMonitorGainPending=true;
+          const connect=()=>{
+            if(ctx.state!=='running'||hostMonitorAudioGain||!state.hostMonitorActive)return;
+            const source=ctx.createMediaElementSource(hostMonitor),gain=ctx.createGain();
+            source.connect(gain);gain.connect(ctx.destination);
+            hostMonitorAudioGain=gain;applyVolume();
+          };
+          if(ctx.state==='running'){hostMonitorGainPending=false;connect();}
+          else void ctx.resume().then(connect).catch(()=>{}).finally(()=>{hostMonitorGainPending=false;});
+        }catch(error){hostMonitorGainPending=false;console.debug('Host monitor audio boost unavailable',error);}
       }
     }
     if(hostMonitorAudioGain){
       const ctx=hostMonitorAudioContext;
-      const now=ctx.currentTime;
-      hostMonitorAudioGain.gain.setTargetAtTime(
-        state.soundMuted?0:state.volumePercent/100,now,.012);
-      if(ctx.state==='suspended')void ctx.resume().catch(()=>{});
+      hostMonitorAudioGain.gain.setTargetAtTime(state.soundMuted?0:state.volumePercent/100,ctx.currentTime,.012);
+      if(ctx.state!=='running')void ctx.resume().catch(()=>{});
     }
   }
   hostMatchToggle.addEventListener('change',()=>{
@@ -6107,13 +6117,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // detents work for mouse and touch without making keyboard arrows sticky.
   let volumePointer=null;
   function volumeFromPointer(event){
-    const rect=el.volume.getBoundingClientRect(),inset=5;
+    const rect=el.volume.getBoundingClientRect(),inset=Math.min(5,rect.width/4);
     if(rect.width<=2*inset)return;
     setVolume((event.clientX-rect.left-inset)/(rect.width-2*inset)*volumeMax,true);
     revealControls();
   }
   el.volume.addEventListener('pointerdown',event=>{
-    if(event.button!==0)return;
+    if(event.button!==0||volumePointer!==null)return;
     event.preventDefault();el.volume.focus({preventScroll:true});
     volumePointer=event.pointerId;el.volume.setPointerCapture?.(event.pointerId);volumeFromPointer(event);
   });
@@ -6128,6 +6138,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     control.addEventListener('change',()=>{
       rememberPreference(key,control===volumeSnap?control.checked:control.value);
       syncVolumeSettings();
+      if(state.role==='guest'&&state.source==='remote'){primeGuestAudioFromGesture(true);recoverGuestSound();}
+      else if(state.source&&(state.volumePercent>100||state.audioContext))void ensureAudioPlayback().catch(()=>{});
     });
   }
   el.mute.addEventListener('click', () => {
@@ -6472,8 +6484,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     el.screenShare.textContent = 'Window sharing unavailable on this browser';
     el.screenShare.title = 'Pick a local, browser-supported file instead. Desktop browsers support window sharing.';
   }
-  // Safari may still require a user gesture to start Web Audio. Keep the
-  // 0–200% slider available and let join/play/volume taps unlock it.
+  // Restore personal volume settings before the first playback.
   state.volumePercent=quantizeVolume(localPreference('volume-level','100'),volumeStep,volumeMax,false);
   if(state.volumePercent)state.lastVolume=state.volumePercent/100;
   syncVolumeSettings();
