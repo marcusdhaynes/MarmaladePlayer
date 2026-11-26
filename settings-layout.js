@@ -131,6 +131,8 @@
    try{localStorage.setItem('marmalade:subtitle-timing-hold-ms',holdControl.value);}catch{}
    window.dispatchEvent(new Event('marmalade:subtitle-hold-setting'));
  });
+ const tapRow=into('tapVideoPlayback','controls','settings-toggle-row');
+ if(tapRow){const input=tapRow.querySelector('input');if(input)tapRow.append(input);}
  const fadeRow=into('controlFadeDelay','controls');
  if(fadeRow?.firstChild?.nodeType===Node.TEXT_NODE)
    fadeRow.firstChild.textContent='Fade Controls ';
