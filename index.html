@@ -680,7 +680,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
              <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
             <label>Skip Interval <select id="skipInterval" aria-label="Seconds to rewind or fast forward"><option value="5">5 Seconds</option><option value="10" selected>10 Seconds</option><option value="15">15 Seconds</option><option value="20">20 Seconds</option><option value="30">30 Seconds</option><option value="60">60 Seconds</option></select></label>
-            <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2">2 Seconds</option><option value="3">3 Seconds</option><option value="5" selected>5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
+            <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
             <label id="hostMatchRow"><input type="checkbox" id="hostMatchTiming"> Match My Playback To Guests (Host Only)</label>
@@ -1046,8 +1046,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     rememberPreference('skip-interval-seconds',skipIntervalControl.value);
     updateSkipLabels();
   });
-  const savedFadeDelay=localPreference('control-fade-seconds','5');
-  fadeDelayControl.value=[...fadeDelayControl.options].some(o=>o.value===savedFadeDelay)?savedFadeDelay:'5';
+  const savedFadeDelay=localPreference('control-fade-seconds','2');
+  fadeDelayControl.value=[...fadeDelayControl.options].some(o=>o.value===savedFadeDelay)?savedFadeDelay:'2';
   fadeDelayControl.addEventListener('change',()=>{rememberPreference('control-fade-seconds',fadeDelayControl.value);revealControls();});
 
   // Keep cosmetic preferences device-local and restore without a layout flash.
