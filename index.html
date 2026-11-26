@@ -632,7 +632,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           <div class="stage-poster-preview" id="stagePosterPreview" aria-hidden="true"></div>
           <div id="hostVideoDiagnostic" role="status" aria-live="polite" hidden style="position:absolute;z-index:7;left:12px;right:12px;top:54px;max-width:520px;background:#1a1518ed;color:#ffe6cb;border:1px solid #bc8660;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-start;gap:8px"><span id="videoDiagnosticText"></span><button type="button" id="videoRecoveryAction" hidden style="background:#ffb86b;color:#2b1a11;border:0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12px">Retry picture</button></div>
           <div class="stage-empty" id="stageEmpty">
-            <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="M11 8 L24 16 L11 24 Z" fill="currentColor" transform="translate(-0.333333 0)"/></svg></span></div>
+            <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="M9.5 8 L22.5 16 L9.5 24 Z" fill="currentColor"/></svg></span></div>
             <span class="eyebrow" id="stageEyebrow">CLICK TO HOST</span>
             <h1 id="stageTitle">Choose a movie.</h1>
             <p id="stageSubtitle">Click here or drop a video file to start your room.</p>
@@ -5282,7 +5282,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const path=event.composedPath?.()||[];
     const inside=path.some(node=>node===el.settingsPanel||node===el.subtitlePanel||
       node===el.settingsBtn||node===el.subtitleBtn);
-    if(!inside&&!el.settingsPanel.classList.contains('player-docked')&&!el.subtitlePanel.classList.contains('player-docked'))dismissPalettes();
+    if(!inside&&!(!el.settingsPanel.hidden&&el.settingsPanel.classList.contains('player-docked'))&&!(!el.subtitlePanel.hidden&&el.subtitlePanel.classList.contains('player-docked')))dismissPalettes();
   },true);
   window.addEventListener('keydown',event=>{
     if(event.key!=='Escape'||event.defaultPrevented)return;
