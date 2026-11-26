@@ -680,6 +680,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
              <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
             <label>Skip Interval <select id="skipInterval" aria-label="Seconds to rewind or fast forward"><option value="5">5 Seconds</option><option value="10" selected>10 Seconds</option><option value="15">15 Seconds</option><option value="20">20 Seconds</option><option value="30">30 Seconds</option><option value="60">60 Seconds</option></select></label>
+            <label id="tapVideoPlaybackRow"><input type="checkbox" id="tapVideoPlayback"> Tap Video To Play / Pause</label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
@@ -1112,7 +1113,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   const isAppleTouch = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isMobile = matchMedia('(pointer: coarse)').matches;
+  const isMobile = matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const tapVideoPlayback=$('tapVideoPlayback');
+  tapVideoPlayback.checked=localPreference('tap-video-playback',isMobile?'false':'true')==='true';
+  tapVideoPlayback.addEventListener('change',()=>rememberPreference('tap-video-playback',tapVideoPlayback.checked));
+  $('tapVideoPlaybackRow').hidden=!isMobile;
   document.documentElement.classList.toggle('touch-device', isMobile);
   document.documentElement.classList.toggle('apple-touch', isAppleTouch);
   // WebRTC is a secure-context feature. GitHub Pages HTTPS meets this requirement.
@@ -1133,7 +1138,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       !state.soundMuted && state.volumePercent>0;
     state.audioUnlockRequired=soundUnlock;
     const button=$('guestAudioUnlock');
-    if(button)button.hidden=!soundUnlock;
+    if(button)button.hidden=true; // no separate sound-unlock overlay; normal interaction grants audio
     if(required)revealControls();
   }
 
@@ -1258,9 +1263,18 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       // block room joining on an unresolved mobile AudioContext promise.
       if(ctx.state!=='running')void ctx.resume().then(()=>{
         state.guestAudioPrimed=ctx.state==='running';
+        if(state.guestAudioPrimed)recoverGuestSound();
       }).catch(()=>{});
       else state.guestAudioPrimed=true;
     }catch(error){console.debug('Guest audio pre-unlock unavailable',error);}
+  }
+  function recoverGuestSound(){
+    if(state.role!=='guest'||state.source!=='remote'||!media.srcObject||state.soundMuted||state.volumePercent===0)return;
+    if(!state.audioUnlockRequired&&!media.muted&&!state.guestAudioFallback)return;
+    if(state.guestAudioFallback&&state.guestAudioContext?.state==='running'){needsTapToPlay(false);return;}
+    if(enableGuestAudioRelay(media.srcObject)){
+      needsTapToPlay(false);connection('Watching live with sound','online');
+    }
   }
   function stopGuestAudioRelay(closeContext=false){
     try{state.guestAudioSource?.disconnect();}catch{}
@@ -3860,7 +3874,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         // sound without a second media-element gesture.
         if(!state.guestAudioContext && stream.getAudioTracks().length)
           primeGuestAudioFromGesture(true);
-        if(!state.guestAudioPrimed)media.pause();
+        // Preserve the same element's autoplay permission across stream replacement.
         media.removeAttribute('src');
         media.srcObject = stream;
         if(oldLocalUrl)URL.revokeObjectURL(oldLocalUrl);
@@ -3880,6 +3894,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         // leaving the movie element permanently paused and black.
         connection('Starting movie…');
         if(hadLocal){localNotice('Streaming Restored. Hold Link to Re-enable Local Video.');updateRoomActions();}
+        for(const track of stream.getAudioTracks()){
+          track.addEventListener('unmute',recoverGuestSound);
+          track.addEventListener('ended',()=>{if(state.guestCall===call)send(state.guestConn,{type:'requestmedia',reason:'audio-track-ended'});});
+        }
+        stream.addEventListener('addtrack',event=>{if(event.track.kind==='audio'&&state.guestCall===call)recoverGuestSound();});
         if(!stream.getAudioTracks().length){
           notify('The host stream contains no audio track. Ask the host to restart broadcasting.');
           send(state.guestConn,{type:'requestmedia',reason:'missing-audio-track'});
@@ -3888,6 +3907,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           await media.play(); // Native video and audio, independent of Web Audio.
           if (state.guestCall !== call) return;
           needsTapToPlay(false);
+          if(media.muted&&!state.soundMuted&&state.volumePercent>0)recoverGuestSound();
           connection('Watching live','online');
         } catch (error) {
           if (state.guestCall !== call) return;
@@ -3902,7 +3922,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             needsTapToPlay(!relayed);
             connection(relayed?'Watching live with sound':
               'Video live · tap Play for sound','online');
-            if(!relayed)notify('This browser blocked sound. Tap Play to enable it.');
+            if(!relayed)recoverGuestSound();
           } catch {
             if (state.guestCall !== call) return;
             needsTapToPlay(true);
@@ -4390,7 +4410,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // NEVER connect guest playback to a suspended AudioContext: doing so
     // replaces native audio with silence even when the video continues.
     const guestRemote=state.role==='guest' && state.source==='remote';
-    if(guestRemote && state.audioUnlockRequired)return false;
+    if(guestRemote){primeGuestAudioFromGesture(true);recoverGuestSound();return !!state.guestAudioFallback;}
     if(!state.audioContext){
       const Context=window.AudioContext||window.webkitAudioContext;
       if(!Context)return false;
@@ -4482,7 +4502,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Creating the nodes is synchronous inside ensureAudioPlayback(), so
     // never hold the WebRTC video track hostage while waiting for audio.
     const resume = ensureAudioPlayback();
-    void resume.catch(error => console.debug('Audio will resume on user gesture', error));
+    // Wait briefly for graph construction; do not wait indefinitely for browser
+    // autoplay permission. Native audio remains usable if this times out.
+    await Promise.race([resume.catch(()=>false),new Promise(resolve=>setTimeout(()=>resolve(false),1200))]);
     if (!state.audioContext || !state.audioSourceNode) throw new Error('Web Audio unavailable');
     if (!state.audioDestination) {
       state.audioDestination = state.audioContext.createMediaStreamDestination();
@@ -4840,19 +4862,23 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return isVideoControlTarget(event.target);
   }
   function onGuestGesture(event){
-    if(state.role!=='guest' && !parseCode(el.joinInput?.value))return;
-    primeGuestAudioFromGesture();
+    if(state.role!=='guest' && !parseCode(el.joinInput?.value) && !parseCode(document.getElementById('rapidJoinEntry')?.value))return;
+    primeGuestAudioFromGesture(true);
     // A generic control tap MUST NOT turn video playback on. Audio may
     // be unlocked only from the video surface or explicit Play/Sound control.
-    if(event?.type==='pointerdown' && el.stage.contains(event.target) &&
-       !isVideoControlEvent(event) &&
-       state.role==='guest' && state.source==='remote' &&
-       state.audioUnlockRequired && media.muted && !state.soundMuted)
-      void enableRemotePlayback();
+    if(state.role==='guest' && state.source==='remote' && state.audioUnlockRequired && !state.soundMuted && state.volumePercent>0){
+      // Any normal trusted interaction can unlock sound without a separate
+      // button or toggling shared play/pause.
+      if(state.guestAudioContext?.state==='running')recoverGuestSound();
+      else if(!media.paused)void enableRemotePlayback();
+    }
   }
   // An early touch/keyboard gesture during room connection should already
   // authorize audio when the media stream arrives moments later.
   document.addEventListener('pointerdown',onGuestGesture,{capture:true,passive:true});
+  document.addEventListener('pointerup',onGuestGesture,{capture:true,passive:true});
+  document.addEventListener('click',onGuestGesture,{capture:true,passive:true});
+  document.addEventListener('touchend',onGuestGesture,{capture:true,passive:true});
   document.addEventListener('keydown',event=>{
     if(!event.repeat)onGuestGesture(event);
   },{capture:true});
@@ -5418,7 +5444,35 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         .catch(error=>notify('Cannot enter fullscreen: '+String(error?.message||error)));
     }
   },true);
+  let nativePipTrack=null,nativePipCue=null,nativePipText='';
+  function updateNativePipCaptions(){
+    if(!nativePipTrack)return;
+    updateSubtitles();
+    const text=el.subtitleOverlay.hidden?'':el.subtitleOverlay.textContent||'';
+    const now=Number(media.currentTime)||0;
+    if(nativePipCue&&nativePipText===text&&now>=nativePipCue.startTime&&now<nativePipCue.endTime-.25)return;
+    if(nativePipCue){try{nativePipTrack.removeCue(nativePipCue);}catch{}nativePipCue=null;}
+    nativePipText=text;
+    if(text&&typeof VTTCue==='function'){
+      nativePipCue=new VTTCue(Math.max(0,now-.1),now+1.5,text);
+      nativePipCue.align='center';nativePipTrack.addCue(nativePipCue);
+    }
+  }
+  function prepareNativePipCaptions(){
+    if(typeof media.addTextTrack!=='function'||typeof VTTCue!=='function')return;
+    if(!nativePipTrack)nativePipTrack=media.addTextTrack('subtitles','Marmaladeum subtitles');
+    nativePipTrack.mode='showing';updateNativePipCaptions();
+  }
+  function clearNativePipCaptions(){
+    if(nativePipTrack){if(nativePipCue)try{nativePipTrack.removeCue(nativePipCue);}catch{}nativePipTrack.mode='disabled';}
+    nativePipCue=null;nativePipText='';
+  }
+  media.addEventListener('timeupdate',()=>{if(nativePipTrack?.mode==='showing')updateNativePipCaptions();});
+  media.addEventListener('seeked',()=>{if(nativePipTrack?.mode==='showing')updateNativePipCaptions();});
+  media.addEventListener('leavepictureinpicture',clearNativePipCaptions);
+  media.addEventListener('webkitpresentationmodechanged',()=>{if(media.webkitPresentationMode!=='picture-in-picture')clearNativePipCaptions();});
   el.popoutBtn.addEventListener('click',async ()=>{
+    if(el.stage.classList.contains('floating-player')){el.stage.classList.remove('floating-player');window.MarmaladeSubtitleReposition?.();return;}
     // The same PiP button must toggle the native overlay off again.
     // Otherwise hiding the old mini-return button strands the WebView.
     if(document.body.classList.contains('floating-overlay-active') &&
@@ -5474,17 +5528,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
       }
     }
-    // Standalone browser OS PiP uses a dedicated composed video surface:
-    // never open a second browser/document window containing Marmalade chrome.
-    if(window.MarmaladeStandalonePiP){
-      try{await window.MarmaladeStandalonePiP.enter();return;}
-      catch(error){notify(String(error?.message||error));return;}
-    }
-    // Document PiP carries the actual video, subtitles and adaptive lighting in a separate floating surface.
-    // The browser owns external window min/max sizing; no app-level clamps.
-    if(false && window.documentPictureInPicture?.requestWindow){
+    // Prefer the original video element in a real Document PiP window where
+    // supported: no duplicate decoding, canvas or background frame timers.
+    if(window.documentPictureInPicture?.requestWindow){
       try{
-        const pop=await window.documentPictureInPicture.requestWindow({width:520,height:340});
+        const dims=miniVideoDimensions();
+        const pop=await window.documentPictureInPicture.requestWindow({width:Math.round(280*dims.width/dims.height),height:280});
         pipWindow=pop;
         stagePlaceholder=document.createComment('Marmalade video pop-out position');
         el.stage.replaceWith(stagePlaceholder);
@@ -5537,18 +5586,21 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         restoreDocumentPip();
       }
     }
-    // Last-resort browser native video PiP uses system transport buttons.
-    // Browser APIs cannot host arbitrary custom DOM controls in this mode.
-    if(document.pictureInPictureEnabled&&media.requestPictureInPicture &&
-       !state.subtitlesEnabled && !(window.MarmaladeAdaptiveBrightness?.getLevel?.()>0)){
-      try{await media.requestPictureInPicture();return;}
-      catch(error){console.debug('Native system PiP unavailable',error);}
+    // On mobile use the actual decoded video, not a JS-composited canvas.
+    // Native captions are supplied via a text track when the browser renders it.
+    if(document.pictureInPictureEnabled&&media.requestPictureInPicture){
+      try{prepareNativePipCaptions();await media.requestPictureInPicture();return;}
+      catch(error){clearNativePipCaptions();console.debug('Native system PiP unavailable',error);}
     }
     if(media.webkitSetPresentationMode){
-      try{media.webkitSetPresentationMode('picture-in-picture');return;}
-      catch(error){console.debug('Native video PiP unavailable',error);}
+      try{prepareNativePipCaptions();media.webkitSetPresentationMode('picture-in-picture');return;}
+      catch(error){clearNativePipCaptions();console.debug('Native video PiP unavailable',error);}
     }
-    notify('A separate system Picture-in-Picture window is not supported by this browser.');
+    // Some browsers expose PiP only through their own video context menu.
+    // If no web API succeeds, retain a working in-page floating player.
+    el.stage.classList.add('floating-player');
+    syncMiniVideoAspect();window.MarmaladeSubtitleReposition?.();
+    notify('System PiP is unavailable in this browser. Using the floating player inside the app.');
   });
   window.setInterval(()=>{updateBufferDisplay();updateSubtitles();updateStatusDisplay();},500);
 
@@ -5605,6 +5657,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!el.stage.classList.contains('has-video') && !state.theaterMode){
       playPauseFromStage();return; // Keep the empty-stage file picker immediate.
     }
+    // On mobile, tapping the loaded picture reveals controls only by default.
+    // The empty picker above and explicit transport buttons are unchanged.
+    if(isMobile&&!tapVideoPlayback.checked){revealControls();return;}
     // Programmatic .click() and keyboard activation are single gestures.
     if(event.detail===0){playPauseFromStage();return;}
     videoSingleClickTimer=setTimeout(()=>{
