@@ -146,9 +146,37 @@
  recentButton.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.7-6M4 4v5h5"/><path d="m10 8 6 4-6 4V8Z"/></svg><span>Resume Last Video</span>';
  const missing=document.createElement('small');
  missing.id='rapidLastMissing';missing.hidden=true;missing.className='rapid-last-missing';
- $('stageSubtitle')?.after(recentButton,missing);
+ $('stageSubtitle')?.after(recentButton);
+ const resumeStatus=document.createElement('div');resumeStatus.id='playerResumeStatus';
+ document.getElementById('playerPanelDock')?.before(resumeStatus);resumeStatus.append(missing);
  const LAST_DB='marmalade-recent-video';
- let last=null,choosingLast=false,positionWriteAt=0;
+ let last=null,choosingLast=false,positionWriteAt=0,cacheQueue=Promise.resolve();
+ const cacheDirectory=async()=>{const root=await navigator.storage.getDirectory();return root.getDirectoryHandle('marmaladeum-resume',{create:true});};
+ async function readCached(record){
+   if(!record?.cacheId||!navigator.storage?.getDirectory)return null;
+   try{const dir=await cacheDirectory(),entry=await dir.getFileHandle(record.cacheId),blob=await entry.getFile();
+     if(blob.size!==record.size)return null;
+     return new File([blob],record.name,{type:record.mime||blob.type,lastModified:record.lastModified||0});
+   }catch{return null;}
+ }
+ function queueCache(file,record){
+   if(!navigator.storage?.getDirectory||record.source==='native')return;
+   cacheQueue=cacheQueue.catch(()=>{}).then(async()=>{
+     if(last!==record||await readCached(record))return;
+     const id='recent-'+(crypto.randomUUID?.()||Date.now()+'-'+Math.random().toString(36).slice(2));let dir;
+     try{
+       dir=await cacheDirectory();
+       for await(const [name] of dir.entries())if(name.startsWith('recent-')&&name!==record.cacheId)await dir.removeEntry(name).catch(()=>{});
+       const estimate=await navigator.storage.estimate?.();
+       if(Number.isFinite(estimate?.quota)&&Number.isFinite(estimate?.usage)&&estimate.quota-estimate.usage<file.size+1024*1024)throw Error('Not enough browser storage');
+       const handle=await dir.getFileHandle(id,{create:true}),writer=await handle.createWritable();
+       await file.stream().pipeTo(writer);
+       if((await handle.getFile()).size!==file.size)throw Error('Incomplete local cache');
+       if(last!==record){await dir.removeEntry(id).catch(()=>{});return;}
+       record.cacheId=id;record.mime=file.type;await store('write',record);reflectRecent();
+     }catch(error){if(dir)await dir.removeEntry(id).catch(()=>{});if(last===record){record.cacheId=null;reflectRecent();console.debug('Local resume cache unavailable',error);}}
+   });
+ }
  const media=bridge.media, webview=window.chrome?.webview;
  // The browser will only remember an opaque File or FileSystemFileHandle
  // explicitly selected by the user. JavaScript never supplies a disk path.
@@ -225,7 +253,7 @@
    recentButton.hidden=!last||state.role!=='host';
    if(!last)return;
    recentButton.querySelector('span').textContent='Resume '+last.name.slice(0,37)+(last.name.length>37?'…':'');
-   recentButton.title=last.source==='native'?
+   recentButton.title=last.cacheId?'Resume from the private on-device saved copy':last.source==='native'?
      'Reopen this video directly from its saved Minternet Media Library folder':
      last.handle?'Reopen the saved video without file selection':
      'Previous browser selection did not preserve the original path';
@@ -234,19 +262,15 @@
    const file=event.detail?.file;
    if(!file||state.role!=='host')return;
    const previous=last;
-   last={name:file.name,size:file.size,lastModified:file.lastModified||0,
-     handle:event.detail.handle||null,updated:Date.now(),
+   const same=previous?.name===file.name&&previous?.size===file.size&&previous?.lastModified===(file.lastModified||0);
+   const record={name:file.name,size:file.size,lastModified:file.lastModified||0,mime:file.type,
+     cacheId:same?previous.cacheId||null:null,handle:event.detail.handle||null,updated:Date.now(),
      positionSeconds:previous?.name===file.name&&previous?.size===file.size?
        Math.max(0,Number(previous.positionSeconds)||0):0};
-   rememberNative(file,event.detail.handle||null);
-   reflectRecent();
-   try{await store('write',last);}
-   catch{
-     // Some native WebViews cannot clone FileSystemFileHandle; preserve metadata.
-     last.handle=null;
-     try{await store('write',last);}catch{}
-   }
-   missing.hidden=true;
+   last=record;rememberNative(file,event.detail.handle||null);reflectRecent();
+   void navigator.storage?.persist?.().catch(()=>{});
+   try{await store('write',record);}catch{record.handle=null;if(last===record)try{await store('write',record);}catch{}}
+   if(last===record){missing.hidden=true;locateButton.hidden=true;queueCache(file,record);}
  });
  window.addEventListener('marmalade:library-video-selected',event=>{
    const {name,size,itemId,key}=event.detail||{};
@@ -310,10 +334,10 @@
  locateButton.id='rapidLocateMissing';locateButton.type='button';
  locateButton.className='rapid-join-entry';locateButton.textContent='Locate Missing Video';
  locateButton.hidden=true;locateButton.setAttribute('data-no-video-toggle','true');
- missing.after(locateButton);
+ resumeStatus.append(locateButton);
  async function locateMissingFile(){
    choosingLast=true;
-   if(typeof window.showOpenFilePicker==='function'){
+   if(typeof window.showOpenFilePicker==='function'&&!matchMedia('(pointer:coarse)').matches&&!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)){
      try{
        const [handle]=await window.showOpenFilePicker({multiple:false});
        if(handle)await verifyAndOpen(await handle.getFile(),handle);
@@ -351,6 +375,8 @@
          if(permission==='granted'&&await verifyAndOpen(await last.handle.getFile(),last.handle))return;
        }catch(error){console.debug('Saved file access unavailable',error);}
      }
+     const cached=await readCached(last);
+     if(cached&&await verifyAndOpen(cached,last.handle||null))return;
      // Native hosts may reopen a previously verified, persistent file path.
      const native=await reopenNative(last.handle||null);
      if(native?.status==='ok'&&native.handle){
@@ -366,7 +392,7 @@
      }
      // Other browsers may require reauthorization after a restart.
      if(!last.handle){
-       missing.textContent='This browser did not preserve the local file grant. Restore access to the saved video to resume.';
+       missing.textContent='Saved copy unavailable. Select the original video once to restore access and save it locally.';
        missing.hidden=false;locateButton.hidden=false;locateButton.textContent='Restore File Access';return;
      }
      let file;
@@ -391,7 +417,7 @@
      missing.textContent='Unable to resume saved video: '+
        String(error?.message||'access unavailable')+'.';
      missing.hidden=false;
-   }finally{recentButton.disabled=false;choosingLast=false;}
+   }finally{recentButton.disabled=false;}
  });
  el.fileInput.addEventListener('change',event=>{
    if(!choosingLast)return;
@@ -404,8 +430,9 @@
      missing.hidden=false;
      bridge.notify('Please select the matching previous movie file.');
      event.target.value='';
-   }else missing.hidden=true;
+   }else{event.stopImmediatePropagation();event.target.value='';missing.hidden=true;void verifyAndOpen(file,null);}
  },true);
+ el.fileInput.addEventListener('cancel',()=>{choosingLast=false;});
  void store('read').then(record=>{if(record?.name&&Number.isFinite(record?.size)){last=record;reflectRecent();}}).catch(()=>{});
  // Nonintrusive web-to-app fallback. Verified Android App Links can launch
  // automatically; the explicit link works for unverified/debug builds too.
