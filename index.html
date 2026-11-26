@@ -398,7 +398,7 @@ filter:blur(23px) brightness(.45) saturate(1.12);transform:scale(1.13)}
 .stage.poster-preview-active .stage-poster-preview{opacity:1}
 .stage.poster-preview-active .stage-empty{display:none!important}
 body.native-pip-active .stage .subtitle-overlay{display:block!important;bottom:8%!important;left:6%!important;right:6%!important;
-font-size:clamp(11px,2.8vw,23px)!important;z-index:12!important}
+font-size:var(--mini-caption-font-size,clamp(13px,5.8vw,48px))!important;z-index:12!important}
 body.native-pip-active .stage .subtitle-overlay[hidden]{display:none!important}
 body.document-pip .stage-poster-preview{display:none!important}
 
@@ -5356,8 +5356,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // there creates dead controls; Android's own 10-second actions remain live.
     setInteractivePip(false);
     window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(active);
-    if(active)window.MarmaladeSubtitleRefresh?.();
-    else{document.body.classList.remove('native-pip-active');revealControls();}
+    if(active){window.MarmaladeSubtitleReposition?.();window.MarmaladeSubtitleRefresh?.();}
+    else{document.body.classList.remove('native-pip-active');window.MarmaladeSubtitleReposition?.();revealControls();}
   });
   window.addEventListener('marmalade:pip-command',event=>{
     const type=event.detail?.type;
@@ -6321,6 +6321,6 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-compact.js?v=20261113-line-search-v1"></script>
 <script src="./seek-preview.js?v=20261118-full-duration-v1"></script>
 <script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>
-<script src="./standalone-pip.js?v=20261126-smooth-pip-v1"></script>
+<script src="./standalone-pip.js?v=20261126-background-pip-v2"></script>
 </body>
 </html>
