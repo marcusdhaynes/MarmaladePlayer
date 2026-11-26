@@ -211,31 +211,43 @@
     }
     return found;
   }
+  function reflectSearchRows(){
+    results.querySelectorAll('.sub-result-use').forEach(button=>button.reflectSubtitleState?.());
+  }
+  window.addEventListener('marmalade:subtitles-changed',reflectSearchRows);
+  window.addEventListener('marmalade:media-cleared',reflectSearchRows);
   function row(item){
     const root=document.createElement('div');root.className='sub-result';
     const info=document.createElement('div'),name=document.createElement('strong'),detail=document.createElement('small');
     name.textContent=item.name.slice(0,140);
-    const score=matcher?.scoreRelease?.(videoFilename(),item.name+' '+item.filename)||0;
-    const match=score>=60?'Closest Release':score>=25?'Similar Release':'Timing Not Verified';
-    detail.textContent=[item.source,item.lang.toUpperCase(),match,item.filename&&item.filename!==item.name?item.filename.slice(0,75):''].filter(Boolean).join(' · ');
+    detail.textContent=[item.source,String(item.lang||'').toUpperCase()].filter(Boolean).join(' · ');
     info.append(name,detail);
-    const buttons=document.createElement('div');
+    const buttons=document.createElement('div');buttons.className='sub-result-actions';
     if(item.url){
-      const use=document.createElement('button');use.type='button';use.textContent='Use';
+      const use=document.createElement('button');use.type='button';use.className='sub-result-use';
+      use.dataset.subtitleUrl=item.url;
+      const reflect=()=>{
+        const status=window.MarmaladeSubtitleSearchState?.(item)||'new';
+        if(use.dataset.loading==='true')return;
+        use.textContent=status==='active'?'Active':status==='loaded'?'Select':'Use';
+        use.disabled=status==='active';
+        use.setAttribute('aria-pressed',String(status==='active'));
+      };
+      use.reflectSubtitleState=reflect;reflect();
       use.addEventListener('click',async()=>{
-        use.disabled=true;use.textContent='Loading…';
+        use.dataset.loading='true';use.disabled=true;use.textContent='Loading…';
         try{
           if(typeof window.MarmaladeSubtitleUseSearchResult!=='function')
             throw Error('Subtitle Loader Unavailable');
           const result=await window.MarmaladeSubtitleUseSearchResult(item);
           if(!result?.cues?.length)throw Error('No Readable Subtitle Cues');
-          use.textContent='Loaded ✓';
+          // Reflect all rows from the authoritative active subtitle identity.
         }catch(error){
           use.textContent='Use';
           const reason=String(error?.message||error).slice(0,180);
           progress.textContent='Could Not Load This Subtitle: '+reason+
             '. Download the file to import the ZIP or text subtitle locally.';
-        }finally{use.disabled=false;}
+        }finally{delete use.dataset.loading;reflectSearchRows();}
       });
       buttons.append(use);
     }
