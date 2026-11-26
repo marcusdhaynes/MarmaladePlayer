@@ -33,6 +33,8 @@ const canvas={
  width:0,height:0,getContext(){return context},
  captureStream(){traces.push('captureStream');return stream}
 };
+const windowEvents=new Map();
+const pipWindow={width:320,height:180,addEventListener(name,fn){windowEvents.set(name,fn)},removeEventListener(name){windowEvents.delete(name)}};
 const pip={
  paused:true,readyState:0,style:{},setAttribute(){},
  addEventListener(name,fn){events.set('pip:'+name,fn)},
@@ -40,7 +42,7 @@ const pip={
  get srcObject(){return this._srcObject},
  play(){this.paused=false;this.readyState=2;return Promise.resolve()},
  pause(){this.paused=true},
- requestPictureInPicture(){traces.push('requestPiP');document.pictureInPictureElement=this;return Promise.resolve()}
+ requestPictureInPicture(){traces.push('requestPiP');document.pictureInPictureElement=this;return Promise.resolve(pipWindow)}
 };
 const button=(name,act)=>({
  disabled:false,value:'0',
@@ -104,6 +106,14 @@ media.videoWidth=800;media.videoHeight=600;frameCallback();
 const dims=window.MarmaladeStandalonePiP.getDiagnostics();
 check('12b: Non-16:9 source ratio preserved',Math.abs(dims.canvasWidth/dims.canvasHeight-4/3)<.01);
 check('12c: Subtitle canvas rerenders when source dimensions change',captionDraws>previousCaptionDraws);
+pipWindow.width=320;pipWindow.height=180;windowEvents.get('resize')();
+const padded=window.MarmaladeStandalonePiP.getDiagnostics();
+check('12d: OS-constrained PiP canvas matches its viewport',Math.abs(padded.canvasWidth/padded.canvasHeight-16/9)<.02);
+check('12e: Picture retains 4:3 inside 16:9 viewport',Math.abs(padded.pictureWidth/padded.pictureHeight-4/3)<.02);
+check('12f: Hidden playback element geometry is not square',pip.style.aspectRatio===padded.canvasWidth+' / '+padded.canvasHeight);
+check('12g: Worker reads decoded media frames via transferable streams',source.includes('new MediaStreamTrackProcessor')&&source.includes('new MediaStreamTrackGenerator')&&source.includes('m.readable.pipeThrough')&&source.includes('pipeTo(m.writable)'));
+check('12h: Worker path does not start page frame timers',source.includes('if(worker){draw();return;}'));
+check('12i: Worker closes decoded frames after processing',source.includes('finally{frame.close();}'));
 handlers.pause();handlers.previoustrack();handlers.nexttrack();handlers.seekto({seekTime:60});
 check('13: Native controls act on authoritative player',
  clicks.play===1&&clicks.back===1&&clicks.forward===1&&clicks.seek===1);
