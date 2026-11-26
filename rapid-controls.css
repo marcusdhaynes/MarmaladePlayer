@@ -288,3 +288,56 @@
 .adaptive-brightness-label{font-size:9px;line-height:1;color:#c9abb5}
 @media(max-width:470px){.adaptive-brightness-popover{bottom:calc(100% + 7px);padding:8px 5px;width:55px}
  .adaptive-brightness-popover input[type="range"]{height:105px;min-height:105px;max-height:105px}}
+
+/* Compact subtitle studio: content-sized controls, no duplicated padding. */
+#subtitlePanel.subtitle-studio.sub-compact{padding:7px!important;gap:5px!important;box-sizing:border-box;scrollbar-width:none}
+#subtitlePanel.subtitle-studio.sub-compact::-webkit-scrollbar,#subtitlePanel .sub-results::-webkit-scrollbar,#subtitlePanel .sub-cue-list::-webkit-scrollbar{display:none}
+#subtitlePanel .popover-heading{min-height:24px;padding:0 1px}
+#subtitlePanel .popover-heading button{width:24px;height:24px;min-height:0;padding:3px}
+#subtitlePanel .sub-tabs{gap:2px;padding:2px;border-radius:7px}
+#subtitlePanel .sub-tabs button{min-height:26px;padding:3px 4px;gap:4px;border-radius:5px}
+#subtitlePanel .sub-view,#subtitlePanel .sub-search,#subtitlePanel .subtitle-style,#subtitlePanel .sub-timing-pane{gap:4px}
+#subtitlePanel .sub-caption-status{padding:3px 5px;line-height:1.3;max-height:none}
+#subtitlePanel .sub-file-actions,#subtitlePanel .sub-pair,#subtitlePanel .sub-actions{gap:4px}
+#subtitlePanel .sub-file-actions button,#subtitlePanel .sub-actions button{min-height:25px;padding:3px 6px;border-radius:5px}
+#subtitlePanel .sub-input{min-height:25px;padding:3px 5px;border-radius:5px}
+#subtitlePanel .sub-search label{gap:2px}
+#subtitlePanel .sub-search details,#subtitlePanel .sub-advanced-style{padding:4px 5px;border-radius:6px}
+#subtitlePanel .sub-search details[open]>summary{margin-bottom:4px}
+#subtitlePanel .sub-results{gap:3px;scrollbar-width:none}
+#subtitlePanel .sub-result{padding:4px 5px;gap:4px;min-width:0;border-radius:5px}
+#subtitlePanel .sub-result strong{font-size:10px;line-height:1.25;overflow-wrap:anywhere}
+#subtitlePanel .sub-result small{display:block;line-height:1.2;margin-top:2px}
+#subtitlePanel .sub-result-actions{flex:0 0 auto;display:flex;align-items:center;gap:3px}
+#subtitlePanel .sub-result-actions :is(a,button){padding:3px 5px;min-height:23px;min-width:0;width:auto;white-space:nowrap;border-radius:4px;font-size:9px;line-height:1.4}
+#subtitlePanel .sub-result-use[aria-pressed="true"]{color:#9ce2a8;border-color:#52966a;background:#203c2b;opacity:1}
+#subtitlePanel .subtitle-style>label{min-height:24px;gap:5px}
+#subtitlePanel .subtitle-style>label select{padding:3px 5px;min-height:24px}
+#subtitlePanel .subtitle-style-row:not(.subtitle-timing-row){min-height:22px;grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr) 32px;gap:3px}
+#subtitlePanel .subtitle-style-row input[type=color]{width:20px;height:20px;min-width:20px}
+#subtitlePanel .sub-swatch-spacer{width:20px}
+#subtitlePanel .sub-setting-value{width:32px;min-width:32px}
+#subtitlePanel .sub-advanced-style .subtitle-style-row{margin-top:3px}
+#subtitlePanel .subtitle-position-grid{width:96px;gap:3px}
+#subtitlePanel .subtitle-position-grid button{width:30px;min-width:0;height:23px;min-height:0;padding:1px}
+#subtitlePanel .subtitle-timing-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;min-height:0}
+#subtitlePanel .subtitle-timing-control{display:flex;align-items:center;gap:3px;flex:0 0 auto}
+#subtitlePanel .timing-connected{display:flex;align-items:stretch;border:1px solid #755848;border-radius:6px;overflow:hidden;gap:0}
+#subtitlePanel .subtitle-timing-control .timing-major{width:27px;min-width:27px;height:28px;min-height:0;padding:0;border:0;border-radius:0;font:700 19px/1 system-ui,sans-serif;display:grid;place-items:center}
+#subtitlePanel .subtitle-timing-control .timing-fine{width:20px;min-width:20px;height:22px;min-height:0;padding:0;border-radius:4px;font:650 12px/1 system-ui,sans-serif;display:grid;place-items:center}
+#subtitlePanel .timing-value{display:flex;align-items:center;gap:1px;background:#252229;border-inline:1px solid #755848;padding:0 3px;min-width:0}
+#subtitlePanel .timing-value #subtitleTiming{width:37px;min-width:0;max-width:60px;height:26px;min-height:0;padding:0;border:0;background:transparent;border-radius:0;color:#fff2df;text-align:right;font:600 10px/1 system-ui,sans-serif;font-variant-numeric:tabular-nums}
+#subtitlePanel .timing-value #subtitleTiming:focus{outline:none}
+#subtitlePanel .timing-value:focus-within{box-shadow:inset 0 0 0 1px #e7b58b}
+#subtitlePanel .timing-value .timing-unit{font-size:10px;line-height:1;color:#e5c3a7}
+#subtitlePanel .sub-timing-summary{display:flex;align-items:center;justify-content:space-between;gap:4px}
+#subtitlePanel .sub-timing-readout{font-size:9px;line-height:1.3}
+#subtitlePanel .sub-timing-action{min-height:24px;padding:3px 5px;border-radius:5px}
+#subtitlePanel .sub-timing-pane p{font-size:9px;line-height:1.3}
+#subtitlePanel .sub-cue-search-row{gap:3px}
+#subtitlePanel .sub-cue-search-row input{height:25px;padding:3px 5px;border-radius:5px}
+#subtitlePanel .sub-cue-expand{width:26px;border-radius:5px}
+#subtitlePanel .sub-cue-selected{padding:4px 5px;min-height:0;line-height:1.35}
+#subtitlePanel .sub-cue-list{min-height:0;scrollbar-width:none;border-radius:5px}
+#subtitlePanel .sub-cue-option{min-height:0;padding:4px 5px;line-height:1.35}
+#subtitlePanel .sub-cue-more{min-height:24px;padding:3px}
