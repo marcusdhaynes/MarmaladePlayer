@@ -549,13 +549,40 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./rapid-controls.css?v=20261116-white-flashlight-v2">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
 <link rel="stylesheet" href="./games.css?v=20261121-browser-independent-v2">
+
+<style id="marmaladeum-mobile-theater-layout">
+/* Override the obsolete 365px minimum height on the empty mobile player.
+   Keep the user's optional intrinsic ratio, desktop, fullscreen and PiP. */
+@media (max-width:800px) {
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen) {
+    width:100%!important;min-width:0!important;max-width:100%!important;
+    height:auto!important;min-height:0!important;
+    aspect-ratio:var(--mobile-stage-aspect,16 / 9)!important;
+  }
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty {
+    position:absolute;inset:28px 8px 66px;min-height:0!important;padding:0!important;
+    display:flex;flex-direction:column;align-items:center;justify-content:safe center;
+    gap:2px;overflow:auto;scrollbar-width:none;pointer-events:auto;
+  }
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):is(.guest-waiting,.join-failed) .stage-empty {inset:6px 8px}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty > * {flex-shrink:0}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty .empty-art {height:clamp(22px,5vw,40px)}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty .play-disc {width:clamp(22px,5vw,40px);height:clamp(22px,5vw,40px);box-shadow:none}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty .play-disc svg {width:50%;height:50%}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty .eyebrow {font-size:8px;line-height:1.1}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty h1 {font-size:clamp(15px,3.6vw,25px)!important;line-height:1.1!important;margin:0!important}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty p {font-size:clamp(9px,2.1vw,12px)!important;line-height:1.2!important;margin:0!important}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty :is(.rapid-resume,.rapid-join-entry,.stage-retry-join) {margin:0;padding:3px 8px;font-size:10px}
+  body:not(.theater-open):not(.native-pip-active) .movie-info-row:has(>section:not([hidden])) {margin-top:clamp(8px,2vw,12px)!important}
+}
+</style>
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <a class="identity" href="./" aria-label="Marmalade Player home">
+      <a class="identity" href="./" aria-label="Marmaladeum home">
         <span class="logo-mark" aria-hidden="true"><img src="./assets/marmalade-icon.webp?v=20261104-fullbleed-v1" width="43" height="43" alt=""></span>
-        <span class="brand"><strong>Marmalade</strong><span>PLAYER</span></span>
+        <span class="brand"><strong>Marmaladeum</strong></span>
       </a>
       <div id="gameScoreboard" class="game-scoreboard" aria-label="Game Scores" hidden>
         <div id="gameScoreList" class="game-score-list" aria-live="polite"></div>
