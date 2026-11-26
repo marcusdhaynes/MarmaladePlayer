@@ -115,6 +115,9 @@
  subtitleLink.addEventListener('click',()=>$('subtitlesBtn')?.click());
  pages.get('video').querySelector('.settings-stack').appendChild(subtitleLink);
  into('skipInterval','controls');
+ into('volumeIncrement','controls');
+ into('volumeSnap','controls','settings-toggle-row');
+ into('volumeMaximum','controls');
  const tapRow=into('tapVideoPlayback','controls','settings-toggle-row');
  if(tapRow){const input=tapRow.querySelector('input');if(input)tapRow.append(input);}
  const fadeRow=into('controlFadeDelay','controls');
