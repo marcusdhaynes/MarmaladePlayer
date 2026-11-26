@@ -1297,7 +1297,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     bitrateEstimate: 0, videoFrameHandle: null, fpsFrames: 0, fpsAt: 0,
     stabilityMode: 'fast', strictSync: true, diagnostics: false, jitterTarget: 140,
     highPlayoutTarget: 0, highPlayoutLastSampleAt: 0, latencyStats: null, highEncoderStats: null,
-    bufferTarget: 30, mediaStallAt: 0, mediaRetryCount: 0, lastRecoverAt: 0,
+    bufferTarget: 180, mediaStallAt: 0, mediaRetryCount: 0, lastRecoverAt: 0,
     remoteVideoConnectedAt: 0, remoteLastFrameAt: 0, remoteVideoFrameCount: 0,
     remoteVideoQualityFrames: 0, remoteFramesAvailable: false,
     statsReport: null, localFingerprint: null, remoteFingerprint: null, remoteFileName: '', localFileUrl: null,
@@ -2023,6 +2023,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       revision: state.transportRevision, fingerprint: state.localFingerprint,
       sentAt: performance.now(), seq: ++state.localSnapshotSequence,
       mediaKind: state.source === 'native' ? 'file' : state.source === 'hosted' ? 'hosted' : state.source,
+      bufferedMovie: window.MarmaladeRollingBuffer?.offer()||null,
       hostedUrl: state.source === 'hosted' ? state.hostedUrl : '',
       backupUrl: state.source === 'hosted' ? state.backupUrl : '',
       strictSync: state.strictSync, heldForBuffer: !!state.heldForBuffer,
@@ -2253,14 +2254,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function recomputeBufferTarget(report = {}) {
     const quality = Number.isFinite(report.loss) ? report.loss : 0;
     const freezes = Number(report.freezes || 0) + Number(report.stalls || 0);
-    const prev = state.bufferTarget;
-    const target = quality > .08 || freezes >= 2 ? 120 : quality > .035 || freezes ? 90 :
-      quality > .012 || (report.jitter || 0) > 120 ? 40 : selectedMode().initial;
-    // Ramp gently; never surprise viewers by changing their resolution.
-    state.bufferTarget = Math.round(prev * .7 + target * .3);
-    if (state.hls) {
-      state.hls.config.maxBufferLength = clamp(state.bufferTarget, 10, 120);
-      state.hls.config.maxMaxBufferLength = 120;
+    // Forward movie buffering is separate from the live WebRTC jitter queue.
+    state.bufferTarget=180;
+    if(state.hls){
+      state.hls.config.maxBufferLength=185;
+      state.hls.config.maxMaxBufferLength=185;
     }
     if(Number(state.requestedQuality)<=STREAM_HEIGHT)
       state.jitterTarget = clamp(Math.round((state.jitterTarget * .6) +
@@ -2423,6 +2421,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       state.localVerified=true;state.verifiedHostFingerprint=expectedHash;
       state.localReturnPending=false;state.bufferedMode=true;state.waitingForBuffer=false;
       state.source='local-guest';
+      window.MarmaladeRollingBuffer?.stop();
       if(state.guestCall){const oldCall=state.guestCall;state.guestCall=null;try{oldCall.close();}catch{}}
       media.pause();media.srcObject=null;media.src=state.localFileUrl;media.preload='auto';media.load();
       if(previousUrl)URL.revokeObjectURL(previousUrl);
@@ -2514,6 +2513,16 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if (state.role !== 'guest' || !(state.localVerified || state.bufferedMode) || !Number.isFinite(media.duration) || !media.duration) return;
     const expected = expectedHostTime();
     const drift = expected - media.currentTime;
+    if(state.source==='buffered-guest'){
+      // Do not repeatedly seek an unfilled range while the transfer is working.
+      const ranges=media.buffered;
+      let available=0;for(let i=0;i<ranges.length;i++)if(ranges.start(i)<=expected+.08&&ranges.end(i)>expected){available=ranges.end(i)-expected;break;}
+      if(available<.15){
+        if(!media.paused)media.pause();
+        if(state.hostSyncVersion!==state.localLastSync||Math.abs(drift)>5){try{media.currentTime=expected;}catch{}state.localLastSync=state.hostSyncVersion;}
+        window.MarmaladeRollingBuffer?.kick();return;
+      }
+    }
     const revisionChanged = state.hostSyncVersion !== state.localLastSync;
     // Respond quickly to deliberate host seeks while nudging smaller drift
     // with a capped playback-rate correction instead of constant hard jumps.
@@ -2657,7 +2666,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         const Hls=await loadHlsScript();
         if (state.pendingHostedLoad!==url) return;
         if (!Hls.isSupported()) throw new Error('HLS is not supported by this device');
-        const hls=new Hls({autoStartLoad:false,maxBufferLength:60,maxMaxBufferLength:120,
+        const hls=new Hls({autoStartLoad:false,maxBufferLength:185,maxMaxBufferLength:185,maxBufferSize:256*1024*1024,
           fLoader: makeSegmentRescueLoader(Hls),
           backBufferLength:30,enableWorker:true,nudgeOnVideoHole:true,nudgeMaxRetry:3,
           maxFragLookUpTolerance: .3, fragLoadingMaxRetry: 6,manifestLoadingMaxRetry:5,
@@ -2698,9 +2707,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(state.role!=='host') selectRole('host');
     closeConnections();removeMedia();
     state.hostedUrl=url;state.backupUrl=backup; state.hostedFallbackOf=''; state.source='hosted';state.fileReady=true;
-    state.bufferTarget=60;
+    state.bufferTarget=180;
     el.fileName.textContent='Hosted stream';
-    el.fileInfo.textContent='Independent CDN playback; 10–120s of forward buffer when available.';
+    el.fileInfo.textContent='Independent CDN playback; targets 180 seconds ahead when available.';
     void loadHostedPlayback(url);
     void createRoom();
     updateRoomPanel();
@@ -2712,7 +2721,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const ahead=bufferAhead();
       const blocked=state.hostPlaying&&(media.readyState<3||ahead<.15||media.paused&&!el.stage.classList.contains('needs-gesture'));
       if(blocked && !state.waitingForBuffer){state.waitingForBuffer=true;send(state.guestConn,{type:'buffer-status',ready:false});}
-      if(state.waitingForBuffer && (ahead>=Math.min(12,Math.max(2,state.bufferTarget/3)) || (state.localVerified && ahead>=2) || (media.ended && media.readyState>=3))){
+      const remaining=Math.max(0,(Number(media.duration)||state.sharedDuration||0)-media.currentTime);
+      const resumeFloor=Math.min(state.localVerified?2:3,remaining);
+      if(state.waitingForBuffer && ((ahead>=resumeFloor&&media.readyState>=2) || (media.ended && media.readyState>=3))){
         state.waitingForBuffer=false; send(state.guestConn,{type:'buffer-status',ready:true}); void syncSeekablePlayback(true);
       }
     } else if (state.guestCall && state.source === 'remote' && state.hostPlaying &&
@@ -2750,6 +2761,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     send(state.guestConn,{type:'buffer-status',ready});
   }
   function closeConnections() {
+    window.MarmaladeRollingBuffer?.stop();window.MarmaladeRollingBuffer?.closeHost();
     window.MarmaladeHostSyncCleanup?.();
     clearTimeout(state.joinTimeout);
     clearTimeout(state.joinRetryTimer);
@@ -2799,6 +2811,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   function stopBroadcast(keepScreen = false) {
     state.broadcasting = false;
+    window.MarmaladeRollingBuffer?.closeHost();
+    for(const entry of state.connections.values())entry.bufferedFile=false;
     releaseWakeLock();
     if (state.interval) { window.clearInterval(state.interval); state.interval = null; }
     state.basePaint = null;
@@ -3184,9 +3198,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function setupHostConnections(peer) {
     peer.on('connection', (conn) => {
       if (state.peer !== peer) { conn.close(); return; }
+      if(window.MarmaladeRollingBuffer?.hostChannel(conn))return;
       const prior = state.connections.get(conn.peer);
       if (prior) { try { prior.call?.close(); prior.conn.close(); } catch { /* no-op */ } }
-      const entry = { conn, call: null, mode: DEFAULT_LEVEL, recommendation: DEFAULT_LEVEL,
+      const entry = { conn, call: null, bufferedFile:false, mode: DEFAULT_LEVEL, recommendation: DEFAULT_LEVEL,
         previousEncoderStats: null, lastEncoderMeasureAt: 0,
         mediaConfirmed: false, mediaOfferedAt: 0, lastMediaRetry: 0, mediaAttempt: 0,
         mediaRetryTimer: null, mediaFailureCount: 0,
@@ -3246,6 +3261,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             entry.mediaConfirmed=false;entry.applied='';
             if(state.outgoing && state.source==='file')callGuest(conn.peer);
           }
+        }
+        if(data.type==='buffered-file-active'&&typeof data.active==='boolean'){
+          if(data.active&&window.MarmaladeRollingBuffer?.offer()?.id!==data.id)return;
+          entry.bufferedFile=data.active;
+          if(data.active){const call=entry.call;entry.call=null;try{call?.close();}catch{}void tuneAllGuests();}
+          else if(state.outgoing&&!entry.localMirror)callGuest(conn.peer);
         }
         if (data.type === 'buffer-status' && typeof data.ready==='boolean') {
           entry.bufferReady=data.ready;entry.lastBufferReport=performance.now();
@@ -3814,7 +3835,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function callGuest(peerId) {
     if (!state.peer || !state.outgoing || state.source==='hosted') return;
     const entry = state.connections.get(peerId);
-    if (!entry?.conn.open || entry.localMirror) return;
+    if (!entry?.conn.open || entry.localMirror || entry.bufferedFile) return;
     // First offer uses reliable base capture; revive painter until the new
     // sender has been replaced with its preferred high-tier track.
     if (state.basePaintIdle && state.basePaint) {
@@ -3960,7 +3981,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       state.guestCall=call; // Ignore the old call's close callback during replacement.
       try { previousCall?.close(); } catch { /* no-op */ }
       call.on('stream', async (stream) => {
-        if (state.guestCall !== call || (state.localVerified && !state.localReturnPending)) return;
+        if (state.guestCall !== call || (state.localVerified && !state.localReturnPending) || (state.bufferedMode&&!state.localVerified)) return;
         const hadLocal=state.localVerified && state.localReturnPending;
         const oldLocalUrl=hadLocal?state.localFileUrl:null;
         if(hadLocal){
@@ -4152,6 +4173,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         if(state.localVerified || state.bufferedMode)void syncSeekablePlayback();
       }
     }
+    if(!waitingForAck&&data.type==='state')window.MarmaladeRollingBuffer?.observe(data.bufferedMovie);
     if (Number.isFinite(data.sourceHeight) && data.sourceHeight >= 0 && data.sourceHeight <= 16384 &&
         Number.isFinite(data.sourceWidth) && data.sourceWidth >= 0 && data.sourceWidth <= 16384 &&
         (state.sourceHeight !== data.sourceHeight || state.sourceWidth !== data.sourceWidth)) {
@@ -5973,7 +5995,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   });
   for(const event of ['waiting','stalled'])media.addEventListener(event,()=>{
     state.mediaStallAt=performance.now();
-    if(state.bufferedMode){recomputeBufferTarget({freezes:2});}
+    if(state.bufferedMode){recomputeBufferTarget({freezes:2});window.MarmaladeRollingBuffer?.kick();}
     notifyWaiting(false);
   });
   for(const event of ['canplay','playing'])media.addEventListener(event,()=>{
@@ -6546,6 +6568,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     });
   }
   window.MarmaladeAddonBridge={state,media,el,ensureAudioPlayback,
+    expectedHostTime,applyVolume,showStage,badge,syncSeekablePlayback,updateBufferDisplay,recoveryCheck,stopGuestAudioRelay,
     chooseVideo:selectHostFile,chooseNativeStream,openMoviePicker,notify,
     pauseAndSeekGameFrame,stopGameVideo,setGameFrameMode};
   // Offline app shell is optional; room signaling and WebRTC require connectivity.
@@ -6563,6 +6586,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 </script>
 <script src="./mkv-decoder-io.js?v=20261120-webview-range-audio-v2"></script>
 <script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
+<script src="./rolling-buffer.js?v=20261126-v1"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261121-extension-retention-v1" defer></script>
