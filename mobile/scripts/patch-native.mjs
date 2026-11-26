@@ -43,6 +43,8 @@ if(existsSync(manifest)){
    let flags=attributes;
    if(!flags.includes('android:supportsPictureInPicture='))flags+=' android:supportsPictureInPicture="true"';
    if(!flags.includes('android:resizeableActivity='))flags+=' android:resizeableActivity="true"';
+   if(!flags.includes('android:hardwareAccelerated='))flags+=' android:hardwareAccelerated="true"';
+   else flags=flags.replace(/android:hardwareAccelerated="false"/,'android:hardwareAccelerated="true"');
    // Bring the *same* active WebView back when the floating window closes.
    if(!flags.includes('android:launchMode='))flags+=' android:launchMode="singleTask"';
    return '<activity'+flags+'>';
@@ -518,6 +520,19 @@ public class MainActivity extends BridgeActivity {
             notifyRestored();
         }
     }
+    private void keepVisiblePipRendering(){
+        if(Build.VERSION.SDK_INT>=26 && isInPictureInPictureMode() && getBridge()!=null && getBridge().getWebView()!=null){
+            // PiP is a visible playback surface even when another activity
+            // is focused. Keep the original WebView's media and JS alive.
+            getBridge().getWebView().onResume();
+            getBridge().getWebView().resumeTimers();
+        }
+    }
+    @Override
+    public void onPause(){
+        super.onPause();
+        keepVisiblePipRendering();
+    }
     @Override
     public void onResume() {
         super.onResume();
@@ -537,7 +552,7 @@ public class MainActivity extends BridgeActivity {
     public void onPictureInPictureModeChanged(boolean active, Configuration config) {
         super.onPictureInPictureModeChanged(active, config);
         subtitleHandler.removeCallbacks(subtitleRefresh);
-        if(active) subtitleHandler.post(subtitleRefresh);
+        if(active){keepVisiblePipRendering();subtitleHandler.post(subtitleRefresh);}
         View root = findViewById(android.R.id.content);
         if (root != null) root.requestApplyInsets();
         if (bridge != null && bridge.getWebView() != null) {
