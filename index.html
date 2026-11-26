@@ -678,7 +678,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <div class="popover-heading"><strong>Playback Settings</strong><button type="button" id="closeSettingsPanel" aria-label="Close settings">✕</button></div>
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
-             <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
+             <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Background Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
+            <label for="windowTheme">Window Theme <select id="windowTheme" aria-label="Window Theme"><option value="classic">Classic</option><option value="glass">Glass</option></select></label>
             <label>Skip Interval <select id="skipInterval" aria-label="Seconds to rewind or fast forward"><option value="5">5 Seconds</option><option value="10" selected>10 Seconds</option><option value="15">15 Seconds</option><option value="20">20 Seconds</option><option value="30">30 Seconds</option><option value="60">60 Seconds</option></select></label>
             <label id="tapVideoPlaybackRow"><input type="checkbox" id="tapVideoPlayback"> Tap Video To Play / Pause</label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
@@ -1067,6 +1068,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   applyBackground(savedBackground);
   backgroundTheme?.addEventListener('change',()=>applyBackground(backgroundTheme.value));
+  const windowTheme=$('windowTheme');
+  function applyWindowTheme(value){
+    const theme=value==='glass'?'glass':'classic';
+    document.documentElement.dataset.windowTheme=theme;
+    if(window.documentPictureInPicture?.window)window.documentPictureInPicture.window.document.documentElement.dataset.windowTheme=theme;
+    windowTheme.value=theme;rememberPreference('window-theme',theme);
+  }
+  applyWindowTheme(localPreference('window-theme','classic'));
+  windowTheme.addEventListener('change',()=>applyWindowTheme(windowTheme.value));
   // Poster is purely visual and never uploaded. Keep it until playback starts.
   const posterPreview=document.getElementById('stagePosterPreview');
   let posterHasPlayed=false;
@@ -1263,7 +1273,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     joinTimeout: null, joinRetryTimer: null, joinAttempt: 0, joinFailure: false,
     hostStreamLive: false, mediaRequestAt: 0, mediaAwaitingAt: 0,
     showStatus: false, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
-    subtitleRestoreKey:'', subtitleIdentity:'',
+    subtitleRestoreKey:'', subtitleIdentity:'', subtitleLanguage:'',
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     // Local-file control clock only; remote media and buffered streaming are unchanged.
     localClockOffsetMs: null, localClockBestRtt: Infinity, localClockSampleAt: 0,
@@ -1406,7 +1416,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(source.kind!=='search'||!source.url)return;
     const cacheKey=searchSubtitleKey(source.url,key);
     loadedSearchSubtitles.delete(cacheKey);
-    loadedSearchSubtitles.set(cacheKey,{file,source:{kind:'search',url:source.url,name:source.name,filename:source.filename,fps:source.fps,id:source.id}});
+    loadedSearchSubtitles.set(cacheKey,{file,source:{kind:'search',url:source.url,name:source.name,filename:source.filename,fps:source.fps,id:source.id,lang:source.lang}});
     let total=[...loadedSearchSubtitles.values()].reduce((n,entry)=>n+entry.file.size,0);
     while(loadedSearchSubtitles.size>12||total>40*1024*1024){const first=loadedSearchSubtitles.keys().next().value;total-=loadedSearchSubtitles.get(first).file.size;loadedSearchSubtitles.delete(first);}
   }
@@ -1419,6 +1429,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     loadedSearchSubtitles.clear();
     state.subtitleRestoreKey='';
     state.subtitleIdentity='';
+    state.subtitleLanguage='';
     window.MarmaladeSubtitleTiming?.activate('','');
   }
   function cachedSubtitleFile(text,name){
@@ -1434,7 +1445,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!record||ticket!==subtitleRestoreSequence||subtitleMediaKey()!==key)return;
     const source={kind:record.kind==='search'?'search':'local',url:record.url||'',
       name:record.name||'',filename:record.entryName||record.name||'',fps:record.fps||0,
-      id:record.id||'',restored:true,restoreToken:ticket,mediaKey:key};
+      id:record.id||'',lang:record.lang||'',restored:true,restoreToken:ticket,mediaKey:key};
     if(source.kind==='search'){
       try{
         if(!source.url)throw Error('Subtitle URL Was Not Saved');
@@ -5304,6 +5315,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.subtitlesEnabled=true;
     state.subtitlePreviewSuppressed=false;
     state.subtitleIdentity=id;
+    state.subtitleLanguage=source.lang||'';
     state.subtitleRestoreKey=key;
     rememberLoadedSearchSubtitle(key,{...source,id},original);
     const from=source.fromCache?' · Cached':source.restored?' · Restored':'';
@@ -5315,7 +5327,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(key){
       const record={kind:source.kind==='search'?'search':'local',name:file.name,
         containerName:original.name,entryName:file.name,
-        id,url:source.url||'',fps:Number(source.fps)||0,handle:handle||null,
+        id,url:source.url||'',lang:source.lang||'',fps:Number(source.fps)||0,handle:handle||null,
         content:(source.kind==='search'||!handle)?raw:undefined};
       try{await subtitleHandleStore('put',key,record);}catch(error){
         console.warn('Could not save subtitle selection',error);
@@ -5345,7 +5357,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(ticket!==subtitleRestoreSequence||subtitleMediaKey()!==mediaKey)
       throw Error('Video Or Subtitle Selection Changed');
     return loadSelectedSubtitle(file,null,{...cached?.source,kind:'search',url:item.url,
-      name:item.name,filename:cached?.source?.filename||item.filename,fps:cached?.source?.fps||item.fps||0,mediaKey,restoreToken:ticket});
+      name:item.name,filename:cached?.source?.filename||item.filename,lang:cached?.source?.lang||item.lang||'',fps:cached?.source?.fps||item.fps||0,mediaKey,restoreToken:ticket});
   };
   const nativeVideoOnlyStyle=document.createElement('style');
   nativeVideoOnlyStyle.textContent='body.native-pip-active:not(.floating-overlay-active){margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important}'+
@@ -5625,6 +5637,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         const dims=miniVideoDimensions();
         const pop=await window.documentPictureInPicture.requestWindow({width:Math.round(280*dims.width/dims.height),height:280});
         pipWindow=pop;
+        pop.document.documentElement.dataset.windowTheme=document.documentElement.dataset.windowTheme||'classic';
         stagePlaceholder=document.createComment('Marmalade video pop-out position');
         el.stage.replaceWith(stagePlaceholder);
         // Document PiP uses its own CSS scope. Reuse all existing styles,
