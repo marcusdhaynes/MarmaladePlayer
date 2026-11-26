@@ -170,3 +170,70 @@ html[data-window-theme="glass"] :is(.settings-popover,.subtitle-studio) :is(.set
  }
 }
 .settings-popover .settings-window-theme-row select{width:119px;max-width:48%;flex-basis:119px}
+
+/* Glass control palette: a single translucent material, without changing
+   control dimensions, layout, icon geometry or the Classic appearance. */
+html[data-window-theme="glass"]{
+ --glass-control:linear-gradient(155deg,rgba(213,193,245,.17),rgba(36,26,56,.40));
+ --glass-control-hover:linear-gradient(155deg,rgba(229,210,255,.27),rgba(62,43,85,.55));
+ --glass-control-active:linear-gradient(155deg,rgba(193,155,240,.40),rgba(91,56,128,.57));
+ --glass-control-edge:rgba(224,206,250,.29);
+ --glass-control-ink:#f3eafa;
+ --glass-control-shine:inset 0 1px 0 rgba(255,255,255,.13),0 2px 5px rgba(9,5,20,.17);
+}
+html[data-window-theme="glass"] :is(#subtitlePanel,#settingsPanel,.theater-popover,.adaptive-brightness-popover,.media-info,.ml-panel,.games-panel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface,.games-log-panel) :is(button,[role="button"],input[type="button"],input[type="submit"],.sub-result a,.sub-links a):not(:where(.ml-card,.games-card,.ml-card-more,.ml-poster-zoom button,.ml-crumbs button,.ml-tool-icon,.ml-favorite,.ml-card-star,.games-nav-button,.games-log-heading button,.popover-heading button,.icon-btn,.sub-cue-option)){
+ background:var(--glass-control)!important;
+ border-color:var(--glass-control-edge)!important;
+ color:var(--glass-control-ink)!important;
+ box-shadow:var(--glass-control-shine)!important;
+}
+html[data-window-theme="glass"] :is(#subtitlePanel,#settingsPanel,.theater-popover,.adaptive-brightness-popover,.media-info,.ml-panel,.games-panel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface,.games-log-panel) :is(button,[role="button"],input[type="button"],input[type="submit"],.sub-result a,.sub-links a):not(:disabled):not(:where(.ml-card,.games-card,.ml-card-more,.ml-poster-zoom button,.ml-crumbs button,.ml-tool-icon,.ml-favorite,.ml-card-star,.games-nav-button,.games-log-heading button,.popover-heading button,.icon-btn,.sub-cue-option)):is(:hover,:focus-visible){
+ background:var(--glass-control-hover)!important;border-color:rgba(233,217,255,.57)!important;
+ color:#fff!important;
+}
+html[data-window-theme="glass"] :is(#subtitlePanel,#settingsPanel,.theater-popover,.adaptive-brightness-popover,.media-info,.ml-panel,.games-panel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface,.games-log-panel) :is(button,[role="button"]):not(:where(.ml-card,.games-card,.ml-card-more,.ml-favorite,.ml-card-star,.icon-btn)):is([aria-pressed="true"],[aria-selected="true"],[aria-current="page"],.active),
+html[data-window-theme="glass"] #subtitlePanel .sub-cue-option[aria-selected="true"]{
+ background:var(--glass-control-active)!important;border-color:rgba(224,194,255,.72)!important;color:#fff!important;
+}
+html[data-window-theme="glass"] #subtitlePanel .sub-result-use[aria-pressed="true"]{
+ background:linear-gradient(155deg,rgba(118,217,174,.27),rgba(30,82,66,.45))!important;
+ color:#d4ffe7!important;border-color:rgba(149,236,194,.58)!important;
+}
+html[data-window-theme="glass"] :is(.ml-panel,.ml-dialog-surface) .ml-danger{
+ background:linear-gradient(155deg,rgba(230,113,147,.24),rgba(106,29,58,.50))!important;
+ color:#ffe3eb!important;border-color:rgba(255,156,181,.55)!important;
+}
+/* Keep deliberately borderless controls and poster art borderless. */
+html[data-window-theme="glass"] :is(.app-shell,.theater-popover,.games-panel,.ml-panel,.media-info) :is(.icon-btn,.popover-heading button,.ml-tool-icon,.ml-crumbs button,.ml-poster-zoom button,.ml-card-more,.ml-card-star,.ml-favorite,.games-nav-button,.games-log-heading button){
+ color:var(--glass-control-ink)!important;
+}
+html[data-window-theme="glass"] :is(.app-shell,.theater-popover,.games-panel,.ml-panel,.media-info) :is(.icon-btn,.popover-heading button,.ml-tool-icon,.ml-crumbs button,.ml-poster-zoom button,.ml-card-more,.ml-card-star,.ml-favorite,.games-nav-button,.games-log-heading button):hover:not(:disabled){
+ background:rgba(225,203,255,.15)!important;color:#fff!important;
+}
+html[data-window-theme="glass"] :is(.app-shell,.theater-popover,.games-panel,.ml-panel,.media-info) :is(.icon-btn,.ml-tool-icon,.ml-card-star,.ml-favorite)[aria-pressed="true"]{
+ color:#ead2ff!important;
+}
+html[data-window-theme="glass"] :is(#subtitlePanel,#settingsPanel,.theater-popover,.media-info,.ml-panel,.games-panel,.ml-dialog-surface,.games-dialog-surface) :is(select,input:not([type="range"]):not([type="color"]):not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"])){
+ background:rgba(18,13,31,.48)!important;border-color:var(--glass-control-edge)!important;
+ color:var(--glass-control-ink)!important;
+}
+html[data-window-theme="glass"] :is(#settingsPanel,#subtitlePanel,.theater-popover) input[type="range"]{accent-color:#d4b4fa}
+html[data-window-theme="glass"] #settingsPanel .settings-toggle-row input[type="checkbox"]{
+ background:rgba(171,148,211,.20)!important;border-color:var(--glass-control-edge)!important;
+}
+html[data-window-theme="glass"] #settingsPanel .settings-toggle-row input[type="checkbox"]:checked{
+ background:rgba(161,112,220,.67)!important;border-color:rgba(230,203,255,.65)!important;
+}
+html[data-window-theme="glass"] #subtitlePanel .timing-connected{border-color:var(--glass-control-edge)!important}
+html[data-window-theme="glass"] #subtitlePanel .timing-value{
+ background:rgba(18,13,31,.48)!important;border-color:var(--glass-control-edge)!important;
+}
+html[data-window-theme="glass"] #subtitlePanel .timing-value #subtitleTiming{
+ background:transparent!important;border:0!important;box-shadow:none!important;
+}
+html[data-window-theme="glass"] #subtitlePanel .timing-connected .timing-major{
+ border:0!important;border-radius:0!important;box-shadow:none!important;
+}
+html[data-window-theme="glass"] :is(#settingsPanel,#subtitlePanel,.theater-popover,.media-info,.ml-panel,.games-panel) :is(button,input,select):focus-visible{
+ outline:2px solid #d5b9fa;outline-offset:1px;
+}
