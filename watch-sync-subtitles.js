@@ -44,7 +44,7 @@
     '.host-sync-settings label{font-size:11px}',
     '.host-sync-settings small{color:#aaa0a5;line-height:1.4}',
     '.host-sync-settings input[type=range]{accent-color:#ffad60}',
-    '#subtitleOverlay{max-width:92%;box-sizing:border-box;pointer-events:none;overflow-wrap:anywhere}',
+    '#subtitleOverlay{max-width:92%;box-sizing:border-box;pointer-events:none;overflow-wrap:normal;word-break:normal;letter-spacing:normal;word-spacing:normal;-webkit-text-stroke:0 transparent!important;paint-order:stroke fill;white-space:pre-line}',
     '@media(max-width:450px){.subtitle-popover{max-height:67%}.subtitle-style .subtitle-style-row{grid-template-columns:minmax(0,1fr) 24px minmax(70px,92px) 43px;gap:4px}.subtitle-style-row input[type=color]{width:24px;height:24px;min-width:24px}}'
   ].join('\n');
   document.head.appendChild(style);
@@ -319,22 +319,56 @@
     const r=parseInt(v.slice(0,2),16),g=parseInt(v.slice(2,4),16),b=parseInt(v.slice(4,6),16);
     return 'rgba('+r+','+g+','+b+','+clamp(Number(alpha),0,100)/100+')';
   }
+  // Keep a single native text run: the browser selects fallback glyphs and
+  // shapes each script itself. Explicitly selected fonts still take priority.
+  const subtitleFallbacks='system-ui, "Noto Sans", "Noto Sans Arabic", "Noto Naskh Arabic", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Thai", "Noto Sans Hebrew", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif';
+  function subtitleFontStack(font,text){
+    const selected=String(font||presets.font).split(',').map(x=>x.trim()).filter(x=>x&&!/^(sans-serif|serif|monospace|system-ui)$/i.test(x));
+    // For the default Western font use a genuine Arabic face for Arabic runs;
+    // honor an explicitly chosen Arabic face and preserve mixed-script fallback.
+    const arabic=/\p{Script=Arabic}/u.test(text);
+    const explicitArabic=selected.some(x=>/Noto (?:Naskh|Sans) Arabic/i.test(x));
+    const preferred=arabic&&!explicitArabic&&font===presets.font?
+      ['"Noto Sans Arabic"','"Noto Naskh Arabic"',...selected]:selected;
+    const generic=String(font||'').split(',').map(x=>x.trim()).find(x=>/^(serif|monospace|system-ui)$/i.test(x));
+    return [...preferred,...(generic?[generic]:[]),subtitleFallbacks].join(', ');
+  }
+  function subtitleShadows(prefs,px,miniature){
+    // A CSS text stroke paints partly INSIDE the glyph, consuming thin strokes
+    // and joining points. Offset shadows draw the outline behind the intact fill.
+    const radius=Math.min(Math.max(0,Number(prefs.outlineSize)||0),px*.075,miniature?1:2.4);
+    const outline=rgba(prefs.outlineColor,prefs.outlineAlpha);
+    const shadows=[];
+    if(radius>0&&prefs.outlineAlpha>0){
+      for(let i=0;i<8;i++){
+        const angle=i*Math.PI/4;
+        shadows.push((Math.cos(angle)*radius).toFixed(2)+'px '+(Math.sin(angle)*radius).toFixed(2)+'px 0 '+outline);
+      }
+    }
+    const glow=Math.min(Math.max(0,Number(prefs.glowSize)||0),px*.22);
+    const shadow=Math.min(Math.max(0,Number(prefs.shadowSize)||0),px*.18);
+    if(glow>0&&prefs.glowAlpha>0)shadows.push('0 0 '+glow+'px '+rgba(prefs.glowColor,prefs.glowAlpha));
+    if(shadow>0&&prefs.shadowAlpha>0)shadows.push('0 '+shadow+'px '+shadow+'px '+rgba(prefs.shadowColor,prefs.shadowAlpha));
+    return shadows.length?shadows.join(', '):'none';
+  }
   function applySubtitleStyle(){
     const overlay=el.subtitleOverlay;
-    const isArabic=/[\u0600-\u08ff]/u.test(overlay.textContent||'');
-    overlay.style.fontFamily=isArabic ?
-      '"Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, Arial, sans-serif, '+prefs.font : prefs.font;
+    overlay.style.fontFamily=subtitleFontStack(prefs.font,overlay.textContent||'');
     // Browser-native Unicode shaping keeps Arabic letters joined and preserves
     // Indic, Thai and mixed-direction captions without splitting glyph runs.
     overlay.style.fontKerning='normal';
-    overlay.style.fontFeatureSettings='"rlig" 1, "calt" 1, "liga" 1';
+    overlay.style.fontFeatureSettings='normal';
+    overlay.style.fontVariant='normal';
+    overlay.style.fontStretch='normal';
     overlay.style.textTransform='none';
     overlay.style.fontVariantLigatures='normal';
     overlay.style.unicodeBidi='plaintext';
     // Direction is determined per caption line by dir=auto and plaintext bidi.
     overlay.style.direction='';
     overlay.style.wordBreak='normal';
-    overlay.style.overflowWrap='break-word';
+    overlay.style.overflowWrap='normal';
+    overlay.style.wordSpacing='normal';
+    overlay.style.hyphens='none';
     overlay.style.whiteSpace='pre-line';
     overlay.style.letterSpacing='normal';
     const miniature=el.stage.classList.contains('mini-pip-visible') ||
@@ -345,20 +379,19 @@
     const adjustedSize=miniature?clamp(Math.min(normalSize,actualHeight*.091),9,16):
       Math.min(normalSize,Math.max(14,actualHeight*.055));
     overlay.style.fontSize=adjustedSize+'px';
-    overlay.style.lineHeight='1.22';
+    overlay.style.lineHeight='1.4';
+    overlay.style.fontWeight='500';
+    overlay.style.textRendering='auto';
     overlay.style.boxSizing='border-box';
     overlay.style.color=rgba(prefs.textColor,prefs.textAlpha);
-    overlay.style.webkitTextStroke=Math.min(miniature?0.65:1.5,Number(prefs.outlineSize)||0)+'px '+rgba(prefs.outlineColor,prefs.outlineAlpha);
-    overlay.style.textShadow=[
-      '0 0 '+(Number(prefs.glowSize)||0)+'px '+rgba(prefs.glowColor,prefs.glowAlpha),
-      '0 '+(Number(prefs.shadowSize)||0)+'px '+(Number(prefs.shadowSize)||0)+'px '+rgba(prefs.shadowColor,prefs.shadowAlpha)
-    ].join(',');
+    overlay.style.webkitTextStroke='0 transparent';
+    overlay.style.textShadow=subtitleShadows(prefs,adjustedSize,miniature);
     overlay.style.background='transparent';
     overlay.style.padding=miniature?'2px 4px':'3px 6px';
     overlay.style.width='max-content';
-    overlay.style.textAlign=prefs.alignment;
+    overlay.style.textAlign=prefs.alignment==='justify'?'center':prefs.alignment; // dialogue must never stretch words
     overlay.setAttribute('dir','auto');
-    overlay.setAttribute('lang',isArabic?'ar':'');
+    overlay.removeAttribute('lang'); // mixed-script cues must not be labeled as a single language
     const parts=prefs.position.split('-');
     const y=parts[0],x=parts[1];
     // Anchor each grid cell to the actual picture, excluding letterbox bars.
