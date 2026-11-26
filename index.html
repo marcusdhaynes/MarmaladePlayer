@@ -335,7 +335,7 @@ body.theater-open{overflow:hidden}
 .stage:fullscreen video,.stage:-webkit-full-screen video,.stage.fullscreen-fallback video{width:100%!important;height:100%!important;object-fit:contain}
 @media (orientation:landscape) and (pointer:coarse){.stage:fullscreen,.stage:-webkit-full-screen,.stage.fullscreen-fallback{width:100dvw!important;height:100dvh!important}.theater-controls{padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}}
 body.theater-open{overflow:hidden;overscroll-behavior:none}
-.stage.floating-player{position:fixed!important;top:auto!important;left:auto!important;right:12px!important;bottom:max(12px,env(safe-area-inset-bottom,0px))!important;width:min(340px,65vw)!important;height:auto!important;aspect-ratio:16/9!important;z-index:1150!important;border:1px solid #8c6a55!important;border-radius:11px!important;box-shadow:0 14px 55px #000c!important;background:#000!important}
+.stage.floating-player{position:fixed!important;top:auto!important;left:auto!important;right:12px!important;bottom:max(12px,env(safe-area-inset-bottom,0px))!important;width:min(340px,65vw)!important;height:auto!important;aspect-ratio:var(--mini-video-aspect,16/9)!important;z-index:1150!important;border:1px solid #8c6a55!important;border-radius:11px!important;box-shadow:0 14px 55px #000c!important;background:#000!important}
 .stage.floating-player .theater-top,.stage.floating-player .theater-controls{display:none!important}
 .stage.floating-player video{width:100%;height:100%}
 .stage.floating-player:after{content:"Pop-Out · Tap to Return";position:absolute;right:7px;bottom:6px;background:#111a;color:#ffe3bd;border:1px solid #ffffff44;border-radius:5px;font-size:10px;line-height:1.2;padding:6px 8px;pointer-events:none}
@@ -514,7 +514,7 @@ body.native-pip-active .subtitle-overlay[hidden]{display:none!important}
  display:block!important;left:4%!important;right:4%!important;bottom:25%!important;
  width:auto!important;max-width:none!important;margin:0!important;
  transform:none!important;padding:0 3px!important;z-index:17!important;
- font-size:clamp(8px,3.5cqw,23px)!important;line-height:1.2!important;
+ font-size:var(--mini-caption-font-size,clamp(13px,5.8cqw,48px))!important;line-height:1.4!important;
  text-align:center!important;pointer-events:none!important;background:transparent!important
 }
 .stage.pip-interactive .subtitle-overlay[hidden]{display:none!important}
@@ -536,7 +536,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
  display:block!important;left:4%!important;right:4%!important;top:auto!important;
  bottom:25%!important;width:auto!important;max-width:none!important;
  margin:0!important;transform:none!important;z-index:17!important;
- font-size:clamp(8px,3.5cqw,23px)!important
+ font-size:var(--mini-caption-font-size,clamp(13px,5.8cqw,48px))!important
 }
 body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-overlay[hidden]{
  display:none!important
@@ -5280,6 +5280,17 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     new MutationObserver(()=>syncMiniIcon(miniPlay,el.play))
       .observe(el.playIcon,{attributes:true,childList:true,subtree:true});
 
+  const miniVideoDimensions=()=>{
+    const displayed=el.stage.classList.contains('host-monitor-active')?document.getElementById('hostMonitor'):media;
+    return {width:displayed?.videoWidth||media.videoWidth||16,height:displayed?.videoHeight||media.videoHeight||9};
+  };
+  const syncMiniVideoAspect=()=>{
+    const {width,height}=miniVideoDimensions();
+    el.stage.style.setProperty('--mini-video-aspect',width+' / '+height);
+  };
+  for(const video of [media,document.getElementById('hostMonitor')].filter(Boolean))
+    for(const event of ['loadedmetadata','resize','emptied'])video.addEventListener(event,syncMiniVideoAspect);
+  syncMiniVideoAspect();
   let miniFadeTimer=null;
   let nativePipActive=false;
   let pipResizeObserver=null;
@@ -5423,12 +5434,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(media.webkitPresentationMode==='picture-in-picture'&&media.webkitSetPresentationMode){
       try{media.webkitSetPresentationMode('inline');}catch{}return;
     }
+    syncMiniVideoAspect();
     if(media.readyState<2||!el.stage.classList.contains('has-video')){
       notify('Load a video before opening Pop-Out.');return;
     }
     if(!window.MarmaladeNativePictureInPicture?.enter && /Android/i.test(navigator.userAgent) && window.Capacitor){
       const cap=window.Capacitor;
-      window.MarmaladeNativePictureInPicture={enter:()=>cap.Plugins?.MarmaladePictureInPicture?.enter?.() || cap.nativePromise?.('MarmaladePictureInPicture','enter',{}) || Promise.reject(new Error('Android native PiP bridge unavailable'))};
+      window.MarmaladeNativePictureInPicture={enter:(options)=>cap.Plugins?.MarmaladePictureInPicture?.enter?.(options) || cap.nativePromise?.('MarmaladePictureInPicture','enter',options) || Promise.reject(new Error('Android native PiP bridge unavailable'))};
     }
     // Prefer our own Android overlay window: real WebView touch controls,
     // draggable/resizable mini-player and no Android PiP control panel.
@@ -5445,8 +5457,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         return;
       }
     }
-    if(window.Capacitor?.getPlatform?.()==='android'){
-      notify('Interactive mini-player requires Display over other apps permission. Use the current Android APK.');
+    if(window.Capacitor?.getPlatform?.()==='android'&&!window.MarmaladeNativePictureInPicture?.enter){
+      notify('Native mini-player is unavailable. Use the current Android APK.');
       return;
     }
     if(window.MarmaladeNativePictureInPicture?.enter){
@@ -5456,7 +5468,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       setInteractivePip(false);
       window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(true);
       window.MarmaladeSubtitleRefresh?.();
-      try{await window.MarmaladeNativePictureInPicture.enter();return;}
+      try{await window.MarmaladeNativePictureInPicture.enter(miniVideoDimensions());return;}
       catch(error){document.body.classList.remove('native-pip-active');
         window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(false);
         notify('Android Picture-in-Picture could not start: '+(error?.message||String(error)).slice(0,130));return;
@@ -6300,7 +6312,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./games.js?v=20261121-browser-independent-v3" defer></script>
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
-<script src="./watch-sync-subtitles.js?v=20261126-natural-subtitles-v1"></script>
+<script src="./watch-sync-subtitles.js?v=20261126-smooth-pip-v1"></script>
 <script src="./settings-layout.js?v=20261121-mobile-video-aspect-v2"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
@@ -6309,6 +6321,6 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-compact.js?v=20261113-line-search-v1"></script>
 <script src="./seek-preview.js?v=20261118-full-duration-v1"></script>
 <script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>
-<script src="./standalone-pip.js?v=20261126-natural-subtitles-v1"></script>
+<script src="./standalone-pip.js?v=20261126-smooth-pip-v1"></script>
 </body>
 </html>
