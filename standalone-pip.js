@@ -15,11 +15,14 @@ pip.id='marmaladeStandalonePipVideo';
 pip.muted=true;pip.autoplay=true;pip.playsInline=true;
 pip.setAttribute('aria-hidden','true');
 // Keep the stream video on-screen for browser frame scheduling, but imperceptible.
-pip.style.cssText='position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1';
+pip.style.cssText='position:fixed;left:0;top:0;width:320px;height:180px;object-fit:contain;object-position:center;opacity:.01;pointer-events:none;z-index:-1';
 document.body.appendChild(pip);
 let stream=null,loop=0,prewarmTimer=0,active=false,starting=false;
 let frameSource=null,frameCallback=null,lastFrameAt=0,lastMediaTime=NaN,manualCapture=false;
 let captionKey='',captionVisible=false,lastCaptionRefresh=0;
+let worker=null,workerTrack=null,workerInput=null,workerSource=null,workerFailed=false,workerFrames=0;
+let windowRatio=0,pipWindow=null,resizeHandler=null,captionSerial=0;
+let pictureWidth=0,pictureHeight=0;
 const segmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'word'}):null;
 const piPControls=['play','pause','previoustrack','nexttrack','seekbackward','seekforward','seekto'];
 let width=0,height=0,frame=0,notified=false;
@@ -31,9 +34,131 @@ function ensureDimensions(){
  const video=source();
  const w=video?.videoWidth||640,h=video?.videoHeight||360;
  const scale=Math.min(1,960/w,540/h);
- const nextW=Math.max(2,Math.round(w*scale/2)*2);
- const nextH=Math.max(2,Math.round(h*scale/2)*2);
- if(width!==nextW||height!==nextH){width=nextW;height=nextH;canvas.width=width;canvas.height=height;captionCanvas.width=width;captionCanvas.height=height;captionKey='';}
+ const pw=Math.max(2,Math.round(w*scale/2)*2),ph=Math.max(2,Math.round(h*scale/2)*2);
+ const ratio=windowRatio||pw/ph;
+ // Match the system viewport if it refuses the source ratio, using black
+ // padding rather than stretching the picture or any of its lettering.
+ const nextW=Math.max(2,Math.round(Math.max(pw,ph*ratio)/2)*2);
+ const nextH=Math.max(2,Math.round(Math.max(ph,pw/ratio)/2)*2);
+ if(width!==nextW||height!==nextH||pictureWidth!==pw||pictureHeight!==ph){
+   width=nextW;height=nextH;pictureWidth=pw;pictureHeight=ph;
+   canvas.width=width;canvas.height=height;captionCanvas.width=width;captionCanvas.height=height;captionKey='';
+   pip.style.width=Math.round(180*width/height)+'px';pip.style.height='180px';
+   pip.style.aspectRatio=width+' / '+height;
+   pip.setAttribute('width',String(width));pip.setAttribute('height',String(height));
+   worker?.postMessage({type:'geometry',width,height,pictureWidth,pictureHeight});
+ }
+}
+function trackWindowGeometry(win){
+ if(!win?.addEventListener)return;
+ pipWindow=win;
+ resizeHandler=()=>{
+   const r=Number(win.width)/Number(win.height);
+   const video=source(),sourceRatio=video.videoWidth/video.videoHeight;
+   if(!Number.isFinite(r)||r<.3||r>4||!Number.isFinite(sourceRatio))return;
+   // Only compensate when the OS actually imposes a different rectangle.
+   const next=Math.abs(r/sourceRatio-1)>.035?r:0;
+   if(Math.abs(next-windowRatio)<.01)return;
+   windowRatio=next;ensureDimensions();paintSubtitles();publishWorkerState();
+   if(!worker)draw();
+ };
+ win.addEventListener('resize',resizeHandler);resizeHandler();
+}
+function publishWorkerState(){
+ if(!worker)return;
+ worker.postMessage({type:'gamma',gamma:gamma()});
+}
+function publishCaption(){
+ if(!worker)return;
+ const target=worker,serial=++captionSerial;
+ if(!captionVisible){target.postMessage({type:'caption',bitmap:null});return;}
+ if(typeof createImageBitmap!=='function')return;
+ createImageBitmap(captionCanvas).then(bitmap=>{
+   if(worker!==target||serial!==captionSerial){bitmap.close();return;}
+   target.postMessage({type:'caption',bitmap},[bitmap]);
+ }).catch(()=>{});
+}
+// The worker receives decoded frames from a real media track. No page
+// animation callback, interval, canvas capture or per-frame message drives it.
+function mediaWorker(){
+ let geometry=null,caption=null,gamma=1,count=0;
+ const canvas=new OffscreenCanvas(2,2),ctx=canvas.getContext('2d',{alpha:false});
+ self.onmessage=async event=>{
+   const m=event.data;
+   if(m.type==='geometry'){geometry=m;return;}
+   if(m.type==='gamma'){gamma=m.gamma;return;}
+   if(m.type==='caption'){caption?.close();caption=m.bitmap;return;}
+   if(m.type!=='start')return;
+   try{
+     await m.readable.pipeThrough(new TransformStream({transform(frame,controller){
+       try{
+         const sw=frame.displayWidth,sh=frame.displayHeight;
+         const g=geometry||{width:sw,height:sh,pictureWidth:sw,pictureHeight:sh};
+         if(canvas.width!==g.width||canvas.height!==g.height){canvas.width=g.width;canvas.height=g.height;}
+         const scale=Math.min(g.pictureWidth/sw,g.pictureHeight/sh),dw=sw*scale,dh=sh*scale;
+         ctx.fillStyle='#000';ctx.fillRect(0,0,g.width,g.height);
+         if('filter' in ctx)ctx.filter=gamma<.999?'brightness('+Math.pow(.5,gamma-1).toFixed(3)+')':'none';
+         ctx.drawImage(frame,(g.width-dw)/2,(g.height-dh)/2,dw,dh);
+         if('filter' in ctx)ctx.filter='none';
+         if(caption)ctx.drawImage(caption,0,0,g.width,g.height);
+         controller.enqueue(new VideoFrame(canvas,{timestamp:frame.timestamp,duration:frame.duration??undefined}));
+         if(++count===1||count%60===0)self.postMessage({type:'frames',count});
+       }finally{frame.close();}
+     }})).pipeTo(m.writable);
+   }catch(error){self.postMessage({type:'error',message:String(error)});}
+ };
+}
+function stopWorker(){
+ if(worker){worker.terminate();worker=null;}
+ workerTrack?.stop();workerInput?.stop();
+ workerTrack=null;workerInput=null;workerSource=null;workerFrames=0;captionSerial++;
+}
+function startWorker(video){
+ if(workerFailed||typeof Worker!=='function'||typeof OffscreenCanvas!=='function'||
+    typeof MediaStreamTrackProcessor!=='function'||typeof MediaStreamTrackGenerator!=='function'||
+    typeof VideoFrame!=='function'||typeof createImageBitmap!=='function')return false;
+ if(worker&&workerSource===video)return true;
+ if(active&&worker)return true;
+ let captured=null,owned=null,generator=null,url=null;
+ try{
+   // Clone only the picture track; main video keeps exclusive sound/transport.
+   const direct=video.srcObject?.getVideoTracks?.()[0];
+   if(direct)owned=direct.clone();
+   else{
+     const capture=video.captureStream||video.mozCaptureStream;
+     if(!capture)return false;
+     captured=capture.call(video);
+     owned=captured.getVideoTracks()[0];
+     for(const audio of captured.getAudioTracks())audio.stop();
+   }
+   if(!owned)return false;
+   stopWorker();
+   const processor=new MediaStreamTrackProcessor({track:owned,maxBufferSize:1});
+   generator=new MediaStreamTrackGenerator({kind:'video'});
+   url=URL.createObjectURL(new Blob(['('+mediaWorker.toString()+')()'],{type:'text/javascript'}));
+   const next=new Worker(url);URL.revokeObjectURL(url);url=null;
+   worker=next;workerInput=owned;workerTrack=generator;workerSource=video;workerFrames=0;
+   const failed=()=>{
+     if(worker!==next)return;
+     workerFailed=true;stopWorker();
+     // Retain the established canvas path on unsupported or failing engines.
+     if(active){if(document.pictureInPictureElement===pip)void document.exitPictureInPicture().catch(()=>{});}
+     else{stream=null;prepare();}
+   };
+   next.onerror=failed;
+   next.onmessage=e=>{if(e.data.type==='error')failed();else if(e.data.type==='frames')workerFrames=e.data.count;};
+   next.postMessage({type:'start',readable:processor.readable,writable:generator.writable},[processor.readable,generator.writable]);
+   if(stream)stream.getVideoTracks().forEach(t=>t.stop?.());
+   stream=new MediaStream([generator]);pip.srcObject=stream;
+   captionKey='';ensureDimensions();
+   next.postMessage({type:'geometry',width,height,pictureWidth,pictureHeight});
+   paintSubtitles();publishWorkerState();
+   if(pip.paused)void pip.play().catch(()=>{});
+   return true;
+ }catch(error){
+   if(url)URL.revokeObjectURL(url);
+   owned?.stop();generator?.stop();stopWorker();workerFailed=true;return false;
+ }
 }
 function videoFilter(){
  const g=gamma();
@@ -59,13 +184,13 @@ function paintSubtitles(){
  captionKey=key;
  captionCtx.clearRect(0,0,width,height);
  captionVisible=!!text.trim();
- if(!captionVisible)return;
+ if(!captionVisible){publishCaption();return;}
  const style=getComputedStyle(subtitles),lines=text.split('\n');
  const userSize=Math.max(12,Math.min(64,Number(window.MarmaladeSubtitleFontSize?.())||24));
  // 10% of picture height at the normal 24px setting: ~20px on a
  // 200px-tall mini-player. Keep relative proportions as the OS resizes it.
- const px=Math.max(18,Math.min(height*.19,height*.105*(userSize/24)));
- const maxWidth=width*.92,c=captionCtx;
+ const px=Math.max(18,Math.min(pictureHeight*.19,pictureHeight*.105*(userSize/24)));
+ const maxWidth=pictureWidth*.92,c=captionCtx;
  const fontAt=n=>`${style.fontWeight||'500'} ${n}px ${style.fontFamily||'sans-serif'}`;
  c.save();
  try{
@@ -85,8 +210,8 @@ function paintSubtitles(){
      }
      output.push(piece.trimEnd());
    }
-   const size=Math.min(px,height*.78/Math.max(1,output.length*1.35));
-   const lineHeight=size*1.35,bottom=Math.max(4,height*.07);
+   const size=Math.min(px,pictureHeight*.78/Math.max(1,output.length*1.35));
+   const lineHeight=size*1.35,bottom=(height-pictureHeight)/2+Math.max(4,pictureHeight*.07);
    output.forEach((line,i,arr)=>{
      if(!line)return;
      const y=height-bottom-(arr.length-1-i)*lineHeight;
@@ -101,15 +226,20 @@ function paintSubtitles(){
      c.fillStyle=style.color||'#fff';c.fillText(line,width/2,y);
    });
  }finally{c.restore();}
+ publishCaption();
 }
 
 function draw(){
  const video=source();
  if(!video||video.readyState<2||!video.videoWidth)return false;
  ensureDimensions();
+ if(worker){paintSubtitles();publishWorkerState();return true;}
  try{
+   ctx.fillStyle='#000';ctx.fillRect?.(0,0,width,height);
    if('filter' in ctx)ctx.filter=videoFilter();
-   ctx.drawImage(video,0,0,width,height);
+   const scale=Math.min(pictureWidth/video.videoWidth,pictureHeight/video.videoHeight);
+   const dw=video.videoWidth*scale,dh=video.videoHeight*scale;
+   ctx.drawImage(video,(width-dw)/2,(height-dh)/2,dw,dh);
    if('filter' in ctx)ctx.filter='none';
    paintSubtitles();
    if(captionVisible)ctx.drawImage(captionCanvas,0,0);
@@ -136,6 +266,7 @@ function scheduleFrame(){
 }
 function startLoop(){
  if(loop)return;
+ if(worker){draw();return;}
  draw();scheduleFrame();
  // Old engines, hidden tabs and paused seeks may stop frame callbacks.
  // A lightweight watchdog only paints if the source clock has advanced
@@ -154,6 +285,8 @@ function stopLoop(){if(loop){clearInterval(loop);loop=0;}cancelFrameCallback();}
 function prepare(){
  const video=source();
  if(!video||video.readyState<2||!video.videoWidth)return false;
+ if(!stream&&startWorker(video))return true;
+ if(worker){draw();return true;}
  if(!stream){
    ensureDimensions();
    stream=canvas.captureStream(0);
@@ -214,6 +347,9 @@ function installControls(){
 }
 function clean(){
  active=false;starting=false;stopLoop();
+ if(pipWindow&&resizeHandler)pipWindow.removeEventListener?.('resize',resizeHandler);
+ pipWindow=null;resizeHandler=null;windowRatio=0;
+ if(worker){stopWorker();stream=null;pip.srcObject=null;}
  if(prewarmTimer){clearInterval(prewarmTimer);prewarmTimer=0;}
  if(navigator.mediaSession?.setActionHandler){
    for(const action of piPControls){
@@ -244,7 +380,8 @@ media.addEventListener('playing',()=>{
  }
 });
 media.addEventListener('seeked',()=>{if(active){draw();positionState();}});
-media.addEventListener('timeupdate',positionState,{passive:true});
+media.addEventListener('timeupdate',()=>{positionState();if(worker){paintSubtitles();publishWorkerState();}},{passive:true});
+if(typeof MutationObserver==='function'&&subtitles)new MutationObserver(()=>{if(worker)paintSubtitles();}).observe(subtitles,{childList:true,characterData:true,subtree:true,attributes:true,attributeFilter:['hidden','style']});
 media.addEventListener('ratechange',positionState,{passive:true});
 media.addEventListener('pause',()=>{
  if(active){
@@ -267,16 +404,16 @@ async function enter(){
  installControls();
  try{
    draw(); // Movie, subtitles and adaptive gamma composited BEFORE native PiP.
-   await pip.requestPictureInPicture();
-   active=true;window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(true);
+   const win=await pip.requestPictureInPicture();
+   active=true;trackWindowGeometry(win);window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(true);
    positionState();
    startLoop();
    return true;
  }catch(error){clean();throw error;}
  finally{starting=false;}
 }
-window.MarmaladeStandalonePiP={enter,isActive:()=>active,draw,getFrames:()=>frame,
+window.MarmaladeStandalonePiP={enter,isActive:()=>active,draw,getFrames:()=>worker?workerFrames:frame,
   hasVideoOnlySurface:()=>!!pip.srcObject,stop:clean,
-  getDiagnostics:()=>({frames:frame,sourceReady:source()?.readyState||0,
+  getDiagnostics:()=>({frames:worker?workerFrames:frame,pipeline:worker?'media-worker':'canvas-fallback',pictureWidth,pictureHeight,windowRatio,sourceReady:source()?.readyState||0,
     pipReady:pip.readyState,canvasWidth:width,canvasHeight:height,active})};
 })();
