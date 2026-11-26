@@ -1398,8 +1398,25 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return 'local:'+file.name.toLowerCase()+'|'+file.size+'|'+(file.lastModified||0);
   }
   function subtitleMediaKey(){return progressKeys()[0]||'';}
+  // Keep successfully loaded search results for the current video, bounded
+  // to avoid retaining an unbounded number of archives in memory.
+  const loadedSearchSubtitles=new Map();
+  const searchSubtitleKey=(url,key=subtitleMediaKey())=>key+'\u0000'+String(url||'');
+  function rememberLoadedSearchSubtitle(key,source,file){
+    if(source.kind!=='search'||!source.url)return;
+    const cacheKey=searchSubtitleKey(source.url,key);
+    loadedSearchSubtitles.delete(cacheKey);
+    loadedSearchSubtitles.set(cacheKey,{file,source:{kind:'search',url:source.url,name:source.name,filename:source.filename,fps:source.fps,id:source.id}});
+    let total=[...loadedSearchSubtitles.values()].reduce((n,entry)=>n+entry.file.size,0);
+    while(loadedSearchSubtitles.size>12||total>40*1024*1024){const first=loadedSearchSubtitles.keys().next().value;total-=loadedSearchSubtitles.get(first).file.size;loadedSearchSubtitles.delete(first);}
+  }
+  window.MarmaladeSubtitleSearchState=item=>{
+    const active=state.subtitlesEnabled&&state.subtitleIdentity==='search:'+item.url;
+    return active?'active':loadedSearchSubtitles.has(searchSubtitleKey(item.url))?'loaded':'new';
+  };
   function resetSubtitleSelection(){
     ++subtitleRestoreSequence;
+    loadedSearchSubtitles.clear();
     state.subtitleRestoreKey='';
     state.subtitleIdentity='';
     window.MarmaladeSubtitleTiming?.activate('','');
@@ -5260,6 +5277,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.subtitlesEnabled=false;
     state.subtitlePreviewSuppressed=true;
     updateSubtitles();el.subtitleName.textContent='Off';
+    window.dispatchEvent(new Event('marmalade:subtitles-changed'));
   });
   async function loadSelectedSubtitle(file,handle=null,source={}){
     if(!file||file.size>20*1024*1024)throw Error('Choose A Subtitle File Under 20 MB');
@@ -5287,10 +5305,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.subtitlePreviewSuppressed=false;
     state.subtitleIdentity=id;
     state.subtitleRestoreKey=key;
+    rememberLoadedSearchSubtitle(key,{...source,id},original);
     const from=source.fromCache?' · Cached':source.restored?' · Restored':'';
     el.subtitleName.textContent=file.name+' · '+decoded.cues.length+' Cues'+from;
     window.MarmaladeSubtitleTiming?.activate(key,id);
     updateSubtitles();revealControls();
+    window.dispatchEvent(new Event('marmalade:subtitles-loaded'));
+    window.dispatchEvent(new Event('marmalade:subtitles-changed'));
     if(key){
       const record={kind:source.kind==='search'?'search':'local',name:file.name,
         containerName:original.name,entryName:file.name,
@@ -5319,11 +5340,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const mediaKey=subtitleMediaKey(),ticket=++subtitleRestoreSequence;
     const name=/\.(srt|vtt|sub|ass|ssa|sbv|zip)$/i.test(String(item.filename||''))
       ?item.filename:/\.zip(?:$|\?)/i.test(item.url||'')?'searched.zip':'searched.srt';
-    const file=await fetchSubtitleUrl(item.url,name);
+    const cached=loadedSearchSubtitles.get(searchSubtitleKey(item.url,mediaKey));
+    const file=cached?.file||await fetchSubtitleUrl(item.url,name);
     if(ticket!==subtitleRestoreSequence||subtitleMediaKey()!==mediaKey)
       throw Error('Video Or Subtitle Selection Changed');
-    return loadSelectedSubtitle(file,null,{kind:'search',url:item.url,
-      name:item.name,filename:item.filename,fps:item.fps||0,mediaKey,restoreToken:ticket});
+    return loadSelectedSubtitle(file,null,{...cached?.source,kind:'search',url:item.url,
+      name:item.name,filename:cached?.source?.filename||item.filename,fps:cached?.source?.fps||item.fps||0,mediaKey,restoreToken:ticket});
   };
   const nativeVideoOnlyStyle=document.createElement('style');
   nativeVideoOnlyStyle.textContent='body.native-pip-active:not(.floating-overlay-active){margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important}'+
@@ -5500,14 +5522,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Local movies can use the browser's native cue scheduler, including when
     // the tab is backgrounded. Remote live streams need clock mapping.
     const local=state.role==='host'||state.localVerified||state.bufferedMode||state.source==='hosted-guest';
-    const signature=String(state.subtitlesEnabled)+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0);
+    const signature=String(state.subtitlesEnabled)+'|'+state.subtitleIdentity+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0);
     if(local){
       if(nativePipLocalCues&&nativePipLocalSignature===signature)return;
       for(const cue of Array.from(nativePipTrack.cues||[]))nativePipTrack.removeCue(cue);
       nativePipCue=null;nativePipLocalCues=true;nativePipLocalSignature=signature;
       if(state.subtitlesEnabled&&typeof VTTCue==='function')for(const cue of state.subtitles){
         const offset=Number(state.subtitleOffsetSeconds)||0;
-        const start=Math.max(0,cue.start-offset),end=cue.end-offset;
+        const start=Math.max(0,cue.start+offset),end=cue.end+offset;
         if(end<=start)continue;
         const nativeCue=new VTTCue(start,end,String(cue.text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
         nativeCue.align='center';nativePipTrack.addCue(nativeCue);
