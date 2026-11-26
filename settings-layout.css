@@ -147,3 +147,26 @@
   max-width:57%!important
 }
 @media(max-width:380px){.settings-popover .settings-row select{width:max-content!important;flex-basis:auto!important}}
+
+/* Window appearance is independent of the wallpaper and video surfaces.
+   Classic intentionally has no override, preserving all original colors. */
+html[data-window-theme="glass"] :is(.theater-popover,.adaptive-brightness-popover,.media-info,.ml-panel,.games-panel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface,.games-log-panel){
+ background:linear-gradient(145deg,rgba(48,37,63,.69),rgba(20,18,31,.57))!important;
+ border-color:rgba(220,202,245,.32)!important;
+ box-shadow:0 12px 34px rgba(5,3,15,.35),inset 0 1px 0 rgba(255,255,255,.17)!important;
+ backdrop-filter:blur(20px) saturate(1.22)!important;
+ -webkit-backdrop-filter:blur(20px) saturate(1.22)!important;
+}
+html[data-window-theme="glass"] :is(.settings-popover,.subtitle-studio,.ml-dialog-surface,.games-dialog-surface) :is(input:not([type="range"]):not([type="color"]):not([type="checkbox"]),select){
+ background-color:rgba(16,13,24,.78);
+}
+html[data-window-theme="glass"] :is(.settings-popover,.subtitle-studio) :is(.settings-row,.sub-result,.sub-caption-status,.sub-advanced-style,.sub-more-filters){
+ background-color:rgba(20,16,31,.38);
+ border-color:rgba(229,215,250,.18);
+}
+@supports not (backdrop-filter:blur(1px)){
+ html[data-window-theme="glass"] :is(.theater-popover,.adaptive-brightness-popover,.media-info,.ml-panel,.games-panel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface,.games-log-panel){
+  background:linear-gradient(145deg,rgba(48,37,63,.91),rgba(20,18,31,.88))!important;
+ }
+}
+.settings-popover .settings-window-theme-row select{width:119px;max-width:48%;flex-basis:119px}
