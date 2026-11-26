@@ -1840,10 +1840,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const shown=cue?.text||(editing&&!document.getElementById('subStyleView')?.hidden&&
       state.subtitles.length?state.subtitles[0].text:'');
     el.subtitleOverlay.hidden=!shown;
-    if(shown&&el.subtitleOverlay.textContent!==shown){
-      // Normal Unicode text nodes preserve Arabic joining and logical order.
-      el.subtitleOverlay.textContent=shown.normalize('NFC');
-      el.subtitleOverlay.lang=/[\u0600-\u08ff]/u.test(shown)?'ar':'';
+    const naturalText=shown.normalize('NFC');
+    if(shown&&el.subtitleOverlay.textContent!==naturalText){
+      // Never split a caption into individual characters or force one language
+      // on mixed-script text. Let the native shaper and bidi algorithm work.
+      el.subtitleOverlay.textContent=naturalText;
+      el.subtitleOverlay.removeAttribute('lang');
       el.subtitleOverlay.dir='auto';
       window.MarmaladeSubtitleReposition?.();
     }
@@ -6296,9 +6298,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261121-extension-retention-v1" defer></script>
 <script src="./games.js?v=20261121-browser-independent-v3" defer></script>
-<script src="./subtitle-codec.js?v=20261112-subdl-fix-v2"></script>
+<script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
-<script src="./watch-sync-subtitles.js?v=20261118-seek-clock-v1"></script>
+<script src="./watch-sync-subtitles.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./settings-layout.js?v=20261121-mobile-video-aspect-v2"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
@@ -6307,6 +6309,6 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-compact.js?v=20261113-line-search-v1"></script>
 <script src="./seek-preview.js?v=20261118-full-duration-v1"></script>
 <script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>
-<script src="./standalone-pip.js?v=20261116-video-controls-v2"></script>
+<script src="./standalone-pip.js?v=20261126-natural-subtitles-v1"></script>
 </body>
 </html>
