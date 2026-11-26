@@ -63,8 +63,8 @@
   const timingRow=studio.querySelector('.subtitle-timing-row');
   if(timingRow)timing.prepend(timingRow);
   const notes=[...studio.querySelectorAll('.subtitle-settings-note')];
-  if(notes[0])timingRow?.after(notes[0]);
-  if(notes[1])notes[1].textContent='Your font, colors and position are saved locally.';
+  if(notes[0])notes[0].remove();
+  if(notes[1])notes[1].remove();
   const advanced=document.createElement('details');
   advanced.className='sub-advanced-style';advanced.id='subStyleAdvanced';
   advanced.innerHTML='<summary>Colors &amp; Effects</summary>';
@@ -79,25 +79,26 @@
   const position=studio.querySelector('#subtitlePositionGrid');
   if(position){
     const posLabel=document.createElement('div');
-    posLabel.className='sub-note';posLabel.textContent='Position · Tap a point on the 3 × 3 grid';
+    posLabel.className='sub-note';posLabel.textContent='Position';
     position.before(posLabel);
   }
  }
  const instruction=document.createElement('p');
- instruction.textContent='Correct release first, then shift captions to match the spoken line. Changes apply immediately and stay with this video and subtitle file.';
- timing.insertBefore(instruction,timing.querySelector('.subtitle-timing-row'));
+ instruction.textContent='− Earlier · + Later';
+ timing.querySelector('.subtitle-timing-row')?.after(instruction);
  const currentTime=document.createElement('output');
  currentTime.className='sub-timing-readout';currentTime.id='subTimingNow';
  timing.appendChild(currentTime);
  const reset=document.createElement('button');
  reset.type='button';reset.className='sub-timing-action';reset.id='subTimingReset';
- reset.textContent='Reset Timing To 0.0 s';
+ reset.textContent='Reset';
  reset.addEventListener('click',()=>{
   const field=$('subtitleTiming');field.value='0.0';
   field.dispatchEvent(new Event('change',{bubbles:true}));
   showTiming();window.MarmaladeSubtitleRefresh?.();
  });
- timing.appendChild(reset);
+ const timingSummary=document.createElement('div');timingSummary.className='sub-timing-summary';
+ timingSummary.append(currentTime,reset);timing.appendChild(timingSummary);
  const cueTitle=document.createElement('label');
  cueTitle.htmlFor='subTimingCueSearch';
  cueTitle.textContent='Line Alignment';
@@ -131,7 +132,7 @@
  button.textContent='Align Selected Line To Now';button.disabled=true;
  const message=document.createElement('p');
  message.className='sub-cue-help';
- message.textContent='When the line begins in the video, click Align. + makes captions earlier; − makes them later. Each change is saved with this subtitle.';
+ message.textContent='Align when the selected line begins.';
  timing.append(cueTitle,cueSearchBar,selectedDisplay,cueList,more,count,button,message);
  let selectedCue=-1,matches=[],rendered=0,knownCues=null,filterFrame=0;
  const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g,' ').trim();
@@ -153,9 +154,8 @@
   return window.MarmaladeSubtitleClockBase?.(projected)??projected;
  }
  function showTiming(){
-  const video=playbackTime(),clock=currentBaseTime()+(Number(state.subtitleOffsetSeconds)||0);
-  currentTime.textContent='Video '+formatTime(video)+' · Captions '+formatTime(clock)+
-    ' · Offset '+(Number(state.subtitleOffsetSeconds)||0).toFixed(1)+'s';
+  const video=playbackTime(),clock=currentBaseTime()-(Number(state.subtitleOffsetSeconds)||0);
+  currentTime.textContent='Video '+formatTime(video)+' · Cue '+formatTime(clock);
  }
  function selectedLine(){
   const cue=state.subtitles?.[selectedCue];
@@ -267,7 +267,7 @@
   const cue=state.subtitles?.[selectedCue];if(!cue)return;
   // Align directly to the exact underlying renderer clock, never calculate
   // a correction from a possibly-clamped already-shifted subtitle time.
-  const desired=cue.start-currentBaseTime();
+  const desired=currentBaseTime()-cue.start;
   const changed=window.MarmaladeSubtitleTiming?.set?.(desired);
   if(!changed)return;
   showTiming();window.MarmaladeSubtitleRefresh?.();
@@ -279,13 +279,6 @@
   knownCues=null;selectedCue=-1;cueSearch.value='';refreshCueOptions({force:true});
  });
  window.addEventListener('marmalade:subtitle-timing-changed',showTiming);
- window.addEventListener('marmalade:subtitle-hold-setting',()=>{
-  const hint=$('subtitleTimingHoldHint');
-  if(hint)hint.textContent='Tap for 0.1s · Hold once for 1.0s after '+
-   (window.MarmaladeSubtitleTiming?.holdMilliseconds?.()||250)/1000+
-   's. + Earlier · − Later.';
- });
- window.dispatchEvent(new Event('marmalade:subtitle-hold-setting'));
  const activeName=()=>!find.hidden?'find':!style.hidden?'style':'sync';
  function settle(which){
   timing.hidden=which!=='sync';
