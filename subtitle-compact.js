@@ -161,9 +161,12 @@
   return parts.length?parts:[{text,index:0}];
  }
  function cueDirection(text,language){
+  // Explicit active subtitle language wins over an opening foreign name.
+  const lang=String(language||'').trim().replace(/_/g,'-');
+  if(rtlLanguage.test(lang))return 'rtl';
+  if(/^(?:en|eng|fr|fra|fre|es|spa|de|deu|ger|it|ita|pt|por|ru|rus|id|ind|ms|msa|tr|tur|ja|jpn|ko|kor|zh|zho|chi|th|tha|hi|hin|bn|ben|ta|tam|vi|vie)(?:-|$)/i.test(lang))return 'ltr';
   const first=[...text].find(ch=>/\p{L}/u.test(ch));
-  if(first)return /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Adlam}]/u.test(first)?'rtl':'ltr';
-  return rtlLanguage.test(language||'')?'rtl':'ltr';
+  return first&&/[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Adlam}]/u.test(first)?'rtl':'ltr';
  }
  function estimateWordTime(cue,parts,index){
   // SRT and most other sources timestamp whole cues. Distribute word
