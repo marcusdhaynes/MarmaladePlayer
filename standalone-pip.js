@@ -51,28 +51,44 @@ function paintSubtitles(){
  const style=getComputedStyle(subtitles),lines=subtitles.textContent.split('\n');
  const size=Math.max(14,Math.min(32,parseFloat(style.fontSize)||24))*width/960;
  const px=Math.max(12,size);
- ctx.font=`${style.fontWeight||'650'} ${px}px ${style.fontFamily||'sans-serif'}`;
- ctx.textAlign='center';ctx.textBaseline='bottom';
- ctx.direction=style.direction==='rtl'||subtitles.dir==='rtl'?'rtl':'inherit';
- const maxWidth=width*.86;
- const output=[];
- for(const line of lines){
-   let piece='';
-   for(const word of line.split(/\s+/u)){
-     const test=piece?piece+' '+word:word;
-     if(piece&&ctx.measureText(test).width>maxWidth){output.push(piece);piece=word;}
-     else piece=test;
+ const fontAt=n=>`${style.fontWeight||'500'} ${n}px ${style.fontFamily||'sans-serif'}`;
+ ctx.save();
+ try{
+   ctx.font=fontAt(px);
+   ctx.textAlign='center';ctx.textBaseline='bottom';
+   if('fontKerning' in ctx)ctx.fontKerning='normal';
+   if('letterSpacing' in ctx)ctx.letterSpacing='0px';
+   if('wordSpacing' in ctx)ctx.wordSpacing='0px';
+   const maxWidth=width*.86,output=[];
+   const segmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'word'}):null;
+   for(const line of lines){
+     // Keep Unicode words and whitespace in their original logical order.
+     // Segment only for wrapping; each final line is shaped in one canvas call.
+     const segments=segmenter?[...segmenter.segment(line)].map(x=>x.segment):line.match(/\S+|\s+/gu)||[];
+     let piece='';
+     for(const token of segments){
+       const test=piece+token;
+       if(piece.trim()&&token.trim()&&ctx.measureText(test.trimEnd()).width>maxWidth){
+         output.push(piece.trimEnd());piece=token.trimStart();
+       }else piece=test;
+     }
+     output.push(piece.trimEnd());
    }
-   output.push(piece);
- }
- const lineHeight=px*1.24;
- const bottom=Math.max(18,height*.11);
- output.slice(-5).forEach((line,i,arr)=>{
-   const y=height-bottom-(arr.length-1-i)*lineHeight;
-   ctx.lineJoin='round';ctx.lineWidth=Math.max(3,px*.22);
-   ctx.strokeStyle='#000';ctx.strokeText(line,width/2,y,maxWidth);
-   ctx.fillStyle='#fff';ctx.fillText(line,width/2,y,maxWidth);
- });
+   const lineHeight=px*1.42;
+   const bottom=Math.max(18,height*.11);
+   output.forEach((line,i,arr)=>{
+     const y=height-bottom-(arr.length-1-i)*lineHeight;
+     const first=[...line].find(c=>/\p{L}/u.test(c))||'';
+     ctx.direction=/[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u.test(first)?'rtl':'ltr';
+     ctx.font=fontAt(px);
+     const measured=ctx.measureText(line).width;
+     const fit=measured>maxWidth?px*maxWidth/measured:px;
+     ctx.font=fontAt(fit); // uniform scaling, not compressed glyph widths
+     ctx.lineJoin='round';ctx.lineWidth=Math.min(2.5,fit*.13);
+     ctx.strokeStyle='rgba(0,0,0,.9)';ctx.strokeText(line,width/2,y);
+     ctx.fillStyle=style.color||'#fff';ctx.fillText(line,width/2,y);
+   });
+ }finally{ctx.restore();}
 }
 function draw(){
  const video=source();
