@@ -332,3 +332,14 @@ html[data-window-theme="glass"] .stage-quick-actions .quick-broadcast-btn[aria-p
 html[data-window-theme="glass"] :is(.sidepanel,.room-join-inline) :is(input:not([type="file"]):not([type="checkbox"]):not([type="range"]),select){
  background:rgba(18,13,31,.48)!important;border-color:var(--glass-inset-edge)!important;color:var(--glass-control-ink)!important;
 }
+
+/* Former light-filled buttons need light foregrounds on the new glass fill. */
+html[data-window-theme="glass"] :is(.primary-btn,.file-btn,.compact-retry,.movie-info-reopen,.rapid-resume,.play-disc,#guestAudioUnlock){
+ color:var(--glass-control-ink)!important;
+}
+html[data-window-theme="glass"] :is(.primary-btn,.file-btn,.compact-retry,.movie-info-reopen,.rapid-resume):is(:hover,:focus-visible):not(:disabled){
+ background:var(--glass-control-hover)!important;border-color:rgba(233,217,255,.57)!important;color:#fff!important;
+}
+html[data-window-theme="glass"] #gamesPanel .game-score-card.delete-armed .game-score-name{
+ background:rgba(106,29,58,.25)!important;
+}
