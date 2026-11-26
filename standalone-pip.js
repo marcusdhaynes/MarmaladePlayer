@@ -81,17 +81,19 @@ function publishCaption(){
 // The worker receives decoded frames from a real media track. No page
 // animation callback, interval, canvas capture or per-frame message drives it.
 function mediaWorker(){
- let geometry=null,caption=null,gamma=1,count=0;
+ let geometry=null,caption=null,gamma=1,count=0,enabled=false;
  const canvas=new OffscreenCanvas(2,2),ctx=canvas.getContext('2d',{alpha:false});
  self.onmessage=async event=>{
    const m=event.data;
    if(m.type==='geometry'){geometry=m;return;}
+   if(m.type==='active'){enabled=!!m.value;return;}
    if(m.type==='gamma'){gamma=m.gamma;return;}
    if(m.type==='caption'){caption?.close();caption=m.bitmap;return;}
    if(m.type!=='start')return;
    try{
      await m.readable.pipeThrough(new TransformStream({transform(frame,controller){
        try{
+         if(!enabled&&count>0)return; // warm one frame, then idle until PiP opens
          const sw=frame.displayWidth,sh=frame.displayHeight;
          const g=geometry||{width:sw,height:sh,pictureWidth:sw,pictureHeight:sh};
          if(canvas.width!==g.width||canvas.height!==g.height){canvas.width=g.width;canvas.height=g.height;}
@@ -285,6 +287,7 @@ function stopLoop(){if(loop){clearInterval(loop);loop=0;}cancelFrameCallback();}
 function prepare(){
  const video=source();
  if(!video||video.readyState<2||!video.videoWidth)return false;
+ if(worker&&!active&&workerSource!==video){stopWorker();stream=null;}
  if(!stream&&startWorker(video))return true;
  if(worker){draw();return true;}
  if(!stream){
@@ -350,6 +353,8 @@ function clean(){
  if(pipWindow&&resizeHandler)pipWindow.removeEventListener?.('resize',resizeHandler);
  pipWindow=null;resizeHandler=null;windowRatio=0;
  if(worker){stopWorker();stream=null;pip.srcObject=null;}
+ else if(stream){stream.getVideoTracks().forEach(t=>t.stop?.());stream=null;pip.srcObject=null;}
+ captionKey='';
  if(prewarmTimer){clearInterval(prewarmTimer);prewarmTimer=0;}
  if(navigator.mediaSession?.setActionHandler){
    for(const action of piPControls){
@@ -380,7 +385,7 @@ media.addEventListener('playing',()=>{
  }
 });
 media.addEventListener('seeked',()=>{if(active){draw();positionState();}});
-media.addEventListener('timeupdate',()=>{positionState();if(worker){paintSubtitles();publishWorkerState();}},{passive:true});
+for(const video of [media,monitor].filter(Boolean))video.addEventListener('timeupdate',()=>{if(video===media)positionState();if(worker&&source()===video){paintSubtitles();publishWorkerState();}},{passive:true});
 if(typeof MutationObserver==='function'&&subtitles)new MutationObserver(()=>{if(worker)paintSubtitles();}).observe(subtitles,{childList:true,characterData:true,subtree:true,attributes:true,attributeFilter:['hidden','style']});
 media.addEventListener('ratechange',positionState,{passive:true});
 media.addEventListener('pause',()=>{
@@ -404,6 +409,7 @@ async function enter(){
  installControls();
  try{
    draw(); // Movie, subtitles and adaptive gamma composited BEFORE native PiP.
+   worker?.postMessage({type:'active',value:true});
    const win=await pip.requestPictureInPicture();
    active=true;trackWindowGeometry(win);window.MarmaladeAdaptiveBrightness?.setExternalPlayback?.(true);
    positionState();
