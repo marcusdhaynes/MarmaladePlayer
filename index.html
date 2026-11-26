@@ -1152,14 +1152,46 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   const STUN_SERVERS=PEER_OPTIONS.config.iceServers.slice();
   // TURN cannot work without real provider credentials. Keep secrets in
   // sessionStorage (not links or rooms). Reconfigure before every new peer.
+  let managedRelayServers=[],managedRelayExpires=0,managedRelayPending=null;
+  const validTurnUrl=url=>typeof url==='string'&&/^(?:turn|turns):[A-Za-z0-9.:[\]-]+(?::\d{1,5})?(?:\?transport=(?:tcp|udp))?$/.test(url);
+  async function prepareManagedRelay(){
+    if(Date.now()<managedRelayExpires)return;
+    if(managedRelayPending)return managedRelayPending;
+    managedRelayPending=(async()=>{
+      try{
+        // A deployment may publish only an HTTPS credential endpoint URL.
+        // Provider secrets stay server-side; only short-lived ICE credentials
+        // are returned to the browsers. No public anonymous relay is assumed.
+        const config=await fetch(new URL('relay-config.json',document.baseURI),{cache:'no-store',signal:AbortSignal.timeout(2200)});
+        if(!config.ok)return;
+        const {credentialEndpoint}=await config.json();
+        if(!credentialEndpoint)return;
+        const url=new URL(credentialEndpoint,document.baseURI);
+        if(url.protocol!=='https:')return;
+        const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({application:'marmaladeum'}),cache:'no-store',signal:AbortSignal.timeout(5000)});
+        if(!response.ok)return;
+        const payload=await response.json();
+        const rows=Array.isArray(payload.iceServers)?payload.iceServers:[];
+        managedRelayServers=rows.flatMap(row=>{
+          const urls=(Array.isArray(row.urls)?row.urls:[row.urls]).filter(validTurnUrl);
+          return urls.length&&typeof row.username==='string'&&typeof row.credential==='string'&&row.username&&row.credential?[{urls,username:row.username,credential:row.credential}]:[];
+        });
+        const ttl=Math.max(0,Math.min(3600,Number(payload.ttl)||300));
+        managedRelayExpires=Date.now()+Math.max(0,ttl-30)*1000;
+      }catch(error){console.debug('Managed TURN unavailable; using configured direct routes',error);}
+      finally{configureIce();}
+    })();
+    try{await managedRelayPending;}finally{managedRelayPending=null;}
+  }
   function configureIce(){
     const servers=STUN_SERVERS.slice();
+    servers.push(...managedRelayServers);
     try{
       const raw=sessionStorage.getItem('marmalade:turn-relay-url')||'';
       const username=sessionStorage.getItem('marmalade:turn-relay-user')||'';
       const credential=sessionStorage.getItem('marmalade:turn-relay-password')||'';
-      if(/^(?:turn|turns):[A-Za-z0-9.:[\]-]+(?::\d{1,5})?(?:\?transport=(?:tcp|udp))?$/.test(raw)&&
-          username&&credential)servers.push({urls:raw,username,credential});
+      const urls=raw.split(/[\s,;]+/).filter(Boolean).filter(validTurnUrl);
+      if(urls.length&&username&&credential)servers.push({urls,username,credential});
       PEER_OPTIONS.config.iceTransportPolicy=servers.length>STUN_SERVERS.length&&
         sessionStorage.getItem('marmalade:turn-force-relay')==='true'?'relay':'all';
     }catch{PEER_OPTIONS.config.iceTransportPolicy='all';}
@@ -1167,6 +1199,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   window.MarmaladeConfigureIce=configureIce;
   configureIce();
+  void prepareManagedRelay();
   // Upload/encode-friendly base stream. Playback on the host remains at the original quality.
   // Each guest has a separate WebRTC sender, so caps avoid multiplying 1080p encoders.
   const STREAM_WIDTH = isMobile ? 640 : 960;
@@ -1248,11 +1281,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Manual room-code entry is a real gesture, but the app debounces
     // joining. Prime audio while input/paste is still trusted instead of
     // waiting until the timer has already lost user activation.
-    if(state.role!=='guest' && !parseCode(el.joinInput?.value))return;
+    if(state.role!=='guest' && !parseCode(el.joinInput?.value) && !parseCode($('rapidJoinCode')?.value))return;
     if(!tryWithoutGesture && navigator.userActivation &&
        !navigator.userActivation.isActive)return;
     if(state.guestAudioContext && state.guestAudioContext.state==='running'){
-      state.guestAudioPrimed=true;return;
+      state.guestAudioPrimed=true;recoverGuestSound();return;
     }
     const Context=window.AudioContext||window.webkitAudioContext;
     if(!Context)return;
@@ -3820,6 +3853,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   async function createRoom(){
     if(!requirePeerJS()||state.connecting)return;
+    state.connecting=true;
+    await prepareManagedRelay();
     configureIce();
     stopHostRecovery();
     const code=previousHostCode()||newCode();
@@ -3883,7 +3918,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         state.source = 'remote';
         // Reapply native listening volume on each incoming stream. Do not
         // leave an earlier autoplay-fallback mute latched onto a new stream.
+        state.audioUnlockRequired=false;
         applyVolume();
+        // If this element was previously redirected through a host gain graph,
+        // use a separate, already-authorized receiver audio output instead.
+        if(state.audioSourceNode&&state.audioContext?.state!=='running'){
+          state.audioUnlockRequired=true;
+          if(!enableGuestAudioRelay(stream))primeGuestAudioFromGesture(true);
+        }
         state.fileReady = false;
         showStage(true);
         badge('LIVE WITH HOST');
@@ -3906,7 +3948,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         try {
           await media.play(); // Native video and audio, independent of Web Audio.
           if (state.guestCall !== call) return;
-          needsTapToPlay(false);
+          if(state.audioSourceNode&&state.audioContext?.state!=='running'&&!state.guestAudioFallback){
+            needsTapToPlay(true);recoverGuestSound();
+          }else needsTapToPlay(false);
           if(media.muted&&!state.soundMuted&&state.volumePercent>0)recoverGuestSound();
           connection('Watching live','online');
         } catch (error) {
@@ -4288,7 +4332,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     updateRoomPanel();
     connection('Connecting…');
     setStage('Finding your party…','Connecting to your host.','JOINING');
-    startGuestJoinAttempt(code,1);
+    await prepareManagedRelay();
+    if(state.connecting&&state.role==='guest'&&state.code===code)startGuestJoinAttempt(code,1);
   }
   function leaveRoom() {
     clearTimeout(state.joinDebounce);
@@ -4445,7 +4490,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Native mute is a hard safety gate even when Web Audio exists but is suspended.
     // Gain is applied to speakers only; it is never part of the outgoing P2P track.
     const hardMute = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;
-    media.muted = hardMute || state.guestAudioFallback;
+    media.muted = hardMute || state.guestAudioFallback || (state.role==='guest'&&state.source==='remote'&&state.audioUnlockRequired);
     if(state.guestAudioGain && state.guestAudioContext){
       try{
         const ctx=state.guestAudioContext;
@@ -4862,7 +4907,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return isVideoControlTarget(event.target);
   }
   function onGuestGesture(event){
-    if(state.role!=='guest' && !parseCode(el.joinInput?.value) && !parseCode(document.getElementById('rapidJoinEntry')?.value))return;
+    if(state.role!=='guest' && !parseCode(el.joinInput?.value) && !parseCode(document.getElementById('rapidJoinCode')?.value))return;
     primeGuestAudioFromGesture(true);
     // A generic control tap MUST NOT turn video playback on. Audio may
     // be unlocked only from the video surface or explicit Play/Sound control.
@@ -6368,7 +6413,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261126-smooth-pip-v1"></script>
-<script src="./settings-layout.js?v=20261121-mobile-video-aspect-v2"></script>
+<script src="./settings-layout.js?v=20261126-mobile-control-v1"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261120-native-library-parity-v15"></script>
