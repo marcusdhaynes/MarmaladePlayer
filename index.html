@@ -592,6 +592,19 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 #rapidLastMissing[hidden],#rapidLocateMissing[hidden]{display:none!important}
 #playerResumeStatus:has(>:not([hidden])){padding:4px 0}
 </style>
+<style id="volume-flex-layout">
+#dropZone .theater-bottom{display:flex!important;flex-wrap:nowrap!important;align-items:center;gap:clamp(2px,.5vw,8px)!important}
+#dropZone .theater-bottom>.theater-actions{flex:0 0 auto!important;min-width:0!important}
+#dropZone .theater-bottom>.theater-volume-group{display:flex;align-items:center;gap:3px;flex:1 1 0;min-width:0}
+#dropZone .theater-volume-group #muteBtn{flex:0 0 auto}
+#dropZone .theater-volume-group .volume-track{flex:1 1 0;min-width:0;position:relative;display:flex;align-items:center}
+#dropZone .theater-volume-group #volume{width:100%!important;min-width:0!important;max-width:none!important;flex:1 1 0!important;margin:0!important;touch-action:none;position:relative;z-index:1;background:transparent}
+#dropZone .theater-volume-group #volumeTicks{position:absolute;inset:0 5px;pointer-events:none;z-index:0}
+#dropZone .theater-volume-group #volumeTicks[hidden]{display:none}
+#volumeTicks i{position:absolute;top:50%;width:1px;height:9px;transform:translate(-50%,-50%);background:currentColor;opacity:.42}
+#dropZone .theater-volume-group .vol-mark{flex:0 0 auto;min-width:4ch!important;text-align:center;font-variant-numeric:tabular-nums}
+@media(max-width:800px){#dropZone .theater-volume-group #muteBtn{width:clamp(18px,5.6vw,25px)!important;min-width:0!important;padding:2px!important}#dropZone .theater-volume-group{gap:1px}#dropZone .theater-volume-group .vol-mark{font-size:clamp(7px,1.4vw,10px)}}
+</style>
 </head>
 <body>
   <div class="app-shell">
@@ -620,14 +633,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           <video id="player" playsinline preload="metadata"></video>
           <svg class="adaptive-gamma-definitions" width="0" height="0" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><defs><filter id="adaptiveBrightnessGamma" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%"><feComponentTransfer><feFuncR id="adaptiveGammaR" type="gamma" amplitude="1" exponent="1" offset="0"/><feFuncG id="adaptiveGammaG" type="gamma" amplitude="1" exponent="1" offset="0"/><feFuncB id="adaptiveGammaB" type="gamma" amplitude="1" exponent="1" offset="0"/></feComponentTransfer></filter></defs></svg>
           <video id="hostMonitor" playsinline preload="metadata" aria-hidden="true" tabindex="-1"></video>
-          <button id="guestAudioUnlock" type="button" hidden
-            aria-label="Enable guest sound" title="Enable sound for this watch party">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M11 5 6 9H3v6h3l5 4V5Zm4 4a4.2 4.2 0 0 1 0 6m3-9a8.5 8.5 0 0 1 0 12"/>
-            </svg>
-            <span>Tap to enable sound</span>
-          </button>
+
           <div class="mini-player-overlay" id="miniPlayerOverlay" aria-label="Mini-player controls" hidden><div class="mini-player-transport"><button type="button" id="miniSkipBack" aria-label="Rewind 10 seconds" title="Rewind 10 seconds"></button><button type="button" id="miniPlayPause" aria-label="Play or pause" title="Play or pause"></button><button type="button" id="miniSkipForward" aria-label="Forward 10 seconds" title="Forward 10 seconds"></button></div><button type="button" id="miniReturn" class="mini-player-return" aria-label="Close mini-player and return to app" title="Return to Marmalade Player">×</button></div>
           <div class="stage-poster-preview" id="stagePosterPreview" aria-hidden="true"></div>
           <div id="hostVideoDiagnostic" role="status" aria-live="polite" hidden style="position:absolute;z-index:7;left:12px;right:12px;top:54px;max-width:520px;background:#1a1518ed;color:#ffe6cb;border:1px solid #bc8660;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-start;gap:8px"><span id="videoDiagnosticText"></span><button type="button" id="videoRecoveryAction" hidden style="background:#ffb86b;color:#2b1a11;border:0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12px">Retry picture</button></div>
@@ -662,10 +668,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 <button class="icon-btn theater-play" id="playPause" title="Play / pause for everyone" aria-label="Play / pause" disabled><svg id="playIcon" class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8.5 5.5 10.5 6.5-10.5 6.5V5.5Z"/></svg></button>
                 <button class="icon-btn skip-btn" id="skipForward" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled><svg class="glass-icon skip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 10V4.5l-4.8 2.4"/><path d="M20.5 10a8.5 8.5 0 1 0-2 8"/><text x="12" y="15" text-anchor="middle" stroke="none" fill="currentColor" font-family="system-ui,sans-serif" font-size="7.4">10</text></svg></button>
               </div>
-              <div class="theater-actions theater-right">
-                <button class="icon-btn" id="muteBtn" title="Mute / unmute for me" aria-label="Mute / unmute"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m11 5-5 4H3.5v6H6l5 4V5Z"/><path d="M15 9a4.5 4.5 0 0 1 0 6"/><path d="M18 6a8.7 8.7 0 0 1 0 12"/></svg></button>
-                <input type="range" id="volume" value="100" min="0" max="200" step="1" aria-label="My volume from 0 to 200 percent">
+              <div class="theater-volume-group"><button class="icon-btn" id="muteBtn" title="Mute / unmute for me" aria-label="Mute / unmute"><svg class="glass-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m11 5-5 4H3.5v6H6l5 4V5Z"/><path d="M15 9a4.5 4.5 0 0 1 0 6"/><path d="M18 6a8.7 8.7 0 0 1 0 12"/></svg></button>
+                <div class="volume-track"><div id="volumeTicks" aria-hidden="true"></div><input type="range" id="volume" value="100" min="0" max="200" step="10" aria-label="My volume from 0 to 200 percent"></div>
                 <span class="vol-mark" id="volumeMark">100%</span>
+              </div>
+              <div class="theater-actions theater-right">
                 <div class="adaptive-brightness" id="adaptiveBrightnessControl">
                   <button type="button" class="icon-btn adaptive-brightness-button" id="brightnessBtn" title="Adaptive Brightness" aria-label="Adaptive Brightness" aria-haspopup="true" aria-expanded="false" aria-controls="brightnessPopover">
                     <svg class="glass-icon adaptive-brightness-icon" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><clipPath id="adaptiveFlashlightClip"><path d="M7 2H17A1 1 0 0 1 18 3V7A3 3 0 0 1 17.4 8.8L16.8 9.6A4 4 0 0 0 16 12V20A2 2 0 0 1 14 22H10A2 2 0 0 1 8 20V12A4 4 0 0 0 7.2 9.6L6.6 8.8A3 3 0 0 1 6 7V3A1 1 0 0 1 7 2Z"/></clipPath></defs><g clip-path="url(#adaptiveFlashlightClip)"><rect id="adaptiveFlashlightFill" x="0" y="22" width="24" height="0" fill="#fff" stroke="none"/></g><path d="M12 13v1M17 2a1 1 0 0 1 1 1v4a3 3 0 0 1-.6 1.8l-.6.8A4 4 0 0 0 16 12v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a4 4 0 0 0-.8-2.4l-.6-.8A3 3 0 0 1 6 7V3a1 1 0 0 1 1-1zM6 6h12"/></svg>
@@ -694,6 +701,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label for="windowTheme">Window Theme <select id="windowTheme" aria-label="Window Theme"><option value="classic">Classic</option><option value="glass">Glass</option></select></label>
             <label>Skip Interval <select id="skipInterval" aria-label="Seconds to rewind or fast forward"><option value="5">5 Seconds</option><option value="10" selected>10 Seconds</option><option value="15">15 Seconds</option><option value="20">20 Seconds</option><option value="30">30 Seconds</option><option value="60">60 Seconds</option></select></label>
             <label id="tapVideoPlaybackRow"><input type="checkbox" id="tapVideoPlayback"> Tap Video To Play / Pause</label>
+            <label>Volume Increment <select id="volumeIncrement"><option value="1">1%</option><option value="5">5%</option><option value="10" selected>10%</option><option value="25">25%</option><option value="50">50%</option></select></label>
+            <label><span>Snap Volume Every 50%</span><input type="checkbox" id="volumeSnap" checked></label>
+            <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
@@ -1037,6 +1047,22 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   const fadeDelayControl=document.getElementById('controlFadeDelay');
   const localPreference=(key,fallback)=>{try{return localStorage.getItem('marmalade:'+key)||fallback;}catch{return fallback;}};
   const rememberPreference=(key,value)=>{try{localStorage.setItem('marmalade:'+key,String(value));}catch{}};
+  const volumeIncrement=$('volumeIncrement'),volumeSnap=$('volumeSnap'),volumeMaximum=$('volumeMaximum');
+  const validVolumeSetting=(control,key,fallback)=>{
+    const saved=localPreference(key,String(fallback));
+    control.value=[...control.options].some(o=>o.value===saved)?saved:String(fallback);
+    return Number(control.value);
+  };
+  let volumeStep=validVolumeSetting(volumeIncrement,'volume-increment',10);
+  let volumeMax=validVolumeSetting(volumeMaximum,'volume-maximum',200);
+  volumeSnap.checked=localPreference('volume-snap','true')==='true';
+  function quantizeVolume(raw,step,max,snap){
+    const value=Math.max(0,Math.min(max,Number(raw)||0));
+    const detent=Math.round(value/50)*50;
+    // Modestly widen the capture zone around each 50% mark; no sticky lock.
+    if(snap&&Math.abs(value-detent)<=Math.min(26,step/2+2))return detent;
+    return Math.max(0,Math.min(max,Math.round(value/step)*step));
+  }
   const skipIntervalControl=document.getElementById('skipInterval');
   const savedSkipInterval=localPreference('skip-interval-seconds','10');
   skipIntervalControl.value=[...skipIntervalControl.options].some(o=>o.value===savedSkipInterval)
@@ -1160,8 +1186,6 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const soundUnlock=!!required && state.role==='guest' && state.source==='remote' &&
       !state.soundMuted && state.volumePercent>0;
     state.audioUnlockRequired=soundUnlock;
-    const button=$('guestAudioUnlock');
-    if(button)button.hidden=true; // no separate sound-unlock overlay; normal interaction grants audio
     if(required)revealControls();
   }
 
@@ -4563,30 +4587,37 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     el.volumeMark.textContent = `${state.volumePercent}%`;
     el.volume.value = String(state.volumePercent);
+    el.volume.setAttribute('aria-valuetext',state.volumePercent+' percent'+(state.soundMuted?', muted':''));
     const silent = state.soundMuted || level === 0;
     el.mute.innerHTML = silent ? MUTED_ICON : SPEAKER_ICON;
     el.mute.setAttribute('aria-label',silent ? 'Unmute' : 'Mute');
     el.mute.title = silent ? 'Unmute' : 'Mute';
   }
-  function setVolume(raw) {
-    let next = Math.max(0, Math.min(200, Math.round(Number(raw) || 0)));
-    const distance=Math.abs(next-100);
-    // Gentle 100% magnetic detent; moving a few points further releases it.
-    if(distance<=2||(state.volumeDetent&&distance<=4)){
-      next=100;state.volumeDetent=true;
-    }else state.volumeDetent=false;
-    state.volumePercent = next;
-    if (next) { state.lastVolume = next / 100; state.soundMuted = false; }
+  function setVolume(raw,fromPointer=false) {
+    const next=quantizeVolume(raw,volumeStep,volumeMax,fromPointer&&volumeSnap.checked);
+    state.volumePercent=next;
+    if(next){state.lastVolume=next/100;state.soundMuted=false;}
+    rememberPreference('volume-level',next);
     applyVolume();
-    if(state.role==='guest' && state.guestAudioFallback)return;
-    // Guest playback must remain independent of Web Audio at normal volume.
-    // Create/resume the gain graph only on an explicit >100% user gesture;
-    // otherwise native <video> audio works on Android without a suspended context.
-    if (state.role === 'host' || next > 100 || state.audioContext)
-      void ensureAudioPlayback().then(ok => {
-        if (!ok && next > 100) notify('This browser may limit volume above 100%.');
-      }).catch(()=>{});
+    if(state.source==='remote'&&state.role==='guest'){
+      primeGuestAudioFromGesture(true);recoverGuestSound();
+    }else if(state.source&&(next>100||state.audioContext||state.hostMonitorActive)){
+      void ensureAudioPlayback().catch(()=>{});
+    }
   }
+  function syncVolumeSettings(){
+    volumeStep=Number(volumeIncrement.value)||10;volumeMax=Number(volumeMaximum.value)||200;
+    el.volume.max=String(volumeMax);el.volume.step=String(volumeStep);
+    el.volume.setAttribute('aria-label','My volume from 0 to '+volumeMax+' percent');
+    $('volumeTicks').replaceChildren(...Array.from({length:volumeMax/50+1},(_,i)=>{
+      const tick=document.createElement('i');tick.style.left=(i*50/volumeMax*100)+'%';return tick;
+    }));
+    $('volumeTicks').hidden=!volumeSnap.checked;
+    state.volumePercent=quantizeVolume(state.volumePercent,volumeStep,volumeMax,false);
+    rememberPreference('volume-level',state.volumePercent);
+    applyVolume();
+  }
+
   async function ensureAudioCapture() {
     // Firefox (and some mobile browsers) can leave AudioContext.resume()
     // pending until another trusted gesture, even when video is playing.
@@ -6029,10 +6060,6 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     void togglePlay('button');
   });
-  $('guestAudioUnlock').addEventListener('click',event=>{
-    event.stopPropagation();
-    void enableRemotePlayback();
-  });
   el.back.addEventListener('click', () => { const seconds=skipSeconds(); if (state.role === 'guest') guestCommand('skip', -seconds); else applyTransport('skip', -seconds); });
   el.forward.addEventListener('click', () => { const seconds=skipSeconds(); if (state.role === 'guest') guestCommand('skip', seconds); else applyTransport('skip', seconds); });
   const seekTime = () => (state.role === 'guest' ? state.sharedDuration : stableMovieDuration()) * Number(el.seek.value) / 1000;
@@ -6066,20 +6093,42 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     seekStart=null;
   });
   el.seek.addEventListener('blur', () => { state.seeking = false; });
-  el.volume.addEventListener('input', () => {
-    // Volume is personal audio output ONLY. It must not start, pause or
-    // resume either the guest's video or the host's shared movie.
-    setVolume(el.volume.value);
+  // Pointer positions are continuous before quantization, so the magnetic
+  // detents work for mouse and touch without making keyboard arrows sticky.
+  let volumePointer=null;
+  function volumeFromPointer(event){
+    const rect=el.volume.getBoundingClientRect(),inset=5;
+    if(rect.width<=2*inset)return;
+    setVolume((event.clientX-rect.left-inset)/(rect.width-2*inset)*volumeMax,true);
+    revealControls();
+  }
+  el.volume.addEventListener('pointerdown',event=>{
+    if(event.button!==0)return;
+    event.preventDefault();el.volume.focus({preventScroll:true});
+    volumePointer=event.pointerId;el.volume.setPointerCapture?.(event.pointerId);volumeFromPointer(event);
   });
+  el.volume.addEventListener('pointermove',event=>{if(volumePointer===event.pointerId)volumeFromPointer(event);});
+  for(const type of ['pointerup','pointercancel','lostpointercapture'])el.volume.addEventListener(type,event=>{
+    if(volumePointer!==event.pointerId)return;
+    if(type==='pointerup')volumeFromPointer(event);
+    volumePointer=null;
+  });
+  el.volume.addEventListener('input',()=>setVolume(el.volume.value));
+  for(const [control,key] of [[volumeIncrement,'volume-increment'],[volumeMaximum,'volume-maximum'],[volumeSnap,'volume-snap']]){
+    control.addEventListener('change',()=>{
+      rememberPreference(key,control===volumeSnap?control.checked:control.value);
+      syncVolumeSettings();
+    });
+  }
   el.mute.addEventListener('click', () => {
     state.soundMuted = !state.soundMuted;
-    if (!state.soundMuted && !state.volumePercent) state.volumePercent = 100;
+    if (!state.soundMuted && !state.volumePercent) state.volumePercent = Math.min(volumeMax,Math.round(state.lastVolume*100/volumeStep)*volumeStep||100);
     applyVolume();
     // Unmuting cannot be treated as Play: keep the current transport
     // state untouched even when the browser still needs an audio gesture.
     // Host audio processing may need to resume for boosted local volume.
-    if (state.role === 'host')
-      void ensureAudioPlayback().catch(()=>{});
+    rememberPreference('volume-level',state.volumePercent);
+    if(!state.soundMuted){if(state.role==='guest'){primeGuestAudioFromGesture(true);recoverGuestSound();}else if(state.audioContext||state.volumePercent>100)void ensureAudioPlayback().catch(()=>{});}
   });
   el.qualitySelect.addEventListener('change', () => {
     if (state.role !== 'guest') return;
@@ -6415,8 +6464,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   // Safari may still require a user gesture to start Web Audio. Keep the
   // 0–200% slider available and let join/play/volume taps unlock it.
-  state.volumePercent = 100;
-  applyVolume();
+  state.volumePercent=quantizeVolume(localPreference('volume-level','100'),volumeStep,volumeMax,false);
+  if(state.volumePercent)state.lastVolume=state.volumePercent/100;
+  syncVolumeSettings();
   // Add-on uses only the local player and presentation-delay telemetry. It never
   // changes capture tracks, sender parameters, quality selection or transport.
   // Safe game integration reuses the same host transport and hard-stop path
