@@ -107,6 +107,7 @@
    const reflect=()=>{panel.dataset.settingsTheme=theme.value;};
    theme.addEventListener('change',reflect);reflect();
  }
+ into('windowTheme','video','settings-window-theme-row');
  const subtitleLink=document.createElement('button');
  subtitleLink.type='button';subtitleLink.id='settingsSubtitleShortcut';
  subtitleLink.className='settings-action-row';
