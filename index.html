@@ -1331,14 +1331,17 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(state.role!=='guest' && !parseCode(el.joinInput?.value) && !parseCode($('rapidJoinCode')?.value))return;
     if(!tryWithoutGesture && navigator.userActivation &&
        !navigator.userActivation.isActive)return;
-    if(state.guestAudioContext && state.guestAudioContext.state==='running'){
+    if(state.guestAudioContext?.state==='running'){
       state.guestAudioPrimed=true;recoverGuestSound();return;
     }
     const Context=window.AudioContext||window.webkitAudioContext;
     if(!Context)return;
     try{
       const ctx=state.guestAudioContext||new Context({latencyHint:'interactive'});
-      state.guestAudioContext=ctx;
+      if(state.guestAudioContext!==ctx){
+        state.guestAudioContext=ctx;
+        ctx.addEventListener('statechange',()=>{if(state.guestAudioContext===ctx){state.guestAudioPrimed=ctx.state==='running';recoverGuestSound();}});
+      }
       // Call resume directly within user activation; never await here or
       // block room joining on an unresolved mobile AudioContext promise.
       if(ctx.state!=='running')void ctx.resume().then(()=>{
@@ -1349,19 +1352,27 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }catch(error){console.debug('Guest audio pre-unlock unavailable',error);}
   }
   function recoverGuestSound(){
-    if(state.role!=='guest'||state.source!=='remote'||!media.srcObject||state.soundMuted||state.volumePercent===0)return;
-    if(!state.audioUnlockRequired&&!media.muted&&!state.guestAudioFallback)return;
-    if(state.guestAudioFallback&&state.guestAudioContext?.state==='running'){needsTapToPlay(false);return;}
-    if(enableGuestAudioRelay(media.srcObject)){
-      needsTapToPlay(false);connection('Watching live with sound','online');
+    if(state.role!=='guest'||state.source!=='remote'||!media.srcObject)return;
+    if(state.soundMuted||state.volumePercent===0){applyVolume();return;}
+    const running=state.guestAudioContext?.state==='running';
+    const graphBlocked=!!state.audioSourceNode&&state.audioContext?.state!=='running';
+    if(state.guestAudioFallback&&running){state.audioUnlockRequired=false;applyVolume();return;}
+    if(state.guestAudioFallback&&!running)stopGuestAudioRelay(false);
+    if(running&&(state.volumePercent>100||state.audioUnlockRequired||graphBlocked||media.muted)){
+      if(enableGuestAudioRelay(media.srcObject)){
+        state.audioUnlockRequired=false;applyVolume();return;
+      }
     }
+    // Prefer native audible output whenever there is no running relay. Never
+    // leave a muted video latched merely because a Web Audio resume is pending.
+    if(!graphBlocked){state.audioUnlockRequired=false;applyVolume();}
   }
   function stopGuestAudioRelay(closeContext=false){
     try{state.guestAudioSource?.disconnect();}catch{}
     try{state.guestAudioGain?.disconnect();}catch{}
     state.guestAudioSource=null;
     state.guestAudioGain=null;
-    state.guestAudioFallback=false;
+    state.guestAudioFallback=false;state.guestAudioStream=null;state.guestAudioTrackIds='';
     if(closeContext){
       const ctx=state.guestAudioContext;
       state.guestAudioContext=null;
@@ -1372,8 +1383,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function enableGuestAudioRelay(stream){
     const ctx=state.guestAudioContext;
     const audioTracks=(stream?.getAudioTracks?.()||[]).filter(track=>track.readyState==='live');
-    if(!ctx||ctx.state!=='running'||!audioTracks.some(t=>t.readyState==='live'))
-      return false;
+    if(!ctx||ctx.state!=='running'||!audioTracks.length)return false;
+    if(state.guestAudioFallback&&state.guestAudioStream===stream&&state.guestAudioTrackIds===audioTracks.map(t=>t.id).join('|'))return true;
     try{
       stopGuestAudioRelay(false);
       const source=ctx.createMediaStreamSource(new MediaStream(audioTracks));
@@ -1382,7 +1393,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       gain.connect(ctx.destination);
       state.guestAudioSource=source;
       state.guestAudioGain=gain;
-      state.guestAudioFallback=true;
+      state.guestAudioFallback=true;state.guestAudioStream=stream;state.guestAudioTrackIds=audioTracks.map(t=>t.id).join('|');
       // Video uses the original synchronized WebRTC stream. Only browser
       // output changes, and the receiver's audio track is never duplicated.
       applyVolume();
@@ -3990,8 +4001,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         // use a separate, already-authorized receiver audio output instead.
         if(state.audioSourceNode&&state.audioContext?.state!=='running'){
           state.audioUnlockRequired=true;
-          if(!enableGuestAudioRelay(stream))primeGuestAudioFromGesture(true);
+          void state.audioContext.resume().then(recoverGuestSound).catch(()=>{});
         }
+        recoverGuestSound();
         state.fileReady = false;
         showStage(true);
         badge('LIVE WITH HOST');
@@ -4006,7 +4018,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           track.addEventListener('unmute',recoverGuestSound);
           track.addEventListener('ended',()=>{if(state.guestCall===call)send(state.guestConn,{type:'requestmedia',reason:'audio-track-ended'});});
         }
-        stream.addEventListener('addtrack',event=>{if(event.track.kind==='audio'&&state.guestCall===call)recoverGuestSound();});
+        stream.addEventListener('addtrack',event=>{if(event.track.kind==='audio'&&state.guestCall===call){event.track.addEventListener('unmute',recoverGuestSound);primeGuestAudioFromGesture(true);recoverGuestSound();}});
         if(!stream.getAudioTracks().length){
           notify('The host stream contains no audio track. Ask the host to restart broadcasting.');
           send(state.guestConn,{type:'requestmedia',reason:'missing-audio-track'});
@@ -4017,7 +4029,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           if(state.audioSourceNode&&state.audioContext?.state!=='running'&&!state.guestAudioFallback){
             needsTapToPlay(true);recoverGuestSound();
           }else needsTapToPlay(false);
-          if(media.muted&&!state.soundMuted&&state.volumePercent>0)recoverGuestSound();
+          recoverGuestSound();
           connection('Watching live','online');
         } catch (error) {
           if (state.guestCall !== call) return;
@@ -4029,10 +4041,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           try {
             await media.play();
             if (state.guestCall !== call) return;
-            needsTapToPlay(!relayed);
-            connection(relayed?'Watching live with sound':
-              'Video live · tap Play for sound','online');
-            if(!relayed)recoverGuestSound();
+            needsTapToPlay(false);
+            state.audioUnlockRequired=!relayed&&!state.soundMuted&&state.volumePercent>0;
+            connection('Watching live','online');
+            if(!relayed){primeGuestAudioFromGesture(true);recoverGuestSound();}
           } catch {
             if (state.guestCall !== call) return;
             needsTapToPlay(true);
@@ -4560,7 +4572,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Native mute is a hard safety gate even when Web Audio exists but is suspended.
     // Gain is applied to speakers only; it is never part of the outgoing P2P track.
     const hardMute = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;
-    media.muted = hardMute || state.guestAudioFallback || (state.role==='guest'&&state.source==='remote'&&state.audioUnlockRequired);
+    media.muted = hardMute || (state.guestAudioFallback&&state.guestAudioContext?.state==='running');
     if(state.guestAudioGain && state.guestAudioContext){
       try{
         const ctx=state.guestAudioContext;
@@ -4576,7 +4588,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if (state.speakerGain) {
       const now = state.audioContext.currentTime;
       state.speakerGain.gain.cancelScheduledValues(now);
-      state.speakerGain.gain.setValueAtTime(mirror ? 0 : level, now);
+      state.speakerGain.gain.setTargetAtTime(mirror || state.guestAudioFallback ? 0 : level, now,.012);
     }
     const monitor=$('hostMonitor');
     if(monitor){
@@ -4799,7 +4811,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   async function togglePlay(origin='button') {
     if(state.gameFrameMode){if(!media.paused)media.pause();return;}
     if(state.role==='host'&&['file','native'].includes(state.source) &&
-       (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode))
+       (!(media.captureStream||media.mozCaptureStream) || state.audioSourceNode || state.volumePercent>100))
       void ensureAudioPlayback().catch(error=>console.debug('Host audio output pending',error));
     if (state.role === 'guest') {
       // The dedicated Play button also acts as the audio-unlock fallback;
@@ -4984,15 +4996,17 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return isVideoControlTarget(event.target);
   }
   function onGuestGesture(event){
-    if(state.role!=='guest' && !parseCode(el.joinInput?.value) && !parseCode(document.getElementById('rapidJoinCode')?.value))return;
+    if(event?.isTrusted===false)return;
+    if(state.role==='host'&&state.source&&state.source!=='screen'){
+      if(state.audioContext||state.volumePercent>100||(!(media.captureStream||media.mozCaptureStream)&&['file','native'].includes(state.source)))
+        void ensureAudioPlayback().catch(()=>{});
+      if(state.hostMonitorActive)updateHostMonitorGain();
+    }
+    if(state.role!=='guest'&&!parseCode(el.joinInput?.value)&&!parseCode($('rapidJoinCode')?.value))return;
     primeGuestAudioFromGesture(true);
-    // A generic control tap MUST NOT turn video playback on. Audio may
-    // be unlocked only from the video surface or explicit Play/Sound control.
-    if(state.role==='guest' && state.source==='remote' && state.audioUnlockRequired && !state.soundMuted && state.volumePercent>0){
-      // Any normal trusted interaction can unlock sound without a separate
-      // button or toggling shared play/pause.
-      if(state.guestAudioContext?.state==='running')recoverGuestSound();
-      else if(!media.paused)void enableRemotePlayback();
+    if(state.role==='guest'&&state.source==='remote'){
+      if(state.audioContext?.state==='suspended')void state.audioContext.resume().then(recoverGuestSound).catch(()=>{});
+      recoverGuestSound();
     }
   }
   // An early touch/keyboard gesture during room connection should already
@@ -5009,37 +5023,33 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(state.hostMonitorRequested && state.role==='host')updateHostMonitor();
   },450);
   async function enableRemotePlayback() {
-    // Called directly by a user gesture. Browsers allow sound only after an
-    // interaction; calling play() on an already muted video is not enough.
     if(state.role!=='guest'||state.source!=='remote')return;
-    if(state.guestAudioFallback){
-      // The Join gesture already activated audio on a separate output.
-      // Never unmute the <video> too or the guest will hear doubled sound.
-      try{await media.play();needsTapToPlay(false);}catch{needsTapToPlay(true);}
-      return;
-    }
-    if(!state.soundMuted && state.volumePercent===0)state.volumePercent=100;
-    if(state.soundMuted)state.soundMuted=false;
-    // Mark native audio audible before play(); do not await an AudioContext.
-    state.audioUnlockRequired=false;
-    applyVolume();
+    primeGuestAudioFromGesture(true);
+    recoverGuestSound();applyVolume();
     media.defaultMuted=false;
-    media.muted=false;
-    if(state.audioContext?.state==='suspended')
-      void state.audioContext.resume().catch(()=>{});
+    if(state.audioContext?.state==='suspended')void state.audioContext.resume().then(recoverGuestSound).catch(()=>{});
     try{
       await media.play();
-      if(media.muted)throw new Error('Browser kept media muted');
-      needsTapToPlay(false);
-      connection('Watching live with sound','online');
+      needsTapToPlay(false);recoverGuestSound();connection('Watching live','online');
     }catch(error){
-      console.debug('Audible playback needs another browser gesture',error);
+      // Autoplay may reject audible playback before the first ordinary
+      // interaction. Keep the picture moving if muted playback is allowed;
+      // recover sound during normal usage, never change the user's mute/volume.
       media.muted=true;
-      try{await media.play();}catch{}
-      needsTapToPlay(true);
-      connection('Tap to enable sound','error');
+      try{await media.play();needsTapToPlay(false);}catch{needsTapToPlay(true);}
+      state.audioUnlockRequired=!state.soundMuted&&state.volumePercent>0;
+      primeGuestAudioFromGesture(true);
     }
   }
+  for(const event of ['playing','loadeddata','canplay'])media.addEventListener(event,()=>{
+    if(state.role==='guest'&&state.source==='remote'){primeGuestAudioFromGesture(true);recoverGuestSound();}
+    else if(state.source&&state.volumePercent>100)void ensureAudioPlayback().catch(()=>{});
+  });
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState!=='visible')return;
+    if(state.role==='guest'&&state.source==='remote'){primeGuestAudioFromGesture(true);recoverGuestSound();}
+    else if(state.audioContext)void ensureAudioPlayback().catch(()=>{});
+  });
   async function copyInvite() {
     if(state.role!=='host'){
       notify('Only the host can share an invitation. Open a movie to create your room first.');
