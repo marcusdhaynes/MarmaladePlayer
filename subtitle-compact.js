@@ -123,13 +123,10 @@
  const more=document.createElement('button');
  more.id='subCueMore';more.className='sub-cue-more';more.type='button';
  more.textContent='Show More Lines';more.hidden=true;
- const button=document.createElement('button');
- button.id='subTimingAlign';button.type='button';button.className='sub-timing-action';
- button.textContent='Align Line Start';button.disabled=true;
  const message=document.createElement('p');
  message.className='sub-cue-help';
  message.textContent='Tap the word just spoken. Word timing is estimated if the subtitle contains only line timestamps.';
- timing.append(cueTitle,cueSearchBar,selectedDisplay,cueList,more,count,button,message);
+ timing.append(cueTitle,cueSearchBar,selectedDisplay,cueList,more,count,message);
  let selectedCue=-1,matches=[],rendered=0,knownCues=null,filterFrame=0;
  const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g,' ').trim();
  function formatTime(value){
@@ -191,7 +188,6 @@
  function selectedLine(){
   const cue=state.subtitles?.[selectedCue];
   selectedDisplay.replaceChildren();
-  button.disabled=!cue;
   if(!cue){selectedDisplay.textContent='No subtitle line selected.';return;}
   const text=cueText(cue),language=state.subtitleLanguage||'';
   selectedDisplay.dir=cueDirection(text,language);
@@ -310,16 +306,6 @@
  panel.addEventListener('pointerdown',event=>{
   if(!event.target.closest('.sub-cue-search-row,.sub-cue-list,#subCueMore')&&!cueList.hidden)
    closeList();
- });
- button.addEventListener('click',()=>{
-  const cue=state.subtitles?.[selectedCue];if(!cue)return;
-  // Align directly to the exact underlying renderer clock, never calculate
-  // a correction from a possibly-clamped already-shifted subtitle time.
-  const changed=alignAt(cue.start);
-  if(!changed)return;
-  showTiming();window.MarmaladeSubtitleRefresh?.();
-  button.textContent='Aligned & Saved ✓';
-  setTimeout(()=>{button.textContent='Align Line Start';},1600);
  });
  window.addEventListener('marmalade:subtitles-loaded',()=>refreshCueOptions({force:true}));
  window.addEventListener('marmalade:media-cleared',()=>{
