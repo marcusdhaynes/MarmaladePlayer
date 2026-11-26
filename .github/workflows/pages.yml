@@ -36,6 +36,8 @@ jobs:
           node --test tests/mkv-compatibility.test.cjs tests/mkv-playback-pipeline.test.cjs
           node scripts/validate-mkv-decoder-assets.mjs
           node --check auto-mkv-audio.js
+          node --check rolling-buffer.js
+          node --test tests/rolling-buffer.test.cjs
           node --check mkv-decoder-io.js
           node --check mkv-asyncify-worker.js
       - name: Validate static web app
