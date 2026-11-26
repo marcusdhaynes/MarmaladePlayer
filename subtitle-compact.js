@@ -83,22 +83,16 @@
     position.before(posLabel);
   }
  }
- const instruction=document.createElement('p');
- instruction.textContent='− Earlier · + Later';
- timing.querySelector('.subtitle-timing-row')?.after(instruction);
- const currentTime=document.createElement('output');
- currentTime.className='sub-timing-readout';currentTime.id='subTimingNow';
- timing.appendChild(currentTime);
+ const timingRow=timing.querySelector('.subtitle-timing-row');
+ const timingLabel=timingRow.querySelector('label');
+ const timingCaption=document.createElement('div');timingCaption.className='sub-timing-label';
+ const instruction=document.createElement('small');instruction.textContent='− Earlier · + Later';
+ timingLabel.before(timingCaption);timingCaption.append(timingLabel,instruction);
  const reset=document.createElement('button');
  reset.type='button';reset.className='sub-timing-action';reset.id='subTimingReset';
- reset.textContent='Reset';
- reset.addEventListener('click',()=>{
-  const field=$('subtitleTiming');field.value='0.0';
-  field.dispatchEvent(new Event('change',{bubbles:true}));
-  showTiming();window.MarmaladeSubtitleRefresh?.();
- });
- const timingSummary=document.createElement('div');timingSummary.className='sub-timing-summary';
- timingSummary.append(currentTime,reset);timing.appendChild(timingSummary);
+ reset.textContent='Reset';reset.title='Reset subtitle timing to 0.0s';
+ reset.addEventListener('click',()=>{window.MarmaladeSubtitleTiming?.set?.(0);$('subtitleTiming').value='0.0';});
+ timingRow.querySelector('.subtitle-timing-control').prepend(reset);
  const cueTitle=document.createElement('label');
  cueTitle.htmlFor='subTimingCueSearch';
  cueTitle.textContent='Line Alignment';
@@ -129,10 +123,10 @@
  more.textContent='Show More Lines';more.hidden=true;
  const button=document.createElement('button');
  button.id='subTimingAlign';button.type='button';button.className='sub-timing-action';
- button.textContent='Align Selected Line To Now';button.disabled=true;
+ button.textContent='Align Line Start';button.disabled=true;
  const message=document.createElement('p');
  message.className='sub-cue-help';
- message.textContent='Align when the selected line begins.';
+ message.textContent='Tap the word just spoken. Word timing is estimated if the subtitle contains only line timestamps.';
  timing.append(cueTitle,cueSearchBar,selectedDisplay,cueList,more,count,button,message);
  let selectedCue=-1,matches=[],rendered=0,knownCues=null,filterFrame=0;
  const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g,' ').trim();
@@ -154,14 +148,63 @@
   return window.MarmaladeSubtitleClockBase?.(projected)??projected;
  }
  function showTiming(){
-  const video=playbackTime(),clock=currentBaseTime()-(Number(state.subtitleOffsetSeconds)||0);
-  currentTime.textContent='Video '+formatTime(video)+' · Cue '+formatTime(clock);
+  // Timing is reflected by the editable delay field; no duplicate clock readout.
+ }
+ // Segment words in logical (spoken) order, never reverse the source text.
+ const rtlLanguage=/^(ar|ara|fa|fas|per|he|heb|ur|urd|ps|pus|yi|yid|sd|snd|dv|uig|ug)(?:-|$)/i;
+ const aliases={ara:'ar',fas:'fa',per:'fa',heb:'he',urd:'ur',eng:'en',zho:'zh',chi:'zh',jpn:'ja',kor:'ko',tha:'th',ind:'id',rus:'ru',hin:'hi',ben:'bn',spa:'es',fra:'fr',fre:'fr'};
+ function wordParts(text,language){
+  let locale=String(language||'').toLowerCase().replace(/_/g,'-');locale=aliases[locale]||locale;
+  let parts;
+  try{parts=[...new Intl.Segmenter(locale||undefined,{granularity:'word'}).segment(text)].filter(part=>part.isWordLike).map(part=>({text:part.segment,index:part.index}));}
+  catch{parts=[...text.matchAll(/\S+/gu)].map(part=>({text:part[0],index:part.index}));}
+  return parts.length?parts:[{text,index:0}];
+ }
+ function cueDirection(text,language){
+  const first=[...text].find(ch=>/\p{L}/u.test(ch));
+  if(first)return /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Adlam}]/u.test(first)?'rtl':'ltr';
+  return rtlLanguage.test(language||'')?'rtl':'ltr';
+ }
+ function estimateWordTime(cue,parts,index){
+  // SRT and most other sources timestamp whole cues. Distribute word
+  // starts by grapheme-weighted spoken length, not UTF-16 code units.
+  let segmenter;try{segmenter=new Intl.Segmenter(undefined,{granularity:'grapheme'});}catch{}
+  const weights=parts.map(p=>Math.max(1,segmenter?[...segmenter.segment(p.text)].length:[...p.text].length));
+  const total=weights.reduce((a,b)=>a+b,0)||1;
+  const elapsed=weights.slice(0,index).reduce((a,b)=>a+b,0);
+  const exact=cue.words?.[index];
+  return Number.isFinite(exact?.start)&&exact.text===parts[index].text?exact.start:cue.start+(cue.end-cue.start)*elapsed/total;
+ }
+ function alignAt(cueTime){
+  const desired=currentBaseTime()-cueTime;
+  if(window.MarmaladeSubtitleTiming?.set?.(desired)){
+   window.MarmaladeSubtitleRefresh?.();
+   return true;
+  }
+  return false;
  }
  function selectedLine(){
   const cue=state.subtitles?.[selectedCue];
-  selectedDisplay.textContent=cue?cueLabel(cue):'No subtitle line selected.';
+  selectedDisplay.replaceChildren();
   button.disabled=!cue;
+  if(!cue){selectedDisplay.textContent='No subtitle line selected.';return;}
+  const text=cueText(cue),language=state.subtitleLanguage||'';
+  selectedDisplay.dir=cueDirection(text,language);
+  const parts=wordParts(text,language);
+  parts.forEach((part,index)=>{
+   const word=document.createElement('button');word.type='button';word.className='sub-word';
+   word.textContent=part.text;word.dir='auto';word.setAttribute('aria-pressed','false');
+   word.title='Align this word to current playback';
+   word.addEventListener('click',()=>{
+    if(state.subtitles?.[selectedCue]!==cue)return;
+    if(alignAt(estimateWordTime(cue,parts,index))){
+     selectedDisplay.querySelectorAll('.sub-word').forEach(b=>b.setAttribute('aria-pressed',String(b===word)));
+    }
+   });
+   selectedDisplay.append(word);
+  });
  }
+ window.MarmaladeSubtitleWordAlignment={wordParts,cueDirection,estimateWordTime};
  function closeList(){
   cueList.hidden=true;more.hidden=true;cueSearch.setAttribute('aria-expanded','false');
   expand.setAttribute('aria-expanded','false');
@@ -222,7 +265,7 @@
    count.textContent='Load a subtitle file to choose a line.';
    closeList();selectedLine();showTiming();return;
   }
-  const base=currentBaseTime()+(Number(state.subtitleOffsetSeconds)||0);
+  const base=currentBaseTime()-(Number(state.subtitleOffsetSeconds)||0);
   let closest=0,lo=0,hi=cues.length;
   while(lo<hi){const mid=(lo+hi)>>1;if(cues[mid].start<base)lo=mid+1;else hi=mid;}
   closest=Math.min(cues.length-1,lo);
@@ -267,12 +310,11 @@
   const cue=state.subtitles?.[selectedCue];if(!cue)return;
   // Align directly to the exact underlying renderer clock, never calculate
   // a correction from a possibly-clamped already-shifted subtitle time.
-  const desired=currentBaseTime()-cue.start;
-  const changed=window.MarmaladeSubtitleTiming?.set?.(desired);
+  const changed=alignAt(cue.start);
   if(!changed)return;
   showTiming();window.MarmaladeSubtitleRefresh?.();
   button.textContent='Aligned & Saved ✓';
-  setTimeout(()=>{button.textContent='Align Selected Line To Now';},1600);
+  setTimeout(()=>{button.textContent='Align Line Start';},1600);
  });
  window.addEventListener('marmalade:subtitles-loaded',()=>refreshCueOptions({force:true}));
  window.addEventListener('marmalade:media-cleared',()=>{
