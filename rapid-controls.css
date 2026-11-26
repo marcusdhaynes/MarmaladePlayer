@@ -362,3 +362,18 @@
  #subtitlePanel .subtitle-timing-row{grid-template-columns:1fr}
  #subtitlePanel .subtitle-timing-control{justify-self:end}
 }
+
+/* Sync controls share an exact centerline, including their inner text/icons. */
+#subtitlePanel .subtitle-timing-control{align-items:center}
+#subtitlePanel #subTimingReset{
+ box-sizing:border-box;display:grid!important;place-items:center!important;
+ align-self:center;flex:0 0 auto;height:30px!important;min-height:30px!important;max-height:30px!important;
+ padding:0 5px!important;margin:0!important;text-align:center;line-height:1!important;
+}
+#subtitlePanel .sub-cue-search-row{align-items:center!important}
+#subtitlePanel #subCueExpand{
+ box-sizing:border-box;display:grid!important;place-items:center!important;align-self:center;
+ width:27px!important;height:27px!important;min-height:27px!important;max-height:27px!important;
+ padding:0!important;margin:0!important;line-height:1!important;
+}
+#subtitlePanel #subCueExpand svg{display:block;width:14px;height:14px;flex:none;margin:0;pointer-events:none}
