@@ -37,6 +37,24 @@ native media-range header fixes; the `.mext` alone cannot patch an older EXE.
 
 **Quick test:** Open the live website in two different browsers/devices. Create a room on one; pick a supported video, copy its link; join from the other; click **Start watching** on the host. If autoplay with sound is blocked on the guest, click Play in the theater controls to enable sound.
 
+## VPN and restricted-network deployment
+
+Marmaladeum attempts direct ICE connections first. Both host and guest automatically accept managed TURN credentials when a deployment configures the credential endpoint in `relay-config.json`. The checked-in default is `null`: no relay is provisioned by this repository.
+
+For production, set `credentialEndpoint` to an HTTPS backend that issues short-lived, rate-limited TURN credentials. It must accept POST with `{"application":"marmaladeum"}`, allow the deployed app origin via CORS, and return:
+
+```json
+{"iceServers":[{"urls":["turn:relay.example.com:3478?transport=udp","turn:relay.example.com:3478?transport=tcp","turns:relay.example.com:443?transport=tcp"],"username":"temporary-user","credential":"temporary-credential"}],"ttl":600}
+```
+
+Replace the example addresses and credentials with the real provider's values; never publish the provider API token or a permanent shared secret. Configure the relay to support TLS on port 443 as well as UDP when available. The app can also accept multiple manual TURN URLs (comma or space separated) under Settings → Party → Advanced on each participant's device.
+
+A valid relay is necessary where VPN/firewall policy prevents direct connections. Even a relay cannot bypass a VPN that blocks its endpoint or all permitted outbound media traffic. No claim of end-to-end VPN compatibility is made until an authenticated relay is provisioned and tested.
+
+## Mini-player and guest audio
+
+Mobile defaults to tap-to-reveal controls, not tap-to-play/pause; the toggle is in Settings → Controls. The native video path avoids compositing another canvas while backgrounded. Document PiP is used where available, native video PiP or WebKit presentation mode otherwise, with an in-app floating fallback if no system API succeeds. Native subtitle visibility depends on the browser's PiP renderer. Browser autoplay policy can still require a normal user interaction on a fresh invitation tab; the app primes audio during Join and retries automatically rather than showing a separate unlock overlay.
+
 ## Technical notes / limitations
 
 - GitHub Pages hosts only the application files; it is **not** a video relay.
