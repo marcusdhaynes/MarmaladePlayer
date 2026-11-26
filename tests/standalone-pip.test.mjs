@@ -12,15 +12,17 @@ const serviceWorker=readFileSync(resolve(root,'sw.js'),'utf8');
 const tests=[];
 const check=(name,test)=>{assert.ok(test,name);tests.push(name);};
 const traces=[],events=new Map(),handlers={},clicks={},timers=new Map();
-let timerId=0,outputPixels=null,external=false,captionDraws=0;
+let timerId=0,external=false,captionDraws=0,frameCallback=null,filteredDraws=0,readbacks=0;
 const media={
  readyState:4,videoWidth:640,videoHeight:360,paused:false,currentTime:12,
- duration:120,playbackRate:1,addEventListener:(name,fn)=>events.set('media:'+name,fn)
+ duration:120,playbackRate:1,addEventListener:(name,fn)=>events.set('media:'+name,fn),
+ requestVideoFrameCallback(fn){frameCallback=fn;return 1},cancelVideoFrameCallback(){frameCallback=null}
 };
 const context={
- drawImage(){traces.push('draw')},
- getImageData(){return {data:new Uint8ClampedArray([30,60,90,255])}},
- putImageData(image){outputPixels=[...image.data]},
+ filter:'none',save(){},restore(){},clearRect(){},
+ drawImage(){traces.push('draw');if(this.filter!=='none')filteredDraws++},
+ getImageData(){readbacks++;throw Error('GPU readback forbidden')},
+ putImageData(){readbacks++;throw Error('CPU upload forbidden')},
  measureText(line){return {width:line.length*8}},
  strokeText(){},
  fillText(){captionDraws++}
@@ -45,9 +47,9 @@ const button=(name,act)=>({
  click(){clicks[name]=(clicks[name]||0)+1;act?.()},
  dispatchEvent(){clicks.seek=(clicks.seek||0)+1}
 });
-const subtitleOverlay={hidden:false,textContent:'مرحبا\nHello',dir:'rtl'};
+const subtitleOverlay={hidden:false,textContent:'مرحبا\nHello',dir:'rtl',style:{cssText:''}};
 const elements={
- player:media,hostMonitor:{readyState:0},subtitleOverlay,
+ player:media,hostMonitor:{readyState:0,addEventListener(){}},subtitleOverlay,
  playPause:button('play',()=>{media.paused=!media.paused}),
  skipBack:button('back'),skipForward:button('forward'),seek:button('seek')
 };
@@ -73,7 +75,7 @@ const window={
  },
  addEventListener(){}
 };
-const getComputedStyle=()=>({fontSize:'24px',fontWeight:'650',fontFamily:'sans-serif',direction:'rtl'});
+const getComputedStyle=()=>({fontSize:'24px',fontWeight:'500',fontFamily:'sans-serif',direction:'rtl',color:'#fff'});
 const startup=new Function('document','window','navigator','setInterval',
  'clearInterval','console','Event','getComputedStyle',source);
 startup(document,window,navigator,
@@ -86,9 +88,8 @@ const entered=await window.MarmaladeStandalonePiP.enter();
 check('03: Standalone PiP opens',entered===true&&document.pictureInPictureElement===pip);
 check('04: Canvas track created before frame painting',
  traces.indexOf('captureStream')>=0&&traces.indexOf('captureStream')<traces.indexOf('draw'));
-check('05: Captured brightness pixels are not black',
- outputPixels?.slice(0,3).every(value=>value>0));
-check('06: Adaptive gamma lifts shadows',outputPixels?.[0]>30);
+check('05: Video rendering uses browser filter without CPU pixel copies',filteredDraws>0&&readbacks===0);
+check('06: Frame delivery is driven by decoded video frames',typeof frameCallback==='function'&&traces.includes('requestFrame'));
 check('07: Existing subtitles composited into video',captionDraws>=2);
 check('08: Native controls installed before PiP opens',
  traces.indexOf('action:play')>=0&&traces.indexOf('action:play')<traces.indexOf('requestPiP'));
@@ -97,6 +98,12 @@ check('09: Play/Pause and skip controls registered',
 check('10: Native position seeking registered',typeof handlers.seekto==='function');
 check('11: Original progress used for PiP position',mediaSession.position?.duration===120);
 check('12: Adaptive brightness continues in PiP',external===true);
+const previousCaptionDraws=captionDraws;frameCallback();
+check('12a: Unchanged subtitles rasterize only once',captionDraws===previousCaptionDraws);
+media.videoWidth=800;media.videoHeight=600;frameCallback();
+const dims=window.MarmaladeStandalonePiP.getDiagnostics();
+check('12b: Non-16:9 source ratio preserved',Math.abs(dims.canvasWidth/dims.canvasHeight-4/3)<.01);
+check('12c: Subtitle canvas rerenders when source dimensions change',captionDraws>previousCaptionDraws);
 handlers.pause();handlers.previoustrack();handlers.nexttrack();handlers.seekto({seekTime:60});
 check('13: Native controls act on authoritative player',
  clicks.play===1&&clicks.back===1&&clicks.forward===1&&clicks.seek===1);
@@ -105,7 +112,7 @@ check('14: No Document PiP or WebView overlay used',
  !source.includes('getDisplayMedia'));
 events.get('pip:leavepictureinpicture')();
 check('15: PiP exit clears temporary handlers',Object.values(handlers).every(value=>value===null));
-check('16: PiP exit ends external sampling',external===false);
+check('16: PiP exit ends external sampling',external===false&&frameCallback===null);
 check('17: Web app imports the module',html.includes('standalone-pip.js?v='));
 check('18: Mobile packages the module',mobile.includes("'standalone-pip.js'"));
 check('19: Desktop packages the module',desktop.includes("'standalone-pip.js'"));
