@@ -7,7 +7,7 @@
     if(!parts.length||parts.length>3||parts.some(v=>!/^\d+(?:\.\d+)?$/.test(v)))return NaN;
     return parts.reduce((n,part)=>n*60+Number(part),0);
   }
-  const entities={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' ',lrm:'',rlm:'',hellip:'…',mdash:'—',ndash:'–'};
+  const entities={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' ',lrm:'\u200e',rlm:'\u200f',zwj:'\u200d',zwnj:'\u200c',hellip:'…',mdash:'—',ndash:'–'};
   function plain(value){
     return String(value||'').replace(/\r/g,'')
       .replace(/\\[Nn]/g,'\n').replace(/\\h/g,' ')
@@ -15,6 +15,7 @@
       .replace(/\{(?:y|c|f|s|h|o|p):[^}]*\}/gi,'')
       .replace(/\{\\[^}]*\}/g,'')
       .replace(/<\d{1,2}:\d\d:\d\d(?:[.,]\d+)?>/g,'')
+      .replace(/<br\s*\/?>/gi,'\n')
       .replace(/<[^>\n]{1,180}>/g,'')
       .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi,(_,entity)=>{
         if(entity[0]==='#'){
@@ -25,14 +26,16 @@
         }
         return entities[entity.toLowerCase()]??'&'+entity+';';
       })
-      .replace(/[\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,'')
+      // Preserve bidi marks, joiners and script-specific break opportunities.
+      // They are meaningful in mixed-direction, Indic, Persian and Thai text.
       .split('\n').map(x=>x.trim()).join('\n').replace(/\n{3,}/g,'\n\n').trim()
-      .normalize('NFC').slice(0,1000);
+      .normalize('NFC');
   }
   function cue(cues,start,end,body){
     if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>180)return;
     const text=plain(body);
-    if(text&&cues.length<10000)cues.push({start,end,text});
+    // Reject unusually large cues rather than cutting a grapheme cluster in half.
+    if(text&&text.length<=10000&&cues.length<10000)cues.push({start,end,text});
   }
   // Handle timestamped cues even if a SubDL release lacks blank lines.
   function parseArrow(source,cues){
