@@ -107,7 +107,8 @@
  cueSearch.setAttribute('aria-expanded','false');
  const expand=document.createElement('button');
  expand.type='button';expand.className='sub-cue-expand';expand.id='subCueExpand';
- expand.textContent='⌄';expand.setAttribute('aria-label','Browse complete subtitle lines');
+ expand.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+ expand.setAttribute('aria-label','Browse complete subtitle lines');
  cueSearchBar.append(cueSearch,expand);
  const selectedDisplay=document.createElement('div');
  selectedDisplay.className='sub-cue-selected';selectedDisplay.id='subSelectedLine';
