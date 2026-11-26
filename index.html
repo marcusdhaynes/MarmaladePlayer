@@ -580,6 +580,18 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   body:not(.theater-open):not(.native-pip-active) .movie-info-row:has(>section:not([hidden])) {margin-top:clamp(8px,2vw,12px)!important}
 }
 </style>
+<style id="player-panel-dock-layout">
+#playerPanelDock{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0}
+#playerPanelDock:not(:has(>.player-docked:not([hidden]))){display:none}
+#playerPanelDock:has(>.player-docked:not([hidden])){margin-top:8px}
+#playerPanelDock>#settingsPanel.player-docked,#playerPanelDock>#subtitlePanel.player-docked{position:relative!important;inset:auto!important;transform:none!important;width:100%!important;max-width:none!important;max-height:none!important;min-width:0!important;margin:0!important;overflow:visible!important;box-sizing:border-box;z-index:auto!important}
+#playerPanelDock>.player-docked[hidden]{display:none!important}
+#dropZone .play-disc{display:grid!important;place-items:center!important;box-sizing:border-box;flex:none;aspect-ratio:1;border-radius:50%!important;overflow:hidden;padding:0!important}
+#dropZone .play-disc svg{display:block;flex:none;margin:0!important;transform:none!important}
+#rapidLastMissing{display:block;margin:4px 0;color:#e8bd9e;font-size:11px;line-height:1.35;overflow-wrap:anywhere}
+#rapidLastMissing[hidden],#rapidLocateMissing[hidden]{display:none!important}
+#playerResumeStatus:has(>:not([hidden])){padding:4px 0}
+</style>
 </head>
 <body>
   <div class="app-shell">
@@ -620,7 +632,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           <div class="stage-poster-preview" id="stagePosterPreview" aria-hidden="true"></div>
           <div id="hostVideoDiagnostic" role="status" aria-live="polite" hidden style="position:absolute;z-index:7;left:12px;right:12px;top:54px;max-width:520px;background:#1a1518ed;color:#ffe6cb;border:1px solid #bc8660;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-start;gap:8px"><span id="videoDiagnosticText"></span><button type="button" id="videoRecoveryAction" hidden style="background:#ffb86b;color:#2b1a11;border:0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12px">Retry picture</button></div>
           <div class="stage-empty" id="stageEmpty">
-            <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="m12 8 13 8-13 8V8Z" fill="currentColor"/></svg></span></div>
+            <div class="empty-art" aria-hidden="true"><span class="play-disc"><svg viewBox="0 0 32 32" fill="none"><path d="M11 8 L24 16 L11 24 Z" fill="currentColor" transform="translate(-0.333333 0)"/></svg></span></div>
             <span class="eyebrow" id="stageEyebrow">CLICK TO HOST</span>
             <h1 id="stageTitle">Choose a movie.</h1>
             <p id="stageSubtitle">Click here or drop a video file to start your room.</p>
@@ -702,6 +714,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
  
 
         <div class="movie-info-reopen-row"><button id="mediaInfoReopen" type="button" class="movie-info-reopen" title="Show Movie &amp; Series Information" aria-label="Show Movie &amp; Series Information" aria-controls="mediaInfoPanel" aria-expanded="false"><span aria-hidden="true">i</span></button></div>
+        <div id="playerPanelDock" aria-label="Player windows"></div>
         <div class="movie-info-row" id="movieInfoRow">
           <section class="ml-panel" id="mediaLibraryPanel" aria-label="Your local video libraries" hidden>
             <div class="ml-header">
@@ -5200,7 +5213,17 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // Settings is a real floating palette, not a child clipped by the video.
   // In native fullscreen it moves back into the fullscreen element, as
   // browsers cannot display an ordinary body child above a fullscreen layer.
+  window.MarmaladeDockPlayerPanel=panel=>{
+    const dock=$('playerPanelDock');
+    const normal=!document.fullscreenElement&&!document.body.classList.contains('theater-open')&&!document.body.classList.contains('native-pip-active')&&!document.body.classList.contains('floating-overlay-active')&&!el.stage.classList.contains('fullscreen-fallback')&&!el.stage.classList.contains('floating-player')&&!el.stage.classList.contains('pip-interactive');
+    if(!dock||!normal){panel.classList.remove('player-docked');return false;}
+    if(panel.parentElement!==dock)dock.append(panel);
+    panel.classList.remove('subtitle-mobile-below');panel.classList.add('player-docked');
+    for(const name of ['top','left','right','bottom','transform','--subtitle-top','--subtitle-space'])panel.style.removeProperty(name);
+    return true;
+  };
   function placeSettingsPalette() {
+    if(window.MarmaladeDockPlayerPanel(el.settingsPanel))return;
     const fullscreen = document.fullscreenElement === el.stage;
     const parent = fullscreen ? el.stage : document.body;
     if (el.settingsPanel.parentElement !== parent) parent.appendChild(el.settingsPanel);
@@ -5222,8 +5245,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     el.settingsPanel.style.top = `${Math.round(top)}px`;
   }
   window.MarmaladeSettingsReposition=placeSettingsPalette;
-  document.body.appendChild(el.settingsPanel);
   el.settingsPanel.classList.add('settings-floating');
+  placeSettingsPalette();
   document.addEventListener('fullscreenchange',placeSettingsPalette);
   window.addEventListener('resize',placeSettingsPalette,{passive:true});
   window.addEventListener('scroll',placeSettingsPalette,{passive:true});
@@ -5259,7 +5282,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const path=event.composedPath?.()||[];
     const inside=path.some(node=>node===el.settingsPanel||node===el.subtitlePanel||
       node===el.settingsBtn||node===el.subtitleBtn);
-    if(!inside)dismissPalettes();
+    if(!inside&&!el.settingsPanel.classList.contains('player-docked')&&!el.subtitlePanel.classList.contains('player-docked'))dismissPalettes();
   },true);
   window.addEventListener('keydown',event=>{
     if(event.key!=='Escape'||event.defaultPrevented)return;
