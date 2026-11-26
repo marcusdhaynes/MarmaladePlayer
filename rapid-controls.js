@@ -366,8 +366,10 @@
        await resumeNativeMedia();
        return;
      }
-     // Reauthorize a retained file handle while the Resume click is active.
-     // Browsers cannot bypass permission revocation.
+     // Prefer the saved private copy if available, avoiding a renewed grant.
+     const cached=await readCached(last);
+     if(cached&&await verifyAndOpen(cached,last.handle||null))return;
+     // Retained original handles remain an alternative.
      if(last.handle){
        try{
          let permission=await last.handle.queryPermission?.({mode:'read'});
@@ -375,8 +377,6 @@
          if(permission==='granted'&&await verifyAndOpen(await last.handle.getFile(),last.handle))return;
        }catch(error){console.debug('Saved file access unavailable',error);}
      }
-     const cached=await readCached(last);
-     if(cached&&await verifyAndOpen(cached,last.handle||null))return;
      // Native hosts may reopen a previously verified, persistent file path.
      const native=await reopenNative(last.handle||null);
      if(native?.status==='ok'&&native.handle){
