@@ -6,7 +6,9 @@ const $=id=>document.getElementById(id);
 const media=$('player'),monitor=$('hostMonitor'),subtitles=$('subtitleOverlay');
 if(!media)return;
 const canvas=document.createElement('canvas');
-const ctx=canvas.getContext('2d',{alpha:false,willReadFrequently:true});
+const ctx=canvas.getContext('2d',{alpha:false});
+const captionCanvas=document.createElement('canvas');
+const captionCtx=captionCanvas.getContext('2d',{alpha:true});
 if(!ctx||!canvas.captureStream)return;
 const pip=document.createElement('video');
 pip.id='marmaladeStandalonePipVideo';
@@ -15,7 +17,10 @@ pip.setAttribute('aria-hidden','true');
 // Keep the stream video on-screen for browser frame scheduling, but imperceptible.
 pip.style.cssText='position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1';
 document.body.appendChild(pip);
-let stream=null,loop=0,prewarmTimer=0,active=false,starting=false,lastGamma=NaN,lut=new Uint8Array(256);
+let stream=null,loop=0,prewarmTimer=0,active=false,starting=false;
+let frameSource=null,frameCallback=null,lastFrameAt=0,lastMediaTime=NaN,manualCapture=false;
+let captionKey='',captionVisible=false,lastCaptionRefresh=0;
+const segmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'word'}):null;
 const piPControls=['play','pause','previoustrack','nexttrack','seekbackward','seekforward','seekto'];
 let width=0,height=0,frame=0,notified=false;
 const source=()=>document.querySelector('.stage.host-monitor-active') &&
@@ -28,81 +33,121 @@ function ensureDimensions(){
  const scale=Math.min(1,960/w,540/h);
  const nextW=Math.max(2,Math.round(w*scale/2)*2);
  const nextH=Math.max(2,Math.round(h*scale/2)*2);
- if(width!==nextW||height!==nextH){width=nextW;height=nextH;canvas.width=width;canvas.height=height;lastGamma=NaN;}
+ if(width!==nextW||height!==nextH){width=nextW;height=nextH;canvas.width=width;canvas.height=height;captionCanvas.width=width;captionCanvas.height=height;captionKey='';}
 }
-function applyGamma(){
+function videoFilter(){
  const g=gamma();
- if(g>=.999)return;
- if(!Number.isFinite(lastGamma)||Math.abs(g-lastGamma)>.002){
-   for(let i=0;i<256;i++)lut[i]=Math.min(255,Math.round(255*Math.pow(i/255,g)));
-   lastGamma=g;
+ if(g>=.999)return 'none';
+ // Canvas filter lets the browser composite the gamma effect without
+ // synchronously copying every video pixel to JavaScript and back.
+ const svg='url(#adaptiveBrightnessGamma)';
+ if('filter' in ctx){
+   ctx.filter=svg;
+   if(ctx.filter!=='none')return svg;
+   return 'brightness('+Math.pow(.5,g-1).toFixed(3)+')';
  }
- try{
-   const image=ctx.getImageData(0,0,width,height),data=image.data;
-   for(let i=0;i<data.length;i+=4){data[i]=lut[data[i]];data[i+1]=lut[data[i+1]];data[i+2]=lut[data[i+2]];}
-   ctx.putImageData(image,0,0);
- }catch(error){
-   if(!notified){console.debug('PiP brightness compositing unavailable',error);notified=true;}
- }
+ return 'none';
 }
 function paintSubtitles(){
- window.MarmaladeSubtitleRefresh?.();
- if(!subtitles||subtitles.hidden||!subtitles.textContent?.trim())return;
- const style=getComputedStyle(subtitles),lines=subtitles.textContent.split('\n');
- const size=Math.max(14,Math.min(32,parseFloat(style.fontSize)||24))*width/960;
- const px=Math.max(12,size);
+ if(!captionCtx||!subtitles)return;
+ const now=performance.now();
+ if(now-lastCaptionRefresh>=65){lastCaptionRefresh=now;window.MarmaladeSubtitleRefresh?.();}
+ const text=subtitles.hidden?'':subtitles.textContent||'';
+ // Only reflow and rasterize on actual cue/style/size changes.
+ const key=width+'x'+height+'|'+text+'|'+subtitles.style.cssText;
+ if(key===captionKey)return;
+ captionKey=key;
+ captionCtx.clearRect(0,0,width,height);
+ captionVisible=!!text.trim();
+ if(!captionVisible)return;
+ const style=getComputedStyle(subtitles),lines=text.split('\n');
+ const userSize=Math.max(12,Math.min(64,Number(window.MarmaladeSubtitleFontSize?.())||24));
+ // 10% of picture height at the normal 24px setting: ~20px on a
+ // 200px-tall mini-player. Keep relative proportions as the OS resizes it.
+ const px=Math.max(18,Math.min(height*.19,height*.105*(userSize/24)));
+ const maxWidth=width*.92,c=captionCtx;
  const fontAt=n=>`${style.fontWeight||'500'} ${n}px ${style.fontFamily||'sans-serif'}`;
- ctx.save();
+ c.save();
  try{
-   ctx.font=fontAt(px);
-   ctx.textAlign='center';ctx.textBaseline='bottom';
-   if('fontKerning' in ctx)ctx.fontKerning='normal';
-   if('letterSpacing' in ctx)ctx.letterSpacing='0px';
-   if('wordSpacing' in ctx)ctx.wordSpacing='0px';
-   const maxWidth=width*.86,output=[];
-   const segmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter(undefined,{granularity:'word'}):null;
+   c.font=fontAt(px);c.textAlign='center';c.textBaseline='bottom';
+   if('fontKerning' in c)c.fontKerning='normal';
+   if('letterSpacing' in c)c.letterSpacing='0px';
+   if('wordSpacing' in c)c.wordSpacing='0px';
+   const output=[];
    for(const line of lines){
-     // Keep Unicode words and whitespace in their original logical order.
-     // Segment only for wrapping; each final line is shaped in one canvas call.
      const segments=segmenter?[...segmenter.segment(line)].map(x=>x.segment):line.match(/\S+|\s+/gu)||[];
      let piece='';
      for(const token of segments){
        const test=piece+token;
-       if(piece.trim()&&token.trim()&&ctx.measureText(test.trimEnd()).width>maxWidth){
+       if(piece.trim()&&token.trim()&&c.measureText(test.trimEnd()).width>maxWidth){
          output.push(piece.trimEnd());piece=token.trimStart();
        }else piece=test;
      }
      output.push(piece.trimEnd());
    }
-   const lineHeight=px*1.42;
-   const bottom=Math.max(18,height*.11);
+   const size=Math.min(px,height*.78/Math.max(1,output.length*1.35));
+   const lineHeight=size*1.35,bottom=Math.max(4,height*.07);
    output.forEach((line,i,arr)=>{
+     if(!line)return;
      const y=height-bottom-(arr.length-1-i)*lineHeight;
-     const first=[...line].find(c=>/\p{L}/u.test(c))||'';
-     ctx.direction=/[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u.test(first)?'rtl':'ltr';
-     ctx.font=fontAt(px);
-     const measured=ctx.measureText(line).width;
-     const fit=measured>maxWidth?px*maxWidth/measured:px;
-     ctx.font=fontAt(fit); // uniform scaling, not compressed glyph widths
-     ctx.lineJoin='round';ctx.lineWidth=Math.min(2.5,fit*.13);
-     ctx.strokeStyle='rgba(0,0,0,.9)';ctx.strokeText(line,width/2,y);
-     ctx.fillStyle=style.color||'#fff';ctx.fillText(line,width/2,y);
+     const first=[...line].find(ch=>/\p{L}/u.test(ch))||'';
+     c.direction=/[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u.test(first)?'rtl':'ltr';
+     c.font=fontAt(size);
+     const measured=c.measureText(line).width;
+     const fit=measured>maxWidth?size*maxWidth/measured:size;
+     c.font=fontAt(fit);
+     c.lineJoin='round';c.lineWidth=Math.max(1,fit*.11);
+     c.strokeStyle='rgba(0,0,0,.9)';c.strokeText(line,width/2,y);
+     c.fillStyle=style.color||'#fff';c.fillText(line,width/2,y);
    });
- }finally{ctx.restore();}
+ }finally{c.restore();}
 }
+
 function draw(){
  const video=source();
  if(!video||video.readyState<2||!video.videoWidth)return false;
  ensureDimensions();
- try{ctx.drawImage(video,0,0,width,height);applyGamma();paintSubtitles();frame++;return true;}
+ try{
+   if('filter' in ctx)ctx.filter=videoFilter();
+   ctx.drawImage(video,0,0,width,height);
+   if('filter' in ctx)ctx.filter='none';
+   paintSubtitles();
+   if(captionVisible)ctx.drawImage(captionCanvas,0,0);
+   if(manualCapture)stream?.getVideoTracks()[0]?.requestFrame?.();
+   lastFrameAt=performance.now();lastMediaTime=video.currentTime;frame++;return true;
+ }
  catch(error){if(!notified){console.debug('PiP frame compositor unavailable',error);notified=true;}return false;}
+}
+function cancelFrameCallback(){
+ if(frameSource&&frameCallback!==null)frameSource.cancelVideoFrameCallback?.(frameCallback);
+ frameSource=null;frameCallback=null;
+}
+function scheduleFrame(){
+ const video=source();
+ if(frameSource!==video)cancelFrameCallback();
+ if(!active||frameCallback!==null||typeof video?.requestVideoFrameCallback!=='function')return;
+ frameSource=video;
+ frameCallback=video.requestVideoFrameCallback(()=>{
+   frameCallback=null;
+   if(!active)return;
+   if(source()===video)draw();
+   scheduleFrame();
+ });
 }
 function startLoop(){
  if(loop)return;
- draw();
- loop=setInterval(()=>{if(active&&!media.paused)draw();},42);
+ draw();scheduleFrame();
+ // Old engines, hidden tabs and paused seeks may stop frame callbacks.
+ // A lightweight watchdog only paints if the source clock has advanced
+ // and decoded-frame callbacks have stalled, never on every idle tick.
+ loop=setInterval(()=>{
+   if(!active)return;
+   scheduleFrame();
+   const video=source();
+   if(video&&!video.paused&&performance.now()-lastFrameAt>48&&video.currentTime!==lastMediaTime)draw();
+ },16);
 }
-function stopLoop(){if(loop){clearInterval(loop);loop=0;}}
+function stopLoop(){if(loop){clearInterval(loop);loop=0;}cancelFrameCallback();}
 // Canvas capture must start BEFORE painting the first frame. The previous
 // implementation captured an untouched canvas and waited for PiP to be active
 // before drawing again, which left its source with no decodable first frame.
@@ -111,7 +156,9 @@ function prepare(){
  if(!video||video.readyState<2||!video.videoWidth)return false;
  if(!stream){
    ensureDimensions();
-   stream=canvas.captureStream(24);
+   stream=canvas.captureStream(0);
+   manualCapture=typeof stream.getVideoTracks()[0]?.requestFrame==='function';
+   if(!manualCapture){stream.getTracks().forEach(track=>track.stop());stream=canvas.captureStream(60);}
    pip.srcObject=stream;
  }
  const painted=draw();
@@ -186,6 +233,9 @@ pip.addEventListener('play',()=>{
 });
 media.addEventListener('loadeddata',prepare);
 media.addEventListener('canplay',prepare);
+for(const video of [media,monitor].filter(Boolean))video.addEventListener('resize',()=>{if(active){draw();scheduleFrame();}});
+// Font loading can change glyph metrics without changing the caption text.
+document.fonts?.addEventListener?.('loadingdone',()=>{captionKey='';if(active)draw();});
 media.addEventListener('playing',()=>{
  prepare();
  if(active){
