@@ -341,3 +341,24 @@
 #subtitlePanel .sub-cue-list{min-height:0;scrollbar-width:none;border-radius:5px}
 #subtitlePanel .sub-cue-option{min-height:0;padding:4px 5px;line-height:1.35}
 #subtitlePanel .sub-cue-more{min-height:24px;padding:3px}
+
+/* Sync: one aligned row, with the direction hint directly below its title. */
+#subtitlePanel .subtitle-timing-row{display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px}
+#subtitlePanel .sub-timing-label{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;min-width:0}
+#subtitlePanel .sub-timing-label label{font-size:10px;line-height:1.2;white-space:normal}
+#subtitlePanel .sub-timing-label small{font-size:8px;line-height:1.25;color:#c3a99f;white-space:normal}
+#subtitlePanel .subtitle-timing-control{align-items:center;gap:3px;min-width:0}
+#subtitlePanel #subTimingReset{flex:none;height:30px;min-height:30px;padding:0 4px;border-radius:5px;line-height:1;font-size:9px}
+#subtitlePanel .timing-connected{box-sizing:border-box;height:30px}
+#subtitlePanel .timing-connected .timing-major{height:28px}
+#subtitlePanel .subtitle-timing-control .timing-fine{height:30px;min-height:30px;width:19px;min-width:19px}
+#subtitlePanel .sub-cue-search-row{align-items:stretch;gap:3px;min-height:0}
+#subtitlePanel .sub-cue-search-row input,#subtitlePanel .sub-cue-search-row .sub-cue-expand{box-sizing:border-box;height:27px!important;min-height:27px!important;max-height:27px!important;margin:0;padding-block:0}
+#subtitlePanel .sub-cue-search-row .sub-cue-expand{display:grid;place-items:center;width:27px;min-width:27px;flex:0 0 27px;line-height:1;padding:0}
+#subtitlePanel .sub-cue-selected{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:3px;padding:4px;min-height:0;white-space:normal}
+#subtitlePanel .sub-cue-selected .sub-word{box-sizing:border-box;flex:0 1 auto;min-width:0;max-width:100%;min-height:24px;padding:3px 6px;border:1px solid #8d6c577d;border-radius:4px;background:#352a35;color:#ffe5c7;font:500 12px/1.4 system-ui,"Noto Sans Arabic",sans-serif;letter-spacing:normal;word-spacing:normal;white-space:normal;overflow-wrap:anywhere;unicode-bidi:isolate}
+#subtitlePanel .sub-cue-selected .sub-word[aria-pressed="true"]{color:#ffe2ac;border-color:#ffbc7d;background:#64483a}
+@media(max-width:330px){
+ #subtitlePanel .subtitle-timing-row{grid-template-columns:1fr}
+ #subtitlePanel .subtitle-timing-control{justify-self:end}
+}
