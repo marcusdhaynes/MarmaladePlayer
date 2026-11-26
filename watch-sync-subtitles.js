@@ -299,11 +299,13 @@
     '<option value="left">Left</option><option value="center">Center</option>'+
     '<option value="right">Right</option><option value="justify">Justified</option></select></label>'+
     '<div class="subtitle-style-row subtitle-timing-row"><label for="subtitleTiming">Subtitle Timing</label>'+
-    '<div class="subtitle-timing-control"><button type="button" id="subtitleTimingMinus" aria-label="Subtract 0.1 seconds; hold for 1 second steps">−</button>'+
-    '<input id="subtitleTiming" type="text" inputmode="decimal" pattern="[+-]?[0-9]*[.,]?[0-9]*" value="0.0" autocomplete="off" spellcheck="false" aria-label="Subtitle timing in seconds, to tenths of a second">'+
-    '<span class="timing-unit" aria-hidden="true">s</span>'+
-    '<button type="button" id="subtitleTimingPlus" aria-label="Add 0.1 seconds; hold for 1 second steps">+</button></div></div>'+
-    '<small class="subtitle-settings-note" id="subtitleTimingHoldHint">Tap for 0.1s · Hold once for 1.0s (duration set in Settings). + Earlier · − Later.</small>'+
+    '<div class="subtitle-timing-control">'+
+    '<button type="button" class="timing-fine" id="subtitleTimingFineMinus" aria-label="Move subtitles earlier by 0.1 seconds" title="−0.1s">−</button>'+
+    '<div class="timing-connected"><button type="button" class="timing-major" id="subtitleTimingMinus" aria-label="Move subtitles earlier by 1 second" title="−1s">−</button>'+
+    '<div class="timing-value"><input id="subtitleTiming" type="text" inputmode="decimal" pattern="[+-]?[0-9]*[.,]?[0-9]*" value="0.0" autocomplete="off" spellcheck="false" aria-label="Subtitle delay in seconds, to tenths of a second"><span class="timing-unit" aria-hidden="true">s</span></div>'+
+    '<button type="button" class="timing-major" id="subtitleTimingPlus" aria-label="Move subtitles later by 1 second" title="+1s">+</button></div>'+
+    '<button type="button" class="timing-fine" id="subtitleTimingFinePlus" aria-label="Move subtitles later by 0.1 seconds" title="+0.1s">+</button></div></div>'+
+    '<small class="subtitle-settings-note" id="subtitleTimingHoldHint">Outer ± 0.1s · Inner ± 1s</small>'+
     '<small class="subtitle-settings-note">Font Size, Colors, Position, And Timing Are Saved On This Device. Scripts Such As Arabic Use Native Text Shaping.</small>';
   el.subtitlePanel.appendChild(subStyle);
   const fields=[...subStyle.querySelectorAll('[data-sub-key]')];
@@ -452,11 +454,15 @@
   }));
   // A subtitle offset belongs to a specific subtitle AND video, never globally.
   // Only offsets (not subtitle text or movie bytes) are kept in localStorage.
-  const timingStoreKey='marmalade:subtitle-offsets:v2';
+  const timingStoreKey='marmalade:subtitle-offsets:v3';
   let timingOffsets={};
   try{
-    const records=JSON.parse(localStorage.getItem(timingStoreKey)||'{}');
-    if(records&&typeof records==='object'&&!Array.isArray(records))timingOffsets=records;
+    const savedV3=localStorage.getItem(timingStoreKey);
+    const records=JSON.parse(savedV3||localStorage.getItem('marmalade:subtitle-offsets:v2')||'{}');
+    if(records&&typeof records==='object'&&!Array.isArray(records)){
+      timingOffsets=savedV3?records:Object.fromEntries(Object.entries(records).filter(([,v])=>Number.isFinite(v?.seconds)).map(([k,v])=>[k,{...v,seconds:-v.seconds}]));
+      if(!savedV3)localStorage.setItem(timingStoreKey,JSON.stringify(timingOffsets));
+    }
   }catch{}
   let timingMedia='',timingSubtitle='';
   const timingText=subStyle.querySelector('#subtitleTiming');
@@ -503,54 +509,21 @@
       timingText.value=Number(prefs.timing).toFixed(1);
     }
   });
-  // A hold is one deliberate action, NEVER a repeating interval.
-  // Pointer release must not dispatch the browser's synthetic click again.
-  const timingHoldKey='marmalade:subtitle-timing-hold-ms';
-  const holdMilliseconds=()=>{
-    try{
-      const value=Number(localStorage.getItem(timingHoldKey)||250);
-      return [150,200,250,350,500,750,1000].includes(value)?value:250;
-    }catch{return 250;}
-  };
-  function timingButton(id,direction){
+  // Each button has a fixed step; a long press never changes its meaning.
+  function timingButton(id,step){
     const button=subStyle.querySelector(id);
-    let timer=0,activePointer=null,held=false,suppressClick=false;
-    const cancel=()=>{clearTimeout(timer);timer=0;activePointer=null;};
-    const change=step=>{
-      setTiming(Math.round((Number(prefs.timing)+direction*step)*10)/10);
+    button.addEventListener('click',()=>{
+      setTiming(Number(prefs.timing)+step);
       timingText.value=Number(prefs.timing).toFixed(1);
-    };
-    button.addEventListener('pointerdown',event=>{
-      if(event.button!==0||event.isPrimary===false)return;
-      cancel();held=false;suppressClick=false;activePointer=event.pointerId;
-      timer=setTimeout(()=>{
-        timer=0;
-        if(activePointer!==event.pointerId)return;
-        held=true;suppressClick=true;
-        change(1); // Exactly once at threshold. No setInterval.
-      },holdMilliseconds());
-    });
-    button.addEventListener('pointerup',cancel);
-    button.addEventListener('pointercancel',()=>{cancel();held=false;suppressClick=false;});
-    button.addEventListener('pointerleave',event=>{
-      if(event.pointerType==='mouse'&&event.buttons)cancel();
-    });
-    button.addEventListener('lostpointercapture',cancel);
-    button.addEventListener('click',event=>{
-      if(held||suppressClick){
-        held=false;suppressClick=false;event.preventDefault();return;
-      }
-      change(.1);
     });
     button.addEventListener('keydown',event=>{
-      // Holding Space/Enter should never auto-repeat the fine adjustment.
       if(event.repeat&&(event.key===' '||event.key==='Enter'))event.preventDefault();
     });
-    button.addEventListener('blur',cancel);
-    window.addEventListener('pagehide',cancel);
   }
+  timingButton('#subtitleTimingFineMinus',-.1);
   timingButton('#subtitleTimingMinus',-1);
   timingButton('#subtitleTimingPlus',1);
+  timingButton('#subtitleTimingFinePlus',.1);
   window.MarmaladeSubtitleTiming={
     activate(mediaKey,subtitleId){
       timingMedia=String(mediaKey||'');
@@ -563,8 +536,7 @@
       window.MarmaladeSubtitleRefresh?.();
     },
     get:()=>Number(prefs.timing),
-    set:setTiming,
-    holdMilliseconds
+    set:setTiming
   };
   prefs.timing=0;
   timingText.value='0.0';
@@ -589,7 +561,7 @@
     return (Number.isFinite(base)?base:0)-remoteCorrection;
   };
   window.MarmaladeSubtitleClock=(time)=>
-    Math.max(0,window.MarmaladeSubtitleClockBase(time)+Number(prefs.timing||0));
+    Math.max(0,window.MarmaladeSubtitleClockBase(time)-Number(prefs.timing||0));
   applySubtitleStyle();
 })();
 
