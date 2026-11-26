@@ -56,6 +56,7 @@
 
   function place(){
     if(panel.hidden)return;
+    if(window.MarmaladeDockPlayerPanel?.(panel))return;
     const full=document.fullscreenElement===el.stage;
     const parent=full?el.stage:document.body;
     if(panel.parentElement!==parent)parent.append(panel);
