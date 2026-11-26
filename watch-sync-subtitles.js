@@ -372,12 +372,18 @@
     overlay.style.whiteSpace='pre-line';
     overlay.style.letterSpacing='normal';
     const miniature=el.stage.classList.contains('mini-pip-visible') ||
+      el.stage.classList.contains('floating-player') ||
+      el.stage.classList.contains('pip-interactive') ||
       document.body.classList.contains('floating-overlay-active') ||
       document.body.classList.contains('native-pip-active');
-    const actualHeight=Math.max(100,el.stage.clientHeight||100);
+    const actualHeight=Math.max(1,el.stage.clientHeight||100);
     const normalSize=clamp(Number(prefs.textSize)||24,12,40);
-    const adjustedSize=miniature?clamp(Math.min(normalSize,actualHeight*.091),9,16):
+    const miniVideoWidth=media.videoWidth||el.stage.clientWidth||1;
+    const miniVideoHeight=media.videoHeight||actualHeight;
+    const displayedHeight=Math.min(actualHeight,(el.stage.clientWidth||miniVideoWidth)*miniVideoHeight/miniVideoWidth);
+    const adjustedSize=miniature?clamp(displayedHeight*.105*(normalSize/24),13,48):
       Math.min(normalSize,Math.max(14,actualHeight*.055));
+    overlay.style.setProperty('--mini-caption-font-size',adjustedSize+'px');
     overlay.style.fontSize=adjustedSize+'px';
     overlay.style.lineHeight='1.4';
     overlay.style.fontWeight='500';
@@ -562,7 +568,9 @@
   };
   prefs.timing=0;
   timingText.value='0.0';
+  window.MarmaladeSubtitleFontSize=()=>Number(prefs.textSize)||24;
   window.MarmaladeSubtitleReposition=applySubtitleStyle;
+  if(typeof ResizeObserver==='function')new ResizeObserver(applySubtitleStyle).observe(el.stage);
   addEventListener('resize',applySubtitleStyle,{passive:true});
   addEventListener('orientationchange',applySubtitleStyle,{passive:true});
   document.addEventListener('fullscreenchange',applySubtitleStyle);
