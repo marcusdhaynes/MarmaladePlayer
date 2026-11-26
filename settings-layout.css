@@ -237,3 +237,98 @@ html[data-window-theme="glass"] #subtitlePanel .timing-connected .timing-major{
 html[data-window-theme="glass"] :is(#settingsPanel,#subtitlePanel,.theater-popover,.media-info,.ml-panel,.games-panel) :is(button,input,select):focus-visible{
  outline:2px solid #d5b9fa;outline-offset:1px;
 }
+
+/* Final glass audit: nested cards and non-button surfaces use the same material
+   as their surrounding windows. Never recolor the movie, artwork, wallpaper,
+   subtitle glyphs, thumbnail canvases, or functional status indicators. */
+html[data-window-theme="glass"]{
+ --glass-inset:linear-gradient(150deg,rgba(185,159,224,.13),rgba(16,12,29,.35));
+ --glass-inset-hover:linear-gradient(150deg,rgba(218,193,250,.23),rgba(53,36,82,.40));
+ --glass-popup:linear-gradient(145deg,rgba(48,37,63,.88),rgba(20,18,31,.79));
+ --glass-inset-edge:rgba(224,206,250,.25);
+}
+/* Movie information: source disclosure, all three rating cards, cast and
+   financial cards. Preserve the IMDb/RT/Metacritic brand marks. */
+html[data-window-theme="glass"] #mediaInfoPanel :is(.mi-credentials,.mi-user-rating,.mi-rt-rating,.mi-mc-rating,.mi-person,.mi-financial-top .mi-stat){
+ background:var(--glass-inset)!important;
+ border-color:var(--glass-inset-edge)!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.10)!important;
+}
+html[data-window-theme="glass"] #mediaInfoPanel :is(.mi-credentials summary,a.mi-user-rating,.mi-choice):is(:hover,:focus-visible){
+ color:#fff!important;
+}
+html[data-window-theme="glass"] #mediaInfoPanel a.mi-user-rating:is(:hover,:focus-visible){
+ background:var(--glass-inset-hover)!important;border-color:rgba(228,203,255,.58)!important;
+}
+/* Settings, party, update details, subtitle filters and cue browser. */
+html[data-window-theme="glass"] :is(#settingsPanel,#subtitlePanel) :is(.backgrounds-setting,.settings-tabs,.settings-advanced,.settings-monitor,.settings-shortcuts kbd,.rapid-room-card,.rapid-room-code output,.rapid-role-switch,.updates-version,.updates-notes,.sub-tabs,.sub-search details,.sub-advanced-style,.sub-cue-selected,.sub-cue-list,.sub-result,.sub-caption-status){
+ background:var(--glass-inset)!important;
+ border-color:var(--glass-inset-edge)!important;
+}
+html[data-window-theme="glass"] #subtitlePanel .sub-cue-option:not([aria-selected="true"]):is(:hover,:focus-visible){
+ background:var(--glass-inset-hover)!important;
+}
+html[data-window-theme="glass"] #subtitlePanel .sub-cue-option[aria-selected="true"]{
+ background:var(--glass-control-active)!important;
+}
+html[data-window-theme="glass"] :is(#settingsPanel,#subtitlePanel) details>summary:hover{
+ color:#f3eafa;
+}
+/* Library subwindows and context menu, including menus portaled to body. */
+html[data-window-theme="glass"] :is(#mediaLibraryPanel,.ml-dialog-surface) :is(.ml-settings-panel,.ml-folder-entry,.ml-scan-preview,.ml-empty-icon,.ml-sidebar,.ml-section-pill:not([aria-pressed="true"])){
+ background:var(--glass-inset)!important;
+ border-color:var(--glass-inset-edge)!important;
+}
+html[data-window-theme="glass"] :is(#mlContextMenu,.ml-context-menu){
+ background:var(--glass-popup)!important;border-color:var(--glass-control-edge)!important;
+ box-shadow:0 12px 34px rgba(5,3,15,.35),inset 0 1px 0 rgba(255,255,255,.15)!important;
+ backdrop-filter:blur(20px) saturate(1.22);-webkit-backdrop-filter:blur(20px) saturate(1.22);
+}
+html[data-window-theme="glass"] :is(#mlContextMenu,.ml-context-menu) .ml-menu-action{
+ background:transparent!important;box-shadow:none!important;color:var(--glass-control-ink)!important;
+}
+html[data-window-theme="glass"] :is(#mlContextMenu,.ml-context-menu) .ml-menu-action:is(:hover,:focus-visible):not(:disabled){
+ background:var(--glass-inset-hover)!important;
+}
+html[data-window-theme="glass"] :is(#mlContextMenu,.ml-context-menu) .ml-menu-danger:is(:hover,:focus-visible){
+ background:linear-gradient(155deg,rgba(230,113,147,.24),rgba(106,29,58,.50))!important;color:#ffe3eb!important;
+}
+html[data-window-theme="glass"] :is(#mediaLibraryPanel,.ml-dialog-surface) :is(textarea,#mlPosterColumnsInput){
+ background:rgba(18,13,31,.48)!important;border-color:var(--glass-inset-edge)!important;color:var(--glass-control-ink)!important;
+}
+/* Games: score cards, connected navigation shell, logs, rule cards and
+   video-selection tiles. Keep artwork and danger/playing states intact. */
+html[data-window-theme="glass"] :is(#gamesPanel,.games-dialog-surface,.games-log-panel) :is(.game-score-card:not(.delete-armed),.game-score-add,.game-score-name,.games-split-pill,.games-dpad-center,.games-log-heading,.games-log-footer,.games-rule-grid section,.games-mode-pill,.games-video-density,.games-video-card,.games-video-mark,.games-log-timestamp,#onlyFramesTimeInput){
+ background:var(--glass-inset)!important;
+ border-color:var(--glass-inset-edge)!important;
+}
+html[data-window-theme="glass"] :is(#gamesPanel,.games-dialog-surface) :is(.game-score-add,.games-video-card):is(:hover,:focus-visible):not(:disabled){
+ background:var(--glass-inset-hover)!important;border-color:rgba(228,203,255,.58)!important;
+}
+html[data-window-theme="glass"] :is(#gamesPanel,.games-dialog-surface) :is(.game-score-card.delete-armed,.games-end-action){
+ background:linear-gradient(155deg,rgba(230,113,147,.24),rgba(106,29,58,.50))!important;
+ border-color:rgba(255,156,181,.55)!important;
+}
+html[data-window-theme="glass"] .games-dialog::backdrop{background:rgba(15,9,28,.46)!important}
+html[data-window-theme="glass"] .ml-dialog{background:rgba(15,9,28,.48)!important}
+/* Remaining room/player UI chrome. No glass filters on the actual video,
+   subtitles or frame previews; avoid unnecessary rendering cost. */
+html[data-window-theme="glass"] :is(.connection-pill,.transport,.role-tabs,.active-room,.copy-row,.local-copy,.hosted-link,.guest-local-copy,.stability-strip,.room-join-inline,.seek-preview,.stage-badge,.theater-pill,.fps-overlay,.buffer-readout,.mini-player-transport,.stage-overlay-play,.exit-theater,.movie-info-reopen,.rapid-resume,.play-disc,.file-btn,.primary-btn,.compact-retry,#guestAudioUnlock){
+ background:var(--glass-inset)!important;border-color:var(--glass-inset-edge)!important;
+}
+html[data-window-theme="glass"] :is(.sidepanel,.toast){
+ background:var(--glass-popup)!important;border-color:var(--glass-control-edge)!important;color:var(--glass-control-ink)!important;
+}
+html[data-window-theme="glass"] :is(.stage-quick-actions,.room-join-inline,.movie-info-reopen-row,.stage-empty,#playerResumeStatus) :is(button,.theater-pill):is(:hover,:focus-visible):not(:disabled){
+ background:var(--glass-control-hover)!important;border-color:rgba(233,217,255,.57)!important;
+}
+html[data-window-theme="glass"] :is(.stage-quick-actions .theater-pill,.role-tabs button)[aria-pressed="true"],
+html[data-window-theme="glass"] .role-tabs button.active{
+ background:var(--glass-control-active)!important;border-color:rgba(224,194,255,.62)!important;
+}
+html[data-window-theme="glass"] .stage-quick-actions .quick-broadcast-btn[aria-pressed="true"]{
+ background:linear-gradient(155deg,rgba(118,217,174,.27),rgba(30,82,66,.45))!important;border-color:rgba(149,236,194,.58)!important;
+}
+html[data-window-theme="glass"] :is(.sidepanel,.room-join-inline) :is(input:not([type="file"]):not([type="checkbox"]):not([type="range"]),select){
+ background:rgba(18,13,31,.48)!important;border-color:var(--glass-inset-edge)!important;color:var(--glass-control-ink)!important;
+}
