@@ -562,7 +562,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty {
     position:absolute;inset:28px 8px 66px;min-height:0!important;padding:0!important;
     display:flex;flex-direction:column;align-items:center;justify-content:safe center;
-    gap:2px;overflow:auto;scrollbar-width:none;pointer-events:auto;
+    gap:2px;overflow:auto;scrollbar-width:none;pointer-events:none;
   }
   body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):is(.guest-waiting,.join-failed) .stage-empty {inset:6px 8px}
   body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty > * {flex-shrink:0}
@@ -573,6 +573,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty h1 {font-size:clamp(15px,3.6vw,25px)!important;line-height:1.1!important;margin:0!important}
   body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty p {font-size:clamp(9px,2.1vw,12px)!important;line-height:1.2!important;margin:0!important}
   body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone:not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen):not(.has-video) .stage-empty :is(.rapid-resume,.rapid-join-entry,.stage-retry-join) {margin:0;padding:3px 8px;font-size:10px}
+  /* On the empty player only, decorative chrome cannot intercept a movie tap. */
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone.is-pickable:not(.has-video):not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen) :is(.theater-controls,.theater-top) {pointer-events:none!important}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone.is-pickable:not(.has-video):not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen) :is(.theater-controls,.theater-top) :is(button:not(:disabled),input:not(:disabled),select:not(:disabled),label,a,[role="button"],[role="slider"],.theater-popover:not([hidden]),.adaptive-brightness-popover:not([hidden])) {pointer-events:auto}
+  body:not(.theater-open):not(.native-pip-active):not(.floating-overlay-active) #dropZone.is-pickable:not(.has-video):not(.fullscreen-fallback):not(.floating-player):not(.pip-interactive):not(:fullscreen) .stage-empty :is(button:not(:disabled),a) {pointer-events:auto}
   body:not(.theater-open):not(.native-pip-active) .movie-info-row:has(>section:not([hidden])) {margin-top:clamp(8px,2vw,12px)!important}
 }
 </style>
@@ -689,6 +693,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             </div>
           </div>
         </div>
+        <input id="fileInput" type="file" tabindex="-1" aria-hidden="true" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none;clip-path:inset(50%)" accept="video/*,.3g2,.3gp,.asf,.avi,.divx,.f4v,.flv,.m2t,.m2ts,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.mts,.ogv,.ts,.vob,.webm,.wmv">
         <div id="mediaHint" hidden aria-hidden="true"></div>
         <div class="local-copy-feedback" id="localCopyPanel" hidden role="status" aria-live="polite"><small id="localCopyStatus">Waiting for Host Video…</small></div>
         <input id="localCopyInput" type="file" accept="video/*,.3g2,.3gp,.asf,.avi,.divx,.f4v,.flv,.m2t,.m2ts,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.mts,.ogv,.ts,.vob,.webm,.wmv" hidden>
@@ -965,7 +970,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         <div class="role-tabs"><button id="hostTab" type="button">Host</button><button id="joinTab" type="button">Join</button></div>
         <div id="hostPanel">
           <button id="chooseFile" type="button">Choose Video</button>
-          <input id="fileInput" type="file" accept="video/*,.3g2,.3gp,.asf,.avi,.divx,.f4v,.flv,.m2t,.m2ts,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.mts,.ogv,.ts,.vob,.webm,.wmv">
+
           <span id="fileInfo"></span>
           <button id="createRoom" type="button">Create Room</button>
           <button id="startBroadcast" type="button">Start Broadcast</button>
@@ -2932,6 +2937,16 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(performance.now() < (state.stopPickerUntil||0))return;
     if ((state.source && !(state.source === 'file' && media.error)) || state.connecting) return;
     if (state.role !== 'host') selectRole('host');
+    // Mobile browsers and embedded WebViews may expose a partial File System
+    // Access API. Invoke the standard chooser synchronously while the trusted
+    // tap is still active instead of attempting an asynchronous fallback.
+    const mobilePicker = window.matchMedia('(max-width:800px), (pointer:coarse)').matches ||
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if(mobilePicker){
+      state.lastOpenedHandle=null;
+      el.fileInput.click();
+      return;
+    }
     if(typeof window.showOpenFilePicker==='function'){
       // This gesture can retain a persistent, permission-checked file handle.
       void window.showOpenFilePicker({
@@ -5563,6 +5578,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(el.stage.classList.contains('floating-player')){
       cancelVideoSingleClick();
       el.stage.classList.remove('floating-player');revealControls();return;
+    }
+    // A pickable stage must open the chooser immediately, even if the
+    // browser reports a repeated tap. Never defer a file picker to a timer.
+    if(el.stage.classList.contains('is-pickable') && !el.stage.classList.contains('has-video') && !state.theaterMode){
+      cancelVideoSingleClick();
+      openMoviePicker();
+      return;
     }
     if(event.detail>=2){cancelVideoSingleClick();return;}
     cancelVideoSingleClick();
