@@ -1165,7 +1165,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         const config=await fetch(new URL('relay-config.json',document.baseURI),{cache:'no-store',signal:AbortSignal.timeout(2200)});
         if(!config.ok)return;
         const {credentialEndpoint}=await config.json();
-        if(!credentialEndpoint)return;
+        if(!credentialEndpoint){managedRelayExpires=Date.now()+60000;return;}
         const url=new URL(credentialEndpoint,document.baseURI);
         if(url.protocol!=='https:')return;
         const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({application:'marmaladeum'}),cache:'no-store',signal:AbortSignal.timeout(5000)});
@@ -1324,7 +1324,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   function enableGuestAudioRelay(stream){
     const ctx=state.guestAudioContext;
-    const audioTracks=stream?.getAudioTracks?.()||[];
+    const audioTracks=(stream?.getAudioTracks?.()||[]).filter(track=>track.readyState==='live');
     if(!ctx||ctx.state!=='running'||!audioTracks.some(t=>t.readyState==='live'))
       return false;
     try{
@@ -3855,6 +3855,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!requirePeerJS()||state.connecting)return;
     state.connecting=true;
     await prepareManagedRelay();
+    if(!state.connecting||state.role!=='host')return;
     configureIce();
     stopHostRecovery();
     const code=previousHostCode()||newCode();
@@ -4455,7 +4456,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // NEVER connect guest playback to a suspended AudioContext: doing so
     // replaces native audio with silence even when the video continues.
     const guestRemote=state.role==='guest' && state.source==='remote';
-    if(guestRemote){primeGuestAudioFromGesture(true);recoverGuestSound();return !!state.guestAudioFallback;}
+    if(guestRemote){
+      primeGuestAudioFromGesture(true);recoverGuestSound();
+      if(state.volumePercent>100&&!state.guestAudioFallback)enableGuestAudioRelay(media.srcObject);
+      return !!state.guestAudioFallback;
+    }
     if(!state.audioContext){
       const Context=window.AudioContext||window.webkitAudioContext;
       if(!Context)return false;
@@ -5489,9 +5494,27 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         .catch(error=>notify('Cannot enter fullscreen: '+String(error?.message||error)));
     }
   },true);
-  let nativePipTrack=null,nativePipCue=null,nativePipText='';
+  let nativePipTrack=null,nativePipCue=null,nativePipText='',nativePipLocalCues=false,nativePipLocalSignature='';
   function updateNativePipCaptions(){
     if(!nativePipTrack)return;
+    // Local movies can use the browser's native cue scheduler, including when
+    // the tab is backgrounded. Remote live streams need clock mapping.
+    const local=state.role==='host'||state.localVerified||state.bufferedMode||state.source==='hosted-guest';
+    const signature=String(state.subtitlesEnabled)+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0);
+    if(local){
+      if(nativePipLocalCues&&nativePipLocalSignature===signature)return;
+      for(const cue of Array.from(nativePipTrack.cues||[]))nativePipTrack.removeCue(cue);
+      nativePipCue=null;nativePipLocalCues=true;nativePipLocalSignature=signature;
+      if(state.subtitlesEnabled&&typeof VTTCue==='function')for(const cue of state.subtitles){
+        const offset=Number(state.subtitleOffsetSeconds)||0;
+        const start=Math.max(0,cue.start-offset),end=cue.end-offset;
+        if(end<=start)continue;
+        const nativeCue=new VTTCue(start,end,String(cue.text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+        nativeCue.align='center';nativePipTrack.addCue(nativeCue);
+      }
+      return;
+    }
+    if(nativePipLocalCues){for(const cue of Array.from(nativePipTrack.cues||[]))nativePipTrack.removeCue(cue);nativePipLocalCues=false;nativePipCue=null;}
     updateSubtitles();
     const text=el.subtitleOverlay.hidden?'':el.subtitleOverlay.textContent||'';
     const now=Number(media.currentTime)||0;
@@ -5509,8 +5532,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     nativePipTrack.mode='showing';updateNativePipCaptions();
   }
   function clearNativePipCaptions(){
-    if(nativePipTrack){if(nativePipCue)try{nativePipTrack.removeCue(nativePipCue);}catch{}nativePipTrack.mode='disabled';}
-    nativePipCue=null;nativePipText='';
+    if(nativePipTrack){for(const cue of Array.from(nativePipTrack.cues||[]))try{nativePipTrack.removeCue(cue);}catch{}nativePipTrack.mode='disabled';}
+    nativePipCue=null;nativePipText='';nativePipLocalCues=false;nativePipLocalSignature='';
   }
   media.addEventListener('timeupdate',()=>{if(nativePipTrack?.mode==='showing')updateNativePipCaptions();});
   media.addEventListener('seeked',()=>{if(nativePipTrack?.mode==='showing')updateNativePipCaptions();});
@@ -5699,12 +5722,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     if(event.detail>=2){cancelVideoSingleClick();return;}
     cancelVideoSingleClick();
-    if(!el.stage.classList.contains('has-video') && !state.theaterMode){
-      playPauseFromStage();return; // Keep the empty-stage file picker immediate.
-    }
-    // On mobile, tapping the loaded picture reveals controls only by default.
-    // The empty picker above and explicit transport buttons are unchanged.
+    // On mobile, tapping a non-pickable picture only reveals controls by default.
     if(isMobile&&!tapVideoPlayback.checked){revealControls();return;}
+    if(!el.stage.classList.contains('has-video') && !state.theaterMode){
+      playPauseFromStage();return;
+    }
     // Programmatic .click() and keyboard activation are single gestures.
     if(event.detail===0){playPauseFromStage();return;}
     videoSingleClickTimer=setTimeout(()=>{
@@ -6417,7 +6439,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261120-native-library-parity-v15"></script>
-<script src="./rapid-controls.js?v=20261120-native-library-parity-v15"></script>
+<script src="./rapid-controls.js?v=20261126-vpn-routes-v1"></script>
 <script src="./subtitle-compact.js?v=20261113-line-search-v1"></script>
 <script src="./seek-preview.js?v=20261118-full-duration-v1"></script>
 <script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>
