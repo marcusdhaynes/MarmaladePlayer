@@ -92,7 +92,8 @@
  reset.type='button';reset.className='sub-timing-action';reset.id='subTimingReset';
  reset.textContent='Reset';reset.title='Reset subtitle timing to 0.0s';
  reset.addEventListener('click',()=>{window.MarmaladeSubtitleTiming?.set?.(0);$('subtitleTiming').value='0.0';});
- timingRow.querySelector('.subtitle-timing-control').prepend(reset);
+ // Center the Reset button itself in the space between the label and timing controls.
+ timingRow.insertBefore(reset,timingRow.querySelector('.subtitle-timing-control'));
  const cueTitle=document.createElement('label');
  cueTitle.htmlFor='subTimingCueSearch';
  cueTitle.textContent='Line Alignment';
