@@ -377,3 +377,17 @@
  padding:0!important;margin:0!important;line-height:1!important;
 }
 #subtitlePanel #subCueExpand svg{display:block;width:14px;height:14px;flex:none;margin:0;pointer-events:none}
+
+/* Center the Reset button itself, not just its label, in the timing row. */
+#subtitlePanel .subtitle-timing-row{
+ grid-template-columns:max-content minmax(max-content,1fr) auto;
+ align-items:center;
+}
+#subtitlePanel .subtitle-timing-row>#subTimingReset{justify-self:center;align-self:center}
+#subtitlePanel .subtitle-timing-row>.subtitle-timing-control{justify-self:end}
+@media(max-width:330px){
+ #subtitlePanel .subtitle-timing-row{grid-template-columns:minmax(0,1fr) auto;gap:4px}
+ #subtitlePanel .subtitle-timing-row>.sub-timing-label{grid-column:1;grid-row:1}
+ #subtitlePanel .subtitle-timing-row>#subTimingReset{grid-column:2;grid-row:1;justify-self:center}
+ #subtitlePanel .subtitle-timing-row>.subtitle-timing-control{grid-column:1/-1;grid-row:2;justify-self:center}
+}
