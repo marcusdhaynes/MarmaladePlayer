@@ -561,7 +561,7 @@
     return (Number.isFinite(base)?base:0)-remoteCorrection;
   };
   window.MarmaladeSubtitleClock=(time)=>
-    Math.max(0,window.MarmaladeSubtitleClockBase(time)-Number(prefs.timing||0));
+    window.MarmaladeSubtitleClockBase(time)-Number(prefs.timing||0); // negative pre-roll must not display a cue at time zero
   applySubtitleStyle();
 })();
 
