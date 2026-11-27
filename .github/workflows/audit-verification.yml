@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   contracts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,7 +22,7 @@ jobs:
       - run: node --test tests/mkv-compatibility.test.cjs tests/mkv-playback-pipeline.test.cjs
       - run: node scripts/validate-mkv-decoder-assets.mjs
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
