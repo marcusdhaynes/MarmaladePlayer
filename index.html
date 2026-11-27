@@ -715,6 +715,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label><span>Night Mode <small>Compress loud passages for quieter listening. Personal audio only.</small></span><input type="checkbox" id="audioNightMode"></label>
             <label><span>Dialogue Enhancement <small>Improve speech clarity with personal frequency shaping.</small></span><select id="audioDialogue" aria-label="Dialogue Enhancement"><option value="off">Off</option><option value="mild">Mild</option><option value="strong">Strong</option></select></label>
             <label><span>Automatic Loudness Leveling <small>Gently balance quiet and loud audio. Personal output only.</small></span><input type="checkbox" id="audioNormalize"></label>
+            <label><span>Personal Audio Delay <small id="audioDelayStatus">Delay early sound; does not change room timing.</small></span><select id="audioDelay" aria-label="Personal Audio Delay"><option value="0">Off (0 ms)</option><option value="25">25 ms</option><option value="50">50 ms</option><option value="75">75 ms</option><option value="100">100 ms</option><option value="150">150 ms</option><option value="200">200 ms</option><option value="250">250 ms</option><option value="300">300 ms</option><option value="400">400 ms</option><option value="500">500 ms</option></select></label>
             <label><span>Preferred Audio Language <small>Applied to selectable local tracks.</small></span><select id="audioLanguage" aria-label="Preferred Audio Language"><option value="">Original / Default</option><option value="en">English</option><option value="ar">Arabic</option><option value="id">Indonesian</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="pt">Portuguese</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="hi">Hindi</option><option value="ru">Russian</option><option value="tr">Turkish</option></select></label>
             <label><span>Audio Track <small id="audioTrackStatus" role="status">Open a local movie.</small></span><select id="audioTrack" aria-label="Audio Track" disabled><option value="">Original / Default</option></select></label>
             <label><span>Audio Output <small id="audioOutputStatus" aria-live="polite">System Default</small></span><select id="audioOutput" aria-label="Audio Output Device"><option value="">System Default</option></select></label>
@@ -1105,7 +1106,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     });
   }
   reflectEq();
-  const personalProcessingEnabled=()=>audioProtection.checked||audioNightMode.checked||audioDialogue.value!=='off'||audioNormalize.checked||eqBands.some(Boolean);
+  const audioDelay=$('audioDelay');
+  const savedDelay=localPreference('personal-audio-delay','0');
+  if([...audioDelay.options].some(o=>o.value===savedDelay))audioDelay.value=savedDelay;
+  const personalProcessingEnabled=()=>Number(audioDelay.value)>0||audioProtection.checked||audioNightMode.checked||audioDialogue.value!=='off'||audioNormalize.checked||eqBands.some(Boolean);
   const personalAudioRoutes=new WeakMap();
   // Short-window RMS leveling, not integrated LUFS normalization. Limit
   // boosts, ignore near-silence, and reserve peak headroom.
@@ -1154,16 +1158,17 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     try{gain.disconnect(route.nodes[0]||ctx.destination);}catch{}
     for(const node of route.nodes)try{node.disconnect();}catch{}
   }
-  function routePersonalAudio(gain,ctx,source){
+  function routePersonalAudio(gain,ctx,source,force=false,delayMs=typeof audioDelay==='undefined'?0:Number(audioDelay.value)){
+    const delay=Number.isFinite(delayMs)?Math.max(0,Math.min(500,delayMs))/1000:0;
     if(!gain||!ctx)return;
     const mode=audioNightMode.checked?'night':audioProtection.checked?'peak':'off';
     const dialogue=['mild','strong'].includes(audioDialogue.value)?audioDialogue.value:'off';
     const normalize=audioNormalize.checked;
     const eq=eqBands.slice();
-    const signature=mode+'|'+dialogue+'|'+normalize+'|'+eq.join(',');
+    const signature=mode+'|'+dialogue+'|'+normalize+'|'+eq.join(',')+'|'+delay;
     const previous=personalAudioRoutes.get(gain);
     source=source||previous?.source;
-    if(previous?.signature===signature&&previous.source===source)return;
+    if(!force&&previous?.signature===signature&&previous.source===source)return;
     const nodes=[];let level=null,route=null;
     try{
       if(normalize&&source&&typeof ctx.createAnalyser==='function'){
@@ -1200,10 +1205,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         node.ratio.value=night?6:12;node.attack.value=night?.008:.003;
         node.release.value=night?.25:.16;
       }
+      if(delay>0){
+        const node=ctx.createDelay(.5);nodes.push(node);node.delayTime.value=delay;
+      }
       for(let i=0;i<nodes.length;i++)nodes[i].connect(nodes[i+1]||ctx.destination);
       detachPersonalAudio(gain,previous,ctx);
       gain.connect(nodes[0]||ctx.destination);
-      route={nodes,signature,ctx,source,level};
+      route={nodes,signature,ctx,source,level,delay};
       personalAudioRoutes.set(gain,route);
       if(level)startLeveling(route,gain);
     }catch(error){
@@ -1422,7 +1430,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // only started when somebody explicitly requests >540p or Original.
   const LEVELS = [
     { id: '144', height: 144, bitrate: 240000, fps: 24 },
-    { id: '240', height: 240, bitrate: 300000, fps: 24 },
+    { id: '240', height: 240, bitrate: 420000, fps: 24 },
     { id: '360', height: 360, bitrate: 520000, fps: 24 },
     { id: '480', height: 480, bitrate: 760000, fps: 24 },
     { id: '540', height: 540, bitrate: 1200000, fps: 24 },
@@ -5127,6 +5135,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Native mute is a hard safety gate even when Web Audio exists but is suspended.
     // Gain is applied to speakers only; it is never part of the outgoing P2P track.
     const hardMute = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;
+    // Discard buffered personal sound on mute rather than playing its tail.
+    if(hardMute&&!state.personalDelayMuted)flushPersonalDelay();
+    state.personalDelayMuted=hardMute;
     const isolatedHostAudio=state.role==='host'&&['file','native'].includes(state.source)&&state.audioDestination&&state.audioContext?.state==='running';
     media.muted = (!isolatedHostAudio&&hardMute) || (state.guestAudioFallback&&state.guestAudioContext?.state==='running') || (state.role==='guest'&&state.source==='remote'&&state.audioUnlockRequired);
     if(state.guestAudioGain && state.guestAudioContext){
@@ -6897,6 +6908,19 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       else if(state.source&&(state.volumePercent>100||state.audioContext))void ensureAudioPlayback().catch(()=>{});
     });
   }
+  function flushPersonalDelay(){
+    for(const gain of [state.speakerGain,state.guestAudioGain,hostMonitorAudioGain]){
+      if(!gain)continue;
+      const route=personalAudioRoutes.get(gain);
+      if(route?.delay&&route.ctx.state!=='closed')routePersonalAudio(gain,route.ctx,route.source,true);
+    }
+  }
+  for(const target of [media,hostMonitor])for(const event of ['seeking','pause','emptied','loadstart'])target?.addEventListener(event,flushPersonalDelay);
+  audioDelay.addEventListener('change',()=>{
+    rememberPreference('personal-audio-delay',audioDelay.value);
+    $('audioDelayStatus').textContent=Number(audioDelay.value)>0?'Personal output only · requires active Web Audio.':'Delay early sound; does not change room timing.';
+    refreshPersonalProcessing();
+  });
   function refreshPersonalProcessing(){
     routePersonalAudio(state.speakerGain,state.audioContext);
     routePersonalAudio(state.guestAudioGain,state.guestAudioContext);
@@ -7518,7 +7542,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261127-stable-timing-press-v4"></script>
-<script src="./settings-layout.js?v=20261127-audio-tracks-v1"></script>
+<script src="./settings-layout.js?v=20261127-audio-delay-v1"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261127-responsive-palettes-v2"></script>

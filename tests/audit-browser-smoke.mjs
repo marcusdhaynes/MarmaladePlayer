@@ -68,6 +68,12 @@ try{
   assert.equal(await page.locator('#settingsPageControls #audioEqPreset').inputValue(),'cinema');
   assert.equal(await page.locator('#settingsPageControls #audioOutput').inputValue(),'');
   assert.equal(await page.locator('#settingsPageControls #audioOutput').count(),1);
+  await page.evaluate(()=>{const d=document.querySelector('#audioDelay');d.value='150';d.dispatchEvent(new Event('change',{bubbles:true}));});
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:personal-audio-delay')),'150');
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.waitForFunction(()=>window.MarmaladeAddonBridge&&document.querySelector('#audioDelay').closest('.settings-row'));
+  assert.equal(await page.locator('#audioDelay').inputValue(),'150');
+  await page.evaluate(()=>{const d=document.querySelector('#audioDelay');d.value='0';d.dispatchEvent(new Event('change',{bubbles:true}));});
   // Simulate the optional AudioTrackList interface consistently on every
   // engine. This verifies application logic, not native decoder support.
   const audioTracks=await page.evaluate(async()=>{
@@ -154,11 +160,25 @@ try{
     const eqCenter=await measure('off',1000),eqRemote=await measure('off',120);
     eqBands[3]=0;
     const eqFlat=await measure('off',1000);
+    // Real impulse response: delay must affect only the routed speaker branch.
+    const ctx=new Offline(2,24000,48000),input=ctx.createBuffer(1,24000,48000);
+    input.getChannelData(0)[0]=.5;
+    const pulse=ctx.createBufferSource(),personal=ctx.createGain(),direct=ctx.createGain();
+    const merge=ctx.createChannelMerger(2);
+    pulse.buffer=input;pulse.connect(personal);pulse.connect(direct);
+    // Measure the delayed route separately from the independent direct source.
+    route(personal,ctx,undefined,false,100);
+    direct.connect(merge,0,1);merge.connect(ctx.destination);
+    pulse.start();const rendered=await ctx.startRendering();
+    const onset=channel=>rendered.getChannelData(channel).findIndex(v=>Math.abs(v)>.1);
+    const delayOnset=onset(0),directOnset=onset(1);
     const tone=amplitude=>Float32Array.from({length:4096},(_,i)=>amplitude*Math.sin(i*2*Math.PI/48));
-    return {off:offSpeech/offBass,mild:mildSpeech/mildBass,strong:strongSpeech/strongBass,speech:strongSpeech/offSpeech,
+    return {delayOnset,directOnset,off:offSpeech/offBass,mild:mildSpeech/mildBass,strong:strongSpeech/strongBass,speech:strongSpeech/offSpeech,
       equalizer:{center:eqCenter/eqFlat,remote:eqRemote/offBass,relative:eqCenter/eqRemote},
       leveling:{silence:levelingGain(tone(.0001)),quiet:levelingGain(tone(.02)),loud:levelingGain(tone(.8)),normal:levelingGain(tone(.1123)),invalid:levelingGain([NaN])}};
   },routeSource);
+  assert(Math.abs(response.delayOnset-4800)<=2,'100 ms personal audio delay measured in actual rendered samples '+JSON.stringify(response));
+  assert.equal(response.directOnset,0,'Independent direct audio remains undelayed');
   assert(response.off>.95&&response.off<1.05,'Off mode is transparent');
   assert(response.equalizer.center>.9&&response.equalizer.center<1.1,'Equalizer headroom compensates center gain');
   assert(response.equalizer.remote<.65&&response.equalizer.relative>1.6,'Real audio response emphasizes selected band');

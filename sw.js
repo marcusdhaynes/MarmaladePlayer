@@ -1,5 +1,5 @@
 /* Offline application shell only. Never cache media, credentials or peer data. */
-const CACHE = 'marmalade-shell-v79-audio-tracks';
+const CACHE = 'marmalade-shell-v80-audio-delay';
 const PREFIX = 'marmalade-shell-';
 const CORE = ['./','./index.html','./manifest.webmanifest','./favicon.svg','./favicon.ico','./favicon-32.png','./assets/marmalade-icon.webp','./assets/apple-touch-icon.png'];
 const scope = new URL(self.registration.scope);
