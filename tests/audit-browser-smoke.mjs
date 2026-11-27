@@ -36,10 +36,12 @@ try{
   assert.equal(await page.locator('#volumeSnap').isChecked(),false);
   assert.equal(await page.locator('#allowOriginalBuffer').isChecked(),false);
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary?.ready);
-  const backup={format:'marmaladeum-library-backup',version:1,libraries:[{id:'audit-catalog',name:'Audit Recovery',kind:'movie',folders:[{id:'audit-folder',name:'Films'}],items:[{folderId:'audit-folder',path:'Example.mp4',title:'Example',size:12345,favorite:true,watched:true,collections:['Test']}]}]};
+  const backup={format:'marmaladeum-library-backup',version:1,libraries:[{id:'audit-catalog',name:'Audit Recovery',kind:'mixed',hiddenIds:['audit-folder|Hidden.mp4'],folders:[{id:'audit-folder',name:'Films'}],items:[{folderId:'audit-folder',path:'Example.mp4',title:'Example',size:12345,favorite:true,watched:true,collections:['Test']}]}]};
   const file={name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))};
   await page.locator('#mlCatalogBackupInput').setInputFiles(file);
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.id==='audit-catalog'&&l.count===1));
+  const persistedBackup=await page.evaluate(async()=>{const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('marmalade:local-library:v1');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});try{return await new Promise((resolve,reject)=>{const r=db.transaction('libraries','readonly').objectStore('libraries').get('audit-catalog');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}finally{db.close();}});
+  assert.equal(persistedBackup.kind,'mixed');assert.deepEqual(persistedBackup.hiddenIds,['audit-folder|Hidden.mp4']);assert.equal(persistedBackup.items[0].favorite,true);
   await page.locator('#mlCatalogBackupInput').setInputFiles(file);
   await page.waitForFunction(()=>document.querySelector('#mlStatus').textContent.includes('No new libraries'));
   assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().filter(l=>l.id==='audit-catalog').length),1);
