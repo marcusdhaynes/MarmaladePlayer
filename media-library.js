@@ -1463,8 +1463,8 @@
           collections:names(item.collections),playlists:names(item.playlists),
           metadataSource:string(item.metadataSource,120),customized:item.customized===true,analyzedAt:number(item.analyzedAt)};
       });
-      return {id:lib.id,name:string(lib.name,100)||'Recovered Library',kind:lib.kind==='tv'?'tv':'movie',
-        folders,items,hiddenIds:Array.isArray(lib.hiddenIds)?[...new Set(lib.hiddenIds.filter(x=>itemIds.has(x)))]:[],createdAt:number(lib.createdAt),lastScan:number(lib.lastScan)};
+      return {id:lib.id,name:string(lib.name,100)||'Recovered Library',kind:['movie','tv','mixed'].includes(lib.kind)?lib.kind:'movie',
+        folders,items,hiddenIds:Array.isArray(lib.hiddenIds)?[...new Set(lib.hiddenIds.filter(x=>typeof x==='string'&&folderIds.has(x.split('|')[0])&&relative(x.slice(x.indexOf('|')+1))))]:[],createdAt:number(lib.createdAt),lastScan:number(lib.lastScan)};
     });
   }
   function downloadLibraryBackup(){
@@ -1482,7 +1482,7 @@
       const records=validatePortableCatalog(JSON.parse(await file.text()));
       if(!state.ready||state.scanning)throw Error('Wait for the current library scan to finish');
       if(!state.db)throw Error('Persistent library storage is unavailable on this device');
-      const result=await restoreSiteCatalog(records);
+      const result=await restoreSiteCatalog(records,{durable:true});
       notify(result.restored?result.items+' titles restored. Reconnect folders to play them. Existing libraries were kept.':'No new libraries to restore; existing libraries were kept.');
     }catch(e){notify('Backup not imported: '+(e.message||'Invalid backup'));}
   }
@@ -2587,8 +2587,8 @@
     const libraries=Array.isArray(catalog)?catalog:(catalog?.libraries||[]);
     return importAddonCatalog(libraries);
   }
-  async function restoreSiteCatalog(libraries){
-    let restored=0,items=0;
+  async function restoreSiteCatalog(libraries,{durable=false}={}){
+    let restored=0,items=0;const staged=[];
     for(const backup of (Array.isArray(libraries)?libraries:[])){
       if(!backup?.id||/^(addon:|extlib:)/.test(backup.id)||
          !Array.isArray(backup.items))continue;
@@ -2603,9 +2603,19 @@
         kind:backup.kind||'movie',folders,items:entries,
         hiddenIds:backup.hiddenIds||[],createdAt:backup.createdAt||now(),
         lastScan:backup.lastScan||0};
-      state.libraries.push(record);
-      await persist(record);
+      if(durable)staged.push(record);
+      else{state.libraries.push(record);await persist(record);}
       restored++;items+=entries.length;
+    }
+    if(durable&&staged.length){
+      // A portable restore must commit all new records before showing success.
+      await new Promise((resolve,reject)=>{
+        const tx=state.db.transaction('libraries','readwrite');
+        tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('Catalog restore failed'));
+        tx.onabort=()=>reject(tx.error||Error('Catalog restore aborted'));
+        const store=tx.objectStore('libraries');for(const record of staged)store.add(record);
+      });
+      state.libraries.push(...staged);
     }
     if(restored)render();
     return {restored,items};
