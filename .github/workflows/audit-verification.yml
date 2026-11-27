@@ -2,6 +2,8 @@ name: Marmaladeum audit verification
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,6 +23,8 @@ jobs:
       - run: node scripts/install-mkv-decoder.mjs
       - run: node --test tests/mkv-compatibility.test.cjs tests/mkv-playback-pipeline.test.cjs
       - run: node scripts/validate-mkv-decoder-assets.mjs
+      - run: node desktop/scripts/prepare-web.mjs && node mobile/scripts/prepare-web.mjs
+      - run: node --test tests/native-package-assets.test.mjs
   browser:
     runs-on: ubuntu-24.04
     strategy:

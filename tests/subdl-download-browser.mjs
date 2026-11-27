@@ -93,8 +93,8 @@ try{
    el.value='2.3';el.dispatchEvent(new Event('change',{bubbles:true}));
  });
  assert.equal(await page.evaluate(()=>window.MarmaladeSubtitleTiming.get()),2.3);
- const timing=await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade:subtitle-offsets:v2')));
- assert.ok(Object.values(timing).some(entry=>entry.seconds===2.3));
+ const timing=await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade:subtitle-offsets:v3')));
+ assert.ok(timing&&Object.values(timing).some(entry=>entry.seconds===2.3),'V3 timing must persist the positive delay');
  // Local MicroDVD .sub must also load, with clean text and correct FPS.
  await page.locator('#subtitleFile').setInputFiles({
    name:'Example.sub',mimeType:'text/plain',

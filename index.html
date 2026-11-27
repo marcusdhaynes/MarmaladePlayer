@@ -5501,6 +5501,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     el.subtitleBtn.setAttribute('aria-expanded', 'false');
     panel.hidden=!open;button.setAttribute('aria-expanded',String(open));
     if(open && panel===el.settingsPanel) placeSettingsPalette();
+    // Docked windows are part of the document. Reveal their heading when
+    // a short viewport places the entire panel below the fold, but do not
+    // move the video when the window is already accessible.
+    if(open)requestAnimationFrame(()=>{
+      if(panel.hidden||!panel.classList.contains('player-docked'))return;
+      const heading=panel.querySelector('.popover-heading')||panel;
+      const bounds=heading.getBoundingClientRect();
+      if(bounds.top>=innerHeight||bounds.bottom<=0)heading.scrollIntoView({block:'nearest',inline:'nearest'});
+    });
     revealControls();
   }
   el.settingsBtn.addEventListener('click',()=>togglePopover(el.settingsPanel,el.settingsBtn));

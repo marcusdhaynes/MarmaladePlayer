@@ -38,9 +38,10 @@ try{
     document.getElementById('hostTab').click();
     localStorage.removeItem('marmalade:last-joined-room-code');
   });
-  // Role-specific header action and the supplied 3-node share icon.
+  // Role-specific header action and the supplied paper-plane share artwork.
   assert.equal(await page.locator('#localCopyButton').isVisible(),false);
-  assert.equal(await page.locator('#copyLink svg circle').count(),3);
+  assert.equal(await page.locator('#copyLink svg path[fill-rule="evenodd"]').count(),1);
+  assert.equal(await page.locator('#copyLink').getAttribute('aria-label'),'Share Room');
   await page.evaluate(()=>document.getElementById('joinTab').click());
   assert.equal(await page.locator('#localCopyButton').isVisible(),true,
     'Guest sees local file selector');
@@ -194,7 +195,9 @@ try{
   assert.equal(await page.locator('#settingsPanel').isVisible(),true);
   await page.screenshot({path:resolve(pictures,'party-'+size.width+'x'+size.height+'.png'),animations:'disabled'});
   await page.mouse.click(4,4);
-  assert.equal(await page.locator('#settingsPanel').isVisible(),false,'Outside pointer immediately closes settings');
+  const settingsDocked=await page.locator('#settingsPanel').evaluate(el=>el.classList.contains('player-docked'));
+  assert.equal(await page.locator('#settingsPanel').isVisible(),settingsDocked,'Docked settings remain open; floating settings dismiss on outside pointer');
+  if(settingsDocked)await page.locator('#closeSettingsPanel').click();
   await page.evaluate(()=>document.getElementById('subtitlesBtn').click());
   assert.equal(await page.locator('#subtitlePanel').isVisible(),true);
   assert.equal(await page.locator('.sub-tabs [role=tab]').count(),3);
@@ -213,7 +216,9 @@ try{
     window.MarmaladeSubtitleCompact.select('find');
   });
   await page.mouse.click(4,4);
-  assert.equal(await page.locator('#subtitlePanel').isVisible(),false,'Outside pointer closes subtitles');
+  const subtitlesDocked=await page.locator('#subtitlePanel').evaluate(el=>el.classList.contains('player-docked'));
+  assert.equal(await page.locator('#subtitlePanel').isVisible(),subtitlesDocked,'Docked subtitles remain open; floating subtitles dismiss on outside pointer');
+  if(subtitlesDocked)await page.locator('#closeSubtitlePanel').click();
 
   // Five timing checks: real local host, local guest, buffered guest, remote
   // guest display correction and explicit offset plus paused seek.
@@ -248,7 +253,7 @@ try{
     state.role='host';state.source='file';
     const field=document.getElementById('subtitleTiming');
     field.value='0.5';field.dispatchEvent(new Event('change',{bubbles:true}));
-    local=9.75;media.dispatchEvent(new Event('seeked'));
+    local=10.75;media.dispatchEvent(new Event('seeked'));
     scenarios.push(['saved offset after seek',refresh()]);
     field.value='0.0';field.dispatchEvent(new Event('change',{bubbles:true}));
     state.subtitles=[];state.subtitlesEnabled=false;

@@ -59,12 +59,23 @@ try{
       return {panel:{top:r.top,left:r.left,right:r.right,bottom:r.bottom,width:r.width,height:r.height},
         viewport:{width:innerWidth,height:innerHeight},visible:vis.map(el=>el.dataset.settingsPage),
         positions,scrollHeight:p.scrollHeight,clientHeight:p.clientHeight,
-        background:getComputedStyle(p).backgroundImage,tabCount:p.querySelectorAll('[role=tab]').length};
+        background:getComputedStyle(p).backgroundImage,tabCount:p.querySelectorAll('[role=tab]').length,docked:p.classList.contains('player-docked'),dockWidth:p.parentElement.clientWidth};
     });
     const {panel,viewport:vp,positions}=boxes;
-    assert(panel.left>=-1&&panel.top>=-1&&panel.right<=vp.width+1&&panel.bottom<=vp.height+1,
-      'Settings palette must stay on-screen: '+JSON.stringify({which,vp,panel}));
-    assert(panel.width<=350&&panel.width>=280,'Compact panel width '+JSON.stringify(panel));
+    assert(panel.left>=-1&&panel.right<=vp.width+1,'Settings must not be horizontally clipped');
+    if(boxes.docked){
+      assert(Math.abs(panel.width-boxes.dockWidth)<=2,'Docked settings fill the player column');
+      // In normal viewing mode the panel is intentionally below the video.
+      // Verify the bottommost content is actually reachable, not cropped.
+      const footer=page.locator('#settingsPanel .settings-footer');
+      await footer.scrollIntoViewIfNeeded();
+      const end=await footer.boundingBox();
+      assert(end&&end.y>=-1&&end.y+end.height<=vp.height+1,'Docked settings footer is reachable');
+      await page.locator('#settingsPanel .settings-heading').scrollIntoViewIfNeeded();
+    }else{
+      assert(panel.top>=-1&&panel.bottom<=vp.height+1,'Floating settings remain inside viewport');
+      assert(panel.width<=350&&panel.width>=280,'Compact floating palette width');
+    }
     assert.deepEqual(boxes.visible,[which]);
     assert.equal(boxes.tabCount,3);
     assert(boxes.background.includes('linear-gradient'),'Dark Marmalade glass gradient retained');
