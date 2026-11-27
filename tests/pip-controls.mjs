@@ -26,9 +26,10 @@ const browser=await chromium.launch({headless:true,
 try{
   const page=await browser.newPage({viewport:{width:900,height:680}});
   await page.addInitScript(()=>{
-    // The live app now uses native system Picture-in-Picture, NOT a second
-    // Document PiP browser window. Shim the OS PiP window only so the
-    // browser-independent video compositor and transport can be tested in CI.
+    // Explicitly test the video-only desktop fallback when Document PiP
+    // is unavailable. Only the OS window API is shimmed; frames and
+    // compositing are produced by the real video pipeline.
+    Object.defineProperty(window,'documentPictureInPicture',{configurable:true,writable:true,value:undefined});
     let nativePip=null;
     window.__nativePipRequests=0;
     window.__pipSubtitlePaints=0;
@@ -130,6 +131,36 @@ try{
   assert.equal(await page.evaluate(()=>
     window.MarmaladeAdaptiveBrightness.isExternalPlayback()),false,
     'Returning from PiP must restore the original brightness state');
+  // Exercise the preferred interactive external-window route separately.
+  // A same-origin test popup stands in for the browser's Document PiP window.
+  await page.evaluate(()=>{
+    window.__documentPipRequests=0;
+    window.documentPictureInPicture={
+      window:null,
+      async requestWindow(){
+        window.__documentPipRequests++;
+        const pop=window.open('about:blank','marmalade-pip-test','width=420,height=280');
+        if(!pop)throw Error('Could not open test PiP window');
+        this.window=pop;return pop;
+      }
+    };
+  });
+  await page.locator('#popoutBtn').click();
+  await page.waitForFunction(()=>{
+    const {el,media}=window.MarmaladeAddonBridge;
+    return el.stage.ownerDocument!==document&&el.stage.ownerDocument.getElementById('player')===media;
+  },null,{timeout:10000});
+  const interactive=await page.evaluate(()=>{
+    const {el,media}=window.MarmaladeAddonBridge;
+    return {requests:window.__documentPipRequests,playingSurface:el.stage.contains(media),
+      controls:el.stage.ownerDocument.getElementById('theaterControls')===el.controls||!!el.stage.ownerDocument.getElementById('theaterControls'),
+      standalone:window.MarmaladeStandalonePiP.isActive()};
+  });
+  assert.deepEqual(interactive,{requests:1,playingSurface:true,controls:true,standalone:false});
+  await page.evaluate(()=>window.MarmaladeAddonBridge.el.popoutBtn.click());
+  await page.waitForFunction(()=>window.MarmaladeAddonBridge.el.stage.ownerDocument===document,null,{timeout:10000});
+  assert.equal(await page.evaluate(()=>window.MarmaladeAdaptiveBrightness.isExternalPlayback()),false);
+  console.log('PASS preferred interactive external window preserves original player and restores it');
   // Android floats the same WebView rather than creating a document popup.
   await page.evaluate(()=>window.dispatchEvent(
     new CustomEvent('marmalade:native-floating',{detail:{active:true}})));

@@ -5978,6 +5978,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         restoreDocumentPip();
       }
     }
+    // Desktop browsers without Document PiP can still expose a native
+    // video-only window with composited captions and brightness. On mobile
+    // avoid the additional compositor and use the original decoded surface.
+    if(!isMobile&&window.MarmaladeStandalonePiP?.enter){
+      try{if(await window.MarmaladeStandalonePiP.enter())return;}
+      catch(error){console.debug('Standalone system PiP unavailable',error);}
+    }
     // On mobile use the actual decoded video, not a JS-composited canvas.
     // Native captions are supplied via a text track when the browser renders it.
     if(document.pictureInPictureEnabled&&media.requestPictureInPicture){
