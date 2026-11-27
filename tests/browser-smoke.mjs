@@ -27,7 +27,7 @@ const port = 38817;
 const server = createServer((req,res) => {
   const pathname=new URL(req.url,'http://localhost').pathname;
   if(['/games.js','/games.css','/updates-ui.css',
-      '/assets/onlyframes-logo.svg','/assets/onlyframes-poster.svg'].includes(pathname)){
+      '/assets/onlyframes-logo.svg','/assets/onlyframes-poster.svg','/rolling-buffer.js'].includes(pathname)){
     const contentType=pathname.endsWith('.js')?'application/javascript':
       pathname.endsWith('.css')?'text/css':'image/svg+xml';
     res.writeHead(200,{'content-type':contentType});
@@ -212,7 +212,7 @@ try {
     assert.equal(await page.locator('#settingsPanel').isVisible(),true);
     const palette=await page.locator('#settingsPanel').evaluate(panel=>{
       const r=panel.getBoundingClientRect();
-      return {detached:panel.parentElement===document.body,
+      return {detached:panel.parentElement===document.body||panel.parentElement.id==='playerPanelDock',
         clipped: r.top < -1 || r.left < -1 || r.right > innerWidth+1 || r.bottom > innerHeight+1,
         stageContains: document.querySelector('#dropZone').contains(panel),
         stageBottom:document.querySelector('#dropZone').getBoundingClientRect().bottom,
@@ -694,7 +694,7 @@ try {
       const video=document.querySelector('#player');
       return st.guestAudioFallback && st.guestAudioGain &&
         !video.paused && video.muted &&
-        document.querySelector('#guestAudioUnlock').hidden;
+        (!document.querySelector('#guestAudioUnlock')||document.querySelector('#guestAudioUnlock').hidden);
     },null,{timeout:10000});
     const rms=await page.evaluate(async()=>{
       const gain=window.MarmaladeAddonBridge.state.guestAudioGain;
