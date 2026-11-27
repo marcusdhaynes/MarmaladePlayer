@@ -1080,11 +1080,11 @@ body>.games-dialog::backdrop{
     .games-panel .games-control-spacer{display:none!important}
     .games-panel .games-split-pill{
       grid-area:nav;
-      --game-nav-width: min(110px,100%);
+      --game-nav-width: min(108px,100%);
       justify-self:center;
       max-width:100%!important;
       min-width:0!important;
-      width:min(110px,100%)!important;
+      width:min(108px,100%)!important;
       flex:none!important;
     }
     .games-panel .games-split-pill .games-nav-orb{
