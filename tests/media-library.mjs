@@ -200,12 +200,10 @@ try{
   await page.locator('#mlContextMenu').getByText('Edit Details').waitFor({state:'visible'});
   await page.locator('#mlContextMenu').getByText('Mark as Watched').waitFor({state:'visible'});
   // Uploading a poster must use the user's own image, not fetch a metadata API.
+  const posterChooserPromise=page.waitForEvent('filechooser');
   await page.locator('#mlContextMenu').getByText('Edit Poster').click();
-  // Exercise the actual image input/change handler. Some headless WebView/CI
-  // environments suppress native OS picker events for programmatic .click().
-  const posterInput=page.locator('input[type="file"][aria-label="Choose Poster Image"]');
-  await posterInput.waitFor({state:'attached',timeout:5000});
-  await posterInput.setInputFiles({name:'cover.png',mimeType:'image/png',
+  const posterChooser=await posterChooserPromise;
+  await posterChooser.setFiles({name:'cover.png',mimeType:'image/png',
     buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAwAAAASCAIAAADgy6hbAAAAGUlEQVR4nGNcEDCNgRBgIqhiVNGoIiorAgAlRAGq0hp+tgAAAABJRU5ErkJggg==','base64')});
   await page.waitForFunction(()=>Boolean(document.querySelector('#mlCards .ml-card img.ml-art-poster')));
   assert((await arrival().locator('img.ml-art-poster').getAttribute('src')).startsWith('data:image/'),
