@@ -664,7 +664,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <div class="theater-title"><button type="button" id="mediaInfoToggle" class="theater-title-info" title="Movie &amp; Series Information" aria-label="Movie &amp; Series Information" aria-expanded="false" aria-controls="mediaInfoPanel"><strong id="fileName">Nothing Selected</strong></button><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 Watching</span></span></div>
             <div class="theater-seek" id="seekArea">
               <button type="button" class="timecode timestamp-toggle" id="timestampToggle" title="Go to Timestamp" aria-label="Go to Timestamp" aria-expanded="false" aria-controls="timestampEditor" disabled><span id="currentTime">00:00</span></button>
-              <div class="seek-stack"><div id="bufferedFill" class="buffered-fill" aria-hidden="true"></div><div id="timelineBookmarkMarkers" aria-hidden="true"></div><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled></div>
+              <div class="seek-stack"><div id="bufferedFill" class="buffered-fill" aria-hidden="true"></div><div id="timelineBookmarkMarkers" aria-hidden="true"></div><div id="timelineChapterMarkers" aria-hidden="true"></div><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled></div>
               <span class="timecode" id="duration">00:00</span>
               <form id="timestampEditor" class="timestamp-editor" aria-label="Go to Timestamp" hidden novalidate><label for="timestampInput">Go to Timestamp</label><div class="timestamp-entry"><input id="timestampInput" type="text" inputmode="decimal" maxlength="16" autocomplete="off" spellcheck="false" placeholder="HH:MM:SS.sss" aria-describedby="timestampError"><button type="submit" id="timestampGo">Go</button><button type="button" id="timestampCancel" aria-label="Cancel timestamp entry">×</button></div><small id="timestampError" role="status">HH:MM:SS or seconds · optional milliseconds</small></form>
             </div>
@@ -705,6 +705,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
              <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Background Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
             <label for="windowTheme">Window Theme <select id="windowTheme" aria-label="Window Theme"><option value="classic">Classic</option><option value="glass">Glass</option></select></label>
+            <details id="timelineChapters" class="settings-advanced timeline-chapters"><summary>Chapters</summary><div class="bookmark-editor"><p id="chapterStatus" role="status">Open a video with chapter metadata.</p><div class="chapter-actions"><button type="button" id="chapterPrevious" disabled>Previous</button><button type="button" id="chapterNext" disabled>Next</button><button type="button" id="chapterImport" disabled>Import VTT</button><button type="button" id="chapterClear" disabled>Clear Import</button></div><input id="chapterFile" type="file" accept=".vtt,text/vtt" hidden><div id="chapterList"></div></div></details>
             <details id="timelineBookmarks" class="settings-advanced timeline-bookmarks"><summary>Timeline Bookmarks</summary><div class="bookmark-editor"><p id="bookmarkStatus" role="status">Open a local video to save bookmarks.</p><div class="bookmark-add"><input id="bookmarkName" type="text" maxlength="80" placeholder="Bookmark Name (Optional)" aria-label="Bookmark name"><button type="button" id="bookmarkAdd" disabled>Add Current Time</button></div><div id="bookmarkList"></div></div></details>
             <label>Skip Interval <select id="skipInterval" aria-label="Seconds to rewind or fast forward"><option value="5">5 Seconds</option><option value="10" selected>10 Seconds</option><option value="15">15 Seconds</option><option value="20">20 Seconds</option><option value="30">30 Seconds</option><option value="60">60 Seconds</option></select></label>
             <label id="tapVideoPlaybackRow"><input type="checkbox" id="tapVideoPlayback"> Tap Video To Play / Pause</label>
@@ -1646,6 +1647,97 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         marker.style.left=(100*entry.time/duration)+'%';markers.append(marker);}
     }
   }
+  // Chapter sources are read-only browser chapter tracks or an explicitly
+  // selected local WebVTT chapter file. Never infer chapters from subtitles.
+  let importedChapters=[],chapterSignature='',chapterImportSequence=0;
+  let chapterIdentity=null,chapterRows=[],chapterActive=-1;
+  const chapterTracks=new WeakSet();
+  function chapterSource(){
+    if(state.role!=='host'||state.gameFrameMode||!state.fileReady||!['file','native','hosted'].includes(state.source))return null;
+    return state.source==='file'?state.file:state.source==='native'?state.nativeStreamUrl:state.hostedUrl;
+  }
+  function cleanChapters(entries,duration){
+    const seen=new Set();
+    return entries.filter(c=>Number.isFinite(c.start)&&c.start>=0&&c.start<duration&&
+      Number.isFinite(c.end)&&c.end>c.start).sort((a,b)=>a.start-b.start)
+      .filter(c=>!seen.has(c.start)&&seen.add(c.start)).slice(0,1000)
+      .map((c,i)=>({start:c.start,end:Math.min(c.end,duration),name:String(c.name||'Chapter '+(i+1)).trim().slice(0,120)||'Chapter '+(i+1)}));
+  }
+  function parseChapterVtt(text){
+    const source=String(text).replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
+    if(!/^WEBVTT(?:[ \t].*)?(?:\n|$)/.test(source))throw Error('Select a valid WebVTT chapter file.');
+    const rows=[];
+    for(const block of source.split(/\n[ \t]*\n/).slice(1)){
+      const lines=block.trim().split('\n');
+      if(!lines.length||/^(NOTE(?:\s|$)|STYLE$|REGION$)/.test(lines[0]))continue;
+      const index=lines.findIndex(line=>line.includes('-->'));
+      if(index<0||index>1)continue;
+      const match=/^\s*((?:\d{2,}:)?\d{2}:\d{2}\.\d{3})\s+-->\s+((?:\d{2,}:)?\d{2}:\d{2}\.\d{3})(?:\s+.*)?$/.exec(lines[index]);
+      if(!match)throw Error('Invalid chapter timestamp.');
+      const start=parseTimestamp(match[1]),end=parseTimestamp(match[2]);
+      if(start===null||end===null||end<=start)throw Error('Invalid chapter range.');
+      // Chapter labels are always inserted as text, never interpreted as HTML.
+      rows.push({start,end,name:lines.slice(index+1).join(' ').trim()});
+      if(rows.length>1000)throw Error('A chapter file may contain at most 1,000 chapters.');
+    }
+    if(!rows.length)throw Error('No valid chapter cues found.');
+    return rows;
+  }
+  function browserChapters(){
+    const rows=[];
+    for(const track of Array.from(media.textTracks||[])){
+      if(track.kind!=='chapters')continue;
+      if(track.mode==='disabled')track.mode='hidden';
+      if(!chapterTracks.has(track)){
+        chapterTracks.add(track);
+        track.addEventListener?.('cuechange',()=>renderChapters());
+      }
+      for(const cue of Array.from(track.cues||[]).slice(0,1000)){
+        rows.push({start:cue.startTime,end:cue.endTime,name:cue.text||cue.id});
+        if(rows.length>=1000)return rows;
+      }
+    }
+    return rows;
+  }
+  function renderChapters(){
+    const identity=chapterSource();
+    if(identity!==chapterIdentity){chapterIdentity=identity;importedChapters=[];chapterImportSequence++;chapterSignature='';}
+    const duration=identity?stableMovieDuration():0;
+    const ready=!!identity&&Number.isFinite(duration)&&duration>0;
+    const panel=$('chapterList'),markers=$('timelineChapterMarkers');
+    if(!panel||!markers)return;
+    const chapters=ready?cleanChapters(importedChapters.length?importedChapters:browserChapters(),duration):[];
+    const signature=JSON.stringify([ready?duration:0,!!importedChapters.length,chapters]);
+    if(signature!==chapterSignature){
+      chapterSignature=signature;chapterRows=chapters;chapterActive=-1;
+      panel.replaceChildren();markers.replaceChildren();
+      $('chapterImport').disabled=!ready;$('chapterClear').disabled=!importedChapters.length;
+      $('chapterStatus').textContent=ready?(chapters.length?chapters.length+' chapters · '+(importedChapters.length?'Imported WebVTT':'Media Chapter Track'):'No chapter metadata exposed. Import a WebVTT chapter file.'):'Open a seekable host video.';
+      chapters.forEach((chapter,i)=>{
+        const button=document.createElement('button');button.type='button';button.className='chapter-jump';
+        button.textContent=bookmarkTime(chapter.start)+' · '+chapter.name;button.title=chapter.name;
+        button.addEventListener('click',()=>{if(chapterSource()===identity){previousSeek={at:0,time:-1};commitSeek(chapter.start);}});
+        panel.append(button);
+        const marker=document.createElement('span');marker.className='timeline-chapter-marker';marker.style.left=100*chapter.start/duration+'%';markers.append(marker);
+      });
+    }
+    const current=media.currentTime;
+    let active=-1;
+    for(let i=0;i<chapterRows.length;i++){if(chapterRows[i].start<=current+.02)active=i;else break;}
+    if(active!==chapterActive){
+      if(chapterActive>=0)panel.children[chapterActive]?.removeAttribute('aria-current');
+      chapterActive=active;
+      if(active>=0)panel.children[active]?.setAttribute('aria-current','true');
+    }
+    $('chapterPrevious').disabled=!ready||!chapterRows.length||current<=chapterRows[0].start+.02;
+    $('chapterNext').disabled=!ready||active>=chapterRows.length-1||!chapterRows.length;
+  }
+  function clearChapterSource(){
+    chapterImportSequence++;importedChapters=[];chapterIdentity=null;chapterSignature='';
+    chapterRows=[];chapterActive=-1;
+    $('chapterList').replaceChildren();$('timelineChapterMarkers').replaceChildren();
+    for(const id of ['chapterPrevious','chapterNext','chapterImport','chapterClear'])$(id).disabled=true;
+  }
   function progressKeys(){
     if(state.role==='host'&&state.source==='native'&&state.nativeMediaKey)
       return ['library:'+state.nativeMediaKey];
@@ -2058,6 +2150,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     updateStatusDisplay();
     updateBufferDisplay();
     renderBookmarks();
+    renderChapters();
   }
 
   function updateStatusDisplay() {
@@ -3238,6 +3331,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // just unlocked by the visitor typing/pasting their room code.
     stopGuestAudioRelay(!preserveGuestAudio);
     closeTimestampEditor(false);
+    clearChapterSource();
     window.dispatchEvent(new Event('marmalade:media-cleared'));
     stopBroadcast();
     media.pause();
@@ -6683,6 +6777,32 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   document.addEventListener('pointerdown',event=>{
     if(!$('timestampEditor').hidden&&!event.target.closest?.('#timestampEditor,#timestampToggle'))closeTimestampEditor(false);
   },{capture:true});
+  $('chapterImport').addEventListener('click',()=>{if(chapterSource())$('chapterFile').click();});
+  $('chapterFile').addEventListener('change',async()=>{
+    const input=$('chapterFile'),file=input.files?.[0],identity=chapterSource(),sequence=++chapterImportSequence;input.value='';
+    if(!file||!identity)return;
+    try{
+      if(file.size>1024*1024)throw Error('Chapter files must be under 1 MB.');
+      const parsed=parseChapterVtt(await file.text());
+      if(sequence!==chapterImportSequence||identity!==chapterSource())return;
+      if(!cleanChapters(parsed,stableMovieDuration()).length)throw Error('No chapters within this movie duration.');
+      importedChapters=parsed;chapterSignature='';renderChapters();
+    }catch(error){if(sequence===chapterImportSequence)$('chapterStatus').textContent=String(error.message||error);}
+  });
+  $('chapterClear').addEventListener('click',()=>{chapterImportSequence++;importedChapters=[];chapterSignature='';renderChapters();});
+  $('chapterPrevious').addEventListener('click',()=>{
+    if(!chapterSource()||!chapterRows.length)return;
+    const current=media.currentTime,active=chapterActive;
+    const target=active<0?0:current-chapterRows[active].start>3?active:Math.max(0,active-1);
+    previousSeek={at:0,time:-1};commitSeek(chapterRows[target].start);
+  });
+  $('chapterNext').addEventListener('click',()=>{
+    if(!chapterSource()||chapterActive+1>=chapterRows.length)return;
+    previousSeek={at:0,time:-1};commitSeek(chapterRows[chapterActive+1].start);
+  });
+  $('timelineChapters').addEventListener('toggle',renderChapters);
+  media.textTracks?.addEventListener?.('addtrack',renderChapters);
+  media.textTracks?.addEventListener?.('removetrack',renderChapters);
   $('bookmarkAdd').addEventListener('click',()=>{
     const key=bookmarkIdentity(),duration=stableMovieDuration(),time=media.currentTime;
     if(!key||!Number.isFinite(time)||!Number.isFinite(duration)||time<0||time>duration)return;

@@ -35,7 +35,6 @@ try{
  await page.locator('#fileInput').setInputFiles({name:'Scene.2026.webm',mimeType:'video/webm',buffer:readFileSync(fixture)});
  await page.waitForFunction(()=>document.querySelector('#player').duration>7.5&&!document.querySelector('#seek').disabled,null,{timeout:12000});
  await page.evaluate(()=>document.querySelector('#dropZone').classList.add('controls-visible'));
- const seek=await page.locator('#seek').boundingBox();
  const before=await page.locator('#player').evaluate(e=>({paused:e.paused,t:e.currentTime}));
  // A new local hover must schedule its decoder work without the former
  // 100ms timer, and repeated nearby frames should reuse a bounded cache.
@@ -64,13 +63,18 @@ try{
  assert(Math.abs(broadcast.timeAfter-broadcast.timeBefore)<.1,'Broadcast preserves time');
 
  async function sample(frac){
-  await page.mouse.move(seek.x+seek.width*frac,seek.y+seek.height/2);
+  await page.evaluate(()=>document.querySelector('#dropZone').classList.add('controls-visible'));
+  const seek=page.locator('#seek');await seek.scrollIntoViewIfNeeded();
+  const rect=await seek.boundingBox();assert(rect&&rect.width>0,'Current scrubber bounds');
+  await seek.hover({position:{x:Math.floor(rect.width*frac),y:Math.floor(rect.height/2)}});
+  try {
   await page.waitForFunction(frac=>{
    const c=document.querySelector('#seekPreviewCanvas');
    if(!c||c.hidden)return false;
    const p=c.getContext('2d').getImageData(96,54,1,1).data;
    return frac<.5?p[0]>95&&p[2]<85:p[2]>95&&p[0]<85;
   },frac,{timeout:9000});
+  }catch(error){console.log('Thumbnail diagnostics',await page.evaluate(()=>({seek:document.querySelector('#seek').getBoundingClientRect().toJSON(),preview:document.querySelector('#seekPreview').dataset.time,status:document.querySelector('#seekPreviewStatus').textContent,hidden:document.querySelector('#seekPreview').hidden})));throw error;}
   return await page.locator('#seekPreviewCanvas').evaluate(c=>{
    const p=c.getContext('2d').getImageData(96,54,1,1).data;return [p[0],p[1],p[2]];
   });
@@ -128,6 +132,25 @@ try{
  await page.locator('#timestampGo').click();
  await page.waitForFunction(()=>Math.abs(document.querySelector('#player').currentTime-5.25)<.025&&!document.querySelector('#player').seeking);
  console.log('PASS precise timestamp entry, invalid range rejection, cancel and paused state');
+ // Import real chapter metadata and verify accurate paused navigation.
+ const chapterVtt='WEBVTT\n\n00:00:00.000 --> 00:00:04.000\nRed Scene\n\n00:00:04.000 --> 00:00:08.000\nBlue Scene\n';
+ await page.locator('#chapterFile').setInputFiles({name:'chapters.vtt',mimeType:'text/vtt',buffer:Buffer.from(chapterVtt)});
+ await page.waitForFunction(()=>document.querySelectorAll('#chapterList .chapter-jump').length===2);
+ assert.equal(await page.locator('#timelineChapterMarkers .timeline-chapter-marker').count(),2);
+ await page.evaluate(()=>document.querySelector('#chapterList button').click());
+ await page.waitForFunction(()=>document.querySelector('#player').currentTime<.025&&!document.querySelector('#player').seeking);
+ await page.evaluate(()=>document.querySelector('#chapterNext').click());
+ await page.waitForFunction(()=>Math.abs(document.querySelector('#player').currentTime-4)<.025&&!document.querySelector('#player').seeking);
+ assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
+ assert.match(await page.locator('#chapterList [aria-current=true]').textContent(),/Blue Scene/);
+ await page.evaluate(()=>document.querySelector('#chapterPrevious').click());
+ await page.waitForFunction(()=>document.querySelector('#player').currentTime<.025&&!document.querySelector('#player').seeking);
+ await page.locator('#chapterFile').setInputFiles({name:'invalid.vtt',mimeType:'text/vtt',buffer:Buffer.from('WEBVTT\n\n00:00:60.000 --> 00:00:61.000\nInvalid')});
+ await page.waitForFunction(()=>document.querySelector('#chapterStatus').textContent.includes('Invalid'));
+ assert.equal(await page.locator('#chapterList button').count(),2);
+ await page.evaluate(()=>document.querySelector('#chapterClear').click());
+ assert.equal(await page.locator('#timelineChapterMarkers .timeline-chapter-marker').count(),0);
+ console.log('PASS WebVTT chapters, timeline markers, next/previous and invalid import protection');
 
  await page.locator('#subtitlesBtn').click({force:true});
  await page.locator('#subSyncTab').click({force:true});
