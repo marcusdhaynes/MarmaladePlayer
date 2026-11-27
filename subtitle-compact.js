@@ -101,7 +101,7 @@
    '<div class="sub-file-actions"><button type="button" id="loadSecondarySubtitle">Load File / ZIP</button><button type="button" id="clearSecondarySubtitle">Remove</button></div>'+
    '<input type="file" id="secondarySubtitleFile" accept=".srt,.vtt,.sub,.ass,.ssa,.sbv,.zip" hidden>'+
    '<label for="secondarySubtitleOffset">Secondary delay (seconds)</label><div class="sub-file-actions"><input id="secondarySubtitleOffset" type="number" min="-3600" max="3600" step="0.1" value="0.0" inputmode="decimal"><button type="button" id="secondarySubtitleReset">Reset</button></div>'+
-   '<p class="sub-note">Secondary captions are local to this video session.</p>';
+   '<p class="sub-note">Secondary captions and their delay are saved on this device for this video.</p>';
  timing.append(secondary);
  const secondaryStatus=$('secondarySubtitleStatus'),secondaryInput=$('secondarySubtitleFile'),secondaryOffset=$('secondarySubtitleOffset');
  const refreshSecondary=()=>{
