@@ -172,11 +172,11 @@ try {
   console.log('E2E host streaming');
   const guest=await makePage();
   // Simulate real mobile autoplay restrictions: audible media can only start
-  // after the guest deliberately taps the sound-unlock button.
+  // after a normal trusted interaction; no dedicated sound button is required.
   await guest.addInitScript(()=>{
     let audioUnlocked=false;
     document.addEventListener('click',event=>{
-      if(event.target.closest?.('#guestAudioUnlock'))audioUnlocked=true;
+      if(event.isTrusted)audioUnlocked=true;
     },true);
     const nativePlay=HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play=function(...args){
@@ -196,18 +196,24 @@ try {
   await guest.waitForFunction(()=>{
     const st=window.MarmaladeAddonBridge.state;
     const unlock=document.querySelector('#guestAudioUnlock');
-    return st.guestAudioFallback || (unlock&&!unlock.hidden);
+    const player=document.querySelector('#player');
+    return st.guestAudioFallback || (!player.paused&&!player.muted) || document.querySelector('#dropZone').classList.contains('needs-gesture');
   },null,{timeout:12000});
   const startedWithSound=await guest.evaluate(()=>{
     const st=window.MarmaladeAddonBridge.state;
-    return st.guestAudioFallback && st.guestAudioContext?.state==='running';
+    const player=document.querySelector('#player');
+    return !player.paused&&(!player.muted||(st.guestAudioFallback && st.guestAudioContext?.state==='running'));
   });
-  if(!startedWithSound)await guest.locator('#guestAudioUnlock').click({force:true});
+  if(!startedWithSound){
+    await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
+    await guest.locator('#playPause').click({force:true});
+    if(await host.locator('#player').evaluate(player=>player.paused))await host.locator('#playPause').click({force:true});
+  }
   await guest.waitForFunction(()=>{
     const player=document.querySelector('#player');
     const st=window.MarmaladeAddonBridge.state;
     const unlock=document.querySelector('#guestAudioUnlock');
-    return !player.paused&&unlock.hidden &&
+    return !player.paused&&(!unlock||unlock.hidden) &&
       (!player.muted||(st.guestAudioFallback&&st.guestAudioContext?.state==='running')) &&
       !document.querySelector('#dropZone').classList.contains('needs-gesture');
   },null,{timeout:12000});
@@ -216,6 +222,7 @@ try {
     'PASS browser-blocked guest sound can be enabled with a gesture');
   // Direct taps on the guest movie surface must control the authoritative
   // host movie, not merely the guest's own local MediaStream element.
+  await guest.evaluate(()=>{const toggle=document.querySelector('#tapVideoPlayback');if(!toggle.checked){toggle.checked=true;toggle.dispatchEvent(new Event('change',{bubbles:true}));}});
   const guestVideo=guest.locator('#player');
   await guestVideo.click({force:true});
   await host.waitForFunction(()=>document.querySelector('#player').paused,null,{timeout:8000});
