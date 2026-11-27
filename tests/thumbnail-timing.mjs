@@ -171,10 +171,24 @@ try{
  assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
  await page.evaluate(async()=>{const v=document.querySelector('#player');v.currentTime=6;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
  await page.locator('#scenePrevious').click();
- await page.waitForFunction(()=>document.querySelector('#sceneStatus').textContent.includes('estimated')&&Math.abs(document.querySelector('#player').currentTime-4)<.3&&!document.querySelector('#player').seeking,null,{timeout:18000});
+ try{
+  await page.waitForFunction(()=>document.querySelector('#sceneStatus').textContent.includes('estimated')&&Math.abs(document.querySelector('#player').currentTime-4)<.3&&!document.querySelector('#player').seeking,null,{timeout:18000});
+ }catch(error){
+  console.log('Scene navigation diagnostics',await page.evaluate(()=>({status:document.querySelector('#sceneStatus').textContent,time:document.querySelector('#player').currentTime,paused:document.querySelector('#player').paused,seeking:document.querySelector('#player').seeking})));throw error;
+ }
  assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
- await page.locator('#closeSettingsPanel').click();
  console.log('PASS previous and next sampled scene cuts with paused playback preserved');
+ await page.locator('#timelineFrames > summary').click();
+ await page.locator('#frameStepRate').selectOption('24');
+ await page.evaluate(async()=>{const v=document.querySelector('#player');v.currentTime=2;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
+ for(const [button,point] of [['#frameNext',49/24],['#frameNext',50/24],['#framePrevious',49/24],['#framePrevious',2]]){
+  await page.locator(button).click();
+  await page.waitForFunction(t=>Math.abs(document.querySelector('#player').currentTime-t)<.008&&!document.querySelector('#player').seeking,point,{timeout:8000});
+  assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
+ }
+ assert.match(await page.locator('#frameStepStatus').textContent(),/Estimated frame positions/);
+ await page.locator('#closeSettingsPanel').click();
+ console.log('PASS repeated forward and backward constant-rate frame timestamp steps without resuming playback');
 
  await page.locator('#subtitlesBtn').click({force:true});
  await page.locator('#subSyncTab').click({force:true});

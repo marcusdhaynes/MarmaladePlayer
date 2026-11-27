@@ -335,6 +335,7 @@
   const eligible=sceneEligible();
   scenePrevious.disabled=sceneNext.disabled=!eligible||sceneBusy;
   sceneCancel.hidden=!sceneBusy;
+  if(typeof frameControls==='function'&&document.querySelector('#timelineFrames'))frameControls();
  }
  function cancelScene(message='Scene search cancelled.'){
   if(!sceneBusy){sceneControls();return;}
@@ -401,6 +402,78 @@
  for(const event of ['marmalade:video-selected','marmalade:media-cleared'])window.addEventListener(event,()=>{cancelScene();sceneStatus.textContent='Pause a local video to find a nearby scene change.';sceneControls();});
  scenePanel.addEventListener('toggle',()=>{if(!scenePanel.open)cancelScene();else sceneControls();});
  new MutationObserver(()=>{if(el.settingsPanel.hidden)cancelScene();else sceneControls();}).observe(el.settingsPanel,{attributes:true,attributeFilter:['hidden']});
+ // Paused frame stepping is intentionally separate from scrubber debounce.
+ // Auto uses consecutive presented-frame PTS samples; no guessed default FPS.
+ const framePanel=document.createElement('details');
+ framePanel.id='timelineFrames';framePanel.className='settings-advanced';
+ framePanel.innerHTML='<summary>Frame Navigation</summary><div class="bookmark-editor"><p id="frameStepStatus" role="status">Play briefly to measure frame cadence, or select a known constant frame rate.</p><label>Frame Rate <select id="frameStepRate" aria-label="Frame rate for stepping"><option value="auto">Auto (Measured)</option><option value="23.976">23.976</option><option value="24">24</option><option value="25">25</option><option value="29.97">29.97</option><option value="30">30</option><option value="48">48</option><option value="50">50</option><option value="59.94">59.94</option><option value="60">60</option><option value="120">120</option></select></label><div class="chapter-actions"><button type="button" id="framePrevious" disabled>Previous Frame</button><button type="button" id="frameNext" disabled>Next Frame</button></div></div>';
+ scenePanel.after(framePanel);
+ const frameRate=framePanel.querySelector('#frameStepRate'),frameStatus=framePanel.querySelector('#frameStepStatus'),framePrevious=framePanel.querySelector('#framePrevious'),frameNext=framePanel.querySelector('#frameNext');
+ let cadenceSamples=[],cadencePrevious=null,cadence=null,frameSource='',frameHandle=0;
+ function resetCadence(){
+  cadenceSamples=[];cadencePrevious=null;cadence=null;frameSource=sourceSignature();
+  frameRate.value='auto';frameControls();
+ }
+ function selectedCadence(){
+  if(frameRate.value==='auto')return cadence;
+  const fps=Number(frameRate.value);
+  const exact={'23.976':24000/1001,'29.97':30000/1001,'59.94':60000/1001}[frameRate.value]||fps;
+  return exact>0?{step:1/exact,anchor:0}:null;
+ }
+ function frameControls(){
+  const rate=selectedCadence();
+  const eligible=sceneEligible()&&!sceneBusy&&!!rate;
+  framePrevious.disabled=!eligible||media.currentTime<.0001;
+  frameNext.disabled=!eligible||media.currentTime+rate.step>=duration();
+  frameStatus.textContent=rate?(frameRate.value==='auto'?'Measured '+(1/rate.step).toFixed(2)+' FPS':'Selected '+frameRate.value+' FPS')+' · Estimated frame positions; variable-rate media may differ.':'Play briefly to measure frame cadence, or select a known constant frame rate.';
+ }
+ function observeCadence(_now,meta){
+  frameHandle=0;
+  if(frameSource!==sourceSignature())resetCadence();
+  if(!media.paused&&!media.seeking&&state.role==='host'&&state.source==='file'&&!state.gameFrameMode&&Number.isFinite(meta?.mediaTime)&&Number.isFinite(meta?.presentedFrames)){
+   const old=cadencePrevious;
+   cadencePrevious={time:meta.mediaTime,count:meta.presentedFrames};
+   if(old&&meta.presentedFrames-old.count===1){
+    const dt=meta.mediaTime-old.time;
+    if(dt>=1/240&&dt<=.2){
+     cadenceSamples.push(dt);if(cadenceSamples.length>12)cadenceSamples.shift();
+     if(cadenceSamples.length>=6){
+      const sorted=[...cadenceSamples].sort((a,b)=>a-b),median=sorted[Math.floor(sorted.length/2)];
+      cadence=sorted.every(x=>Math.abs(x-median)<=Math.max(.0006,median*.03))?{step:median,anchor:meta.mediaTime}:null;
+     }
+    }else{cadenceSamples=[];cadence=null;}
+   }
+  }else cadencePrevious=null;
+  if(framePanel.open&&!el.settingsPanel.hidden)frameControls();
+  if(!media.paused&&framePanel.open&&!el.settingsPanel.hidden)startCadence();
+ }
+ function startCadence(){
+  if(!frameHandle&&typeof media.requestVideoFrameCallback==='function'&&!media.paused&&framePanel.open&&!el.settingsPanel.hidden)frameHandle=media.requestVideoFrameCallback(observeCadence);
+ }
+ function stopCadence(){
+  if(frameHandle)media.cancelVideoFrameCallback?.(frameHandle);
+  frameHandle=0;cadencePrevious=null;
+ }
+ function stepFrame(direction){
+  const rate=selectedCadence();
+  if(!sceneEligible()||sceneBusy||!rate)return;
+  const position=(media.currentTime-rate.anchor)/rate.step;
+  const nearest=Math.round(position);
+  const aligned=Math.abs(position-nearest)<.04;
+  const index=aligned?nearest+direction:direction>0?Math.ceil(position):Math.floor(position);
+  const target=limit(rate.anchor+index*rate.step,0,Math.max(0,duration()-rate.step));
+  if(Math.abs(target-media.currentTime)>.0001)bridge.seekToTime(target);
+  frameControls();
+ }
+ framePrevious.addEventListener('click',()=>stepFrame(-1));
+ frameNext.addEventListener('click',()=>stepFrame(1));
+ frameRate.addEventListener('change',frameControls);
+ framePanel.addEventListener('toggle',()=>{frameControls();if(framePanel.open)startCadence();else stopCadence();});
+ for(const event of ['play','playing'])media.addEventListener(event,()=>{frameControls();startCadence();});
+ for(const event of ['pause','seeking','seeked','durationchange'])media.addEventListener(event,()=>{if(media.paused||media.seeking)stopCadence();else startCadence();frameControls();});
+ for(const event of ['marmalade:video-selected','marmalade:media-cleared'])window.addEventListener(event,()=>{stopCadence();resetCadence();});
+ new MutationObserver(()=>{if(el.settingsPanel.hidden)stopCadence();else{frameControls();startCadence();}}).observe(el.settingsPanel,{attributes:true,attributeFilter:['hidden']});
+ frameControls();
  window.MarmaladeSeekPreview={
   handleRequest,handleResponse,refresh:()=>{if(active&&!card.hidden)position(seek.getBoundingClientRect().left+
     Number(card.dataset.time||0)/Math.max(1,duration())*seek.getBoundingClientRect().width);},
