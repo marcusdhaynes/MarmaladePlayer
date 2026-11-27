@@ -512,6 +512,11 @@
   // Each button has a fixed step; a long press never changes its meaning.
   function timingButton(id,step){
     const button=subStyle.querySelector(id);
+    // A floating palette can reposition or collapse a cue list during a
+    // press. Keep the release tied to this button, not the shifted layout.
+    button.addEventListener('pointerdown',event=>{
+      if(event.button===0&&event.isPrimary){try{button.setPointerCapture(event.pointerId);}catch{}}
+    });
     button.addEventListener('click',()=>{
       setTiming(Number(prefs.timing)+step);
       timingText.value=Number(prefs.timing).toFixed(1);

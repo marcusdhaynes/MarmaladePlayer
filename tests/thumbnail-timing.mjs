@@ -215,6 +215,7 @@ try{
  assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.0','Outer minus changes one tenth');
  // A held pointer must not repeat or silently change the fixed step.
  for(const [button,expected] of [[finePlus,'0.1'],[majorPlus,'1.1'],[majorMinus,'0.1'],[fineMinus,'0.0']]){
+  await button.scrollIntoViewIfNeeded();
   await button.hover();
   await page.mouse.down();
   await page.waitForTimeout(800);
