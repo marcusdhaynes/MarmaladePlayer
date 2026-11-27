@@ -61,6 +61,9 @@ try{
     window.dispatchEvent(new Event('marmalade:watch-progress'));
   });
   await page.waitForFunction(()=>document.querySelectorAll('#mlCards .ml-card-progress').length===0);
+  await page.evaluate(()=>{const checkbox=document.querySelector('#audioProtection');checkbox.checked=true;checkbox.dispatchEvent(new Event('change',{bubbles:true}));});
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-peak-protection')),'true');
+  assert.equal(await page.locator('#settingsPageControls #audioProtection').count(),1);
   const stage=await page.locator('#dropZone').boundingBox();
   assert.ok(stage&&stage.x>=-1&&stage.x+stage.width<=viewport.width+1,'Video stage exceeds viewport');
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
