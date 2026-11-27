@@ -95,12 +95,17 @@ try{
   await page.goto('http://127.0.0.1:'+originPort+'/',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
   await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
+  // Native integration is optional, not an automatic dependency of the site.
+  // Explicitly load the granted compatibility catalog before exercising playback.
+  const imported=await page.evaluate(()=>window.MarmaladeMediaLibrary.syncFromNative());
+  assert.equal(imported.count,1,'Granted native catalog is available through the optional bridge');
   await page.locator('#settingsBtn').click();
   await page.locator('#mlVisibilityToggle').check();
   await page.locator('#closeSettingsPanel').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(
     l=>l.name==='Native Movies'&&l.count===1));
   const video=page.locator('#mlCards .ml-card').filter({hasText:'Controls'});
+  await video.waitFor({state:'visible'});
   assert.equal(await video.count(),1);
   await video.click();
   await page.waitForFunction(()=>{
@@ -116,9 +121,10 @@ try{
     source:window.MarmaladeAddonBridge.state.source,
     ready:window.MarmaladeAddonBridge.state.fileReady,
     name:document.querySelector('#fileName')?.textContent,
-    stage:document.querySelector('#stage').className
+    stage:document.querySelector('#dropZone').className
   }));
   assert.equal(actual.source,'native');
+  await page.waitForFunction(()=>!document.querySelector('#player').paused,null,{timeout:8000});
   await page.locator('#playPause').click();
   let paused=await page.locator('#player').evaluate(m=>m.paused);
   assert.equal(paused,true,'Native video responds to the normal pause control');
