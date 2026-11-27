@@ -1045,6 +1045,13 @@
       image.src=picture;image.loading='lazy';image.alt='';
       image.addEventListener('error',()=>image.remove(),{once:true});
     }
+    if(data.progress){
+      const progress=append(art,'span','ml-card-progress');
+      progress.setAttribute('role','progressbar');progress.setAttribute('aria-label','Watch progress');
+      const percent=Math.max(0,Math.min(100,100*data.progress.time/data.progress.duration));
+      progress.setAttribute('aria-valuemin','0');progress.setAttribute('aria-valuemax','100');progress.setAttribute('aria-valuenow',String(Math.round(percent)));
+      const fill=append(progress,'span','ml-card-progress-fill');fill.style.width=percent+'%';
+    }
     // No letter monograms or folder glyphs above the poster artwork.
     append(art,'span','ml-play-symbol',dir?'›':'▶');
     const copy=append(surface,'span','ml-card-copy');
@@ -1188,6 +1195,18 @@
     state.collection=[...ui.collections.options].some(o=>o.value===current)?current:'all';
     ui.collections.value=state.collection;
   }
+  // Watch progress is already stored by the player. Use exactly its keys,
+  // not a fuzzy movie-title match which could resume a different release.
+  function libraryProgress(){
+    try{const data=JSON.parse(readLocal('marmalade:watch-progress:v1','{}'));return data&&typeof data==='object'&&!Array.isArray(data)?data:{};}catch{return {};}
+  }
+  function progressFor(item,records){
+    const size=Number(item.size)||0,name=String(item.name||'');
+    const candidates=[records['file:'+name.toLowerCase()+'|'+size],records['library:'+String(item.id||name)+'|'+size]];
+    return candidates.filter(r=>r&&Number.isFinite(r.time)&&Number.isFinite(r.duration)&&Number.isFinite(r.updated)&&
+      r.updated>Date.now()-365*86400000&&r.time>=5&&r.duration>0&&r.time<Math.max(r.duration-30,r.duration*.98))
+      .sort((a,b)=>b.updated-a.updated)[0]||null;
+  }
   function filteredItems(){
     let items=shelfItems();
     const search=state.query.trim().toLocaleLowerCase();
@@ -1196,6 +1215,10 @@
     else if(state.kind==='watchlist')items=items.filter(i=>!!i.watchlist);
     else if(state.kind==='watched')items=items.filter(i=>!!i.watched);
     else if(state.kind==='unwatched')items=items.filter(i=>!i.watched);
+    else if(state.kind==='continue'){
+      const records=libraryProgress();
+      items=items.map(item=>({...item,progress:progressFor(item,records)})).filter(item=>item.progress);
+    }
     if(state.collection!=='all'){
       const key=state.collection.startsWith('playlist:')?'playlists':'collections';
       const name=state.collection.slice(state.collection.indexOf(':')+1);
@@ -1205,6 +1228,7 @@
       [i.title,i.show,i.path,i.name,i.libraryName].some(value=>
         String(value||'').toLocaleLowerCase().includes(search)));
     items.sort((a,b)=>{
+      if(state.kind==='continue')return b.progress.updated-a.progress.updated;
       if(state.sort==='recent')return (b.addedAt||0)-(a.addedAt||0)||(a.title||'').localeCompare(b.title||'');
       if(state.sort==='year')return (b.year||0)-(a.year||0)||(a.title||'').localeCompare(b.title||'');
       return (a.show||a.title||'').localeCompare(b.show||b.title||'')||
@@ -1274,12 +1298,17 @@
     const lib=selectedLibrary();
     const items=filteredItems();
     ui.count.textContent=countLabel(items.length);
-    ui.title.textContent=lib?.name||'All Videos';
+    ui.title.textContent=state.kind==='continue'?'Continue Watching':lib?.name||'All Videos';
     ui.manage.disabled=!lib||state.scanning;
     ui.quickAdd.disabled=!lib||state.scanning;
     ui.art.disabled=state.scanning||state.artworkBusy||!items.length;
     ui.rescan.disabled=!state.libraries.length||state.scanning;
     breadcrumbs();
+    if(state.kind==='continue'){
+      for(const item of items.slice(0,state.showCount))ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item),false,{kind:'item',item}));
+      if(!items.length)empty('Nothing to Resume','Partially watched videos in this library will appear here.');
+      more(items.length);return;
+    }
     if(state.folderMode){renderFolders(items);return;}
     if(state.series){
       const episodes=items.filter(i=>i.libraryId===state.series.libId&&i.show===state.series.show);
@@ -2344,6 +2373,13 @@
       searchTimer=setTimeout(()=>{state.query=ui.search.value;state.showCount=120;render();},110);
     });
     ui.filter.addEventListener('change',()=>{state.kind=ui.filter.value;state.showCount=120;render();});
+    let progressRefresh=0;
+    const refreshProgress=()=>{
+      if(state.kind!=='continue'||!state.ready||panel.hidden)return;
+      clearTimeout(progressRefresh);progressRefresh=setTimeout(()=>{if(state.kind==='continue'&&!panel.hidden)renderCards();},250);
+    };
+    window.addEventListener('marmalade:watch-progress',refreshProgress);
+    window.addEventListener('storage',event=>{if(event.key==='marmalade:watch-progress:v1')refreshProgress();});
     ui.collections.addEventListener('change',()=>{state.collection=ui.collections.value;state.showCount=120;renderCards();});
     ui.sort.addEventListener('change',()=>{state.sort=ui.sort.value;render();});
     ui.view.addEventListener('click',()=>{
