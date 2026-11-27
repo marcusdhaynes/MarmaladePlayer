@@ -37,7 +37,16 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-save --no-package-lock playwright@1.51.1
-      - run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Install browser and signed Ubuntu dependencies
+        run: |
+          # Microsoft feed is unrelated to these Linux browser dependencies.
+          # Hosted-runner feed outages must not prevent genuine WebKit tests.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
+          for attempt in 1 2 3; do
+            if npx playwright install --with-deps ${{ matrix.engine }}; then exit 0; fi
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep 5
+          done
       - run: node scripts/install-mkv-decoder.mjs
       - run: |
           python3 -m http.server 8080 > /tmp/marmalade-server.log 2>&1 &

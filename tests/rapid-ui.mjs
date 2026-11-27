@@ -189,7 +189,9 @@ try{
   assert.equal(await page.locator('#subFindView #loadSubtitle').count(),1);
   assert.equal(await page.locator('#subFindView #subMoreFilters').count(),1);
   assert.equal(await page.locator('#subSyncView #subtitleTiming').count(),1);
-  assert.equal(await page.locator('#subSyncView #subTimingAlign').count(),1);
+  assert.equal(await page.locator('#subSyncView #subTimingCueSearch').count(),1);
+  assert.equal(await page.locator('#subSyncView #subSelectedLine').count(),1);
+  assert.equal(await page.locator('#subSyncView #subTimingReset').count(),1);
   assert.equal(await page.locator('#subtitleFile').getAttribute('accept').then(s=>s.includes('.zip')),true);
 
   await page.evaluate(()=>{
@@ -210,6 +212,25 @@ try{
   await page.screenshot({path:resolve(pictures,'subtitle-style-'+size.width+'x'+size.height+'.png'),animations:'disabled'});
   await page.locator('#subSyncTab').click();
   assert.equal(await page.locator('#subSyncView').isVisible(),true);
+  // Exercise the current word-level alignment control, not just its markup.
+  await page.evaluate(()=>{
+    const {state,media}=window.MarmaladeAddonBridge;
+    state.role='host';state.source='file';state.subtitles=[{start:0,end:2,text:'First word'}];
+    state.subtitlesEnabled=true;
+    Object.defineProperty(media,'currentTime',{configurable:true,get:()=>1.5});
+    window.MarmaladeSubtitleCompact.refreshCues();
+  });
+  await page.locator('#subTimingCueSearch').fill('First');
+  await page.locator('#subTimingCue [role=option]').filter({hasText:'First word'}).click();
+  await page.locator('#subSelectedLine .sub-word').filter({hasText:'First'}).click();
+  assert.equal(await page.evaluate(()=>window.MarmaladeSubtitleTiming.get()),1.5,'Align a spoken word to playback');
+  await page.locator('#subTimingReset').click();
+  assert.equal(await page.evaluate(()=>window.MarmaladeSubtitleTiming.get()),0);
+  await page.evaluate(()=>{
+    const {state,media}=window.MarmaladeAddonBridge;
+    delete media.currentTime;state.subtitles=[];state.subtitlesEnabled=false;state.source=null;
+    window.MarmaladeSubtitleCompact.refreshCues();
+  });
   await page.screenshot({path:resolve(pictures,'subtitle-sync-'+size.width+'x'+size.height+'.png'),animations:'disabled'});
   assert.equal(await page.locator('#subFindView').isVisible(),false);
   assert.equal(await page.locator('#subStyleView').isVisible(),false);
