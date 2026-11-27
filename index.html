@@ -703,7 +703,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label id="tapVideoPlaybackRow"><input type="checkbox" id="tapVideoPlayback"> Tap Video To Play / Pause</label>
             <label>Volume Increment <select id="volumeIncrement"><option value="1">1%</option><option value="5">5%</option><option value="10" selected>10%</option><option value="25">25%</option><option value="50">50%</option></select></label>
             <label><span>Snap Volume Every 50%</span><input type="checkbox" id="volumeSnap" checked></label>
-            <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
+            <label><span>Peak Protection <small>Reduce sudden loud peaks in personal audio.</small></span><input type="checkbox" id="audioProtection"></label>
+             <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
@@ -1057,6 +1058,33 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   let volumeStep=validVolumeSetting(volumeIncrement,'volume-increment',10);
   let volumeMax=validVolumeSetting(volumeMaximum,'volume-maximum',200);
   volumeSnap.checked=localPreference('volume-snap','true')==='true';
+  const audioProtection=$('audioProtection');
+  audioProtection.checked=localPreference('audio-peak-protection','false')==='true';
+  const personalAudioRoutes=new WeakMap();
+  function routePersonalAudio(gain,ctx){
+    if(!gain||!ctx)return;
+    let route=personalAudioRoutes.get(gain);
+    if(route?.protected===audioProtection.checked)return;
+    if(route){
+      try{gain.disconnect(route.node||ctx.destination);}catch{}
+      try{route.node?.disconnect();}catch{}
+    }
+    let node=null;
+    if(audioProtection.checked&&typeof ctx.createDynamicsCompressor==='function'){
+      try{
+        node=ctx.createDynamicsCompressor();
+        node.threshold.value=-8;node.knee.value=12;node.ratio.value=12;
+        node.attack.value=.003;node.release.value=.16;
+        node.connect(ctx.destination);gain.connect(node);
+      }catch{try{node?.disconnect();}catch{}node=null;gain.connect(ctx.destination);}
+    }else gain.connect(ctx.destination);
+    personalAudioRoutes.set(gain,{node,protected:audioProtection.checked});
+  }
+  function disposePersonalAudio(gain){
+    const route=personalAudioRoutes.get(gain);
+    try{route?.node?.disconnect();}catch{}
+    personalAudioRoutes.delete(gain);
+  }
   function quantizeVolume(raw,step,max,snap){
     const value=Math.max(0,Math.min(max,Number(raw)||0));
     const detent=Math.round(value/50)*50;
@@ -1362,7 +1390,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       stopGuestAudioRelay(false);
     }
     if(state.guestAudioFallback&&!running){stopGuestAudioRelay(false);state.audioUnlockRequired=false;}
-    if(running&&(state.volumePercent>100||state.audioUnlockRequired||graphBlocked||media.muted)){
+    if(running&&(audioProtection.checked||state.volumePercent>100||state.audioUnlockRequired||graphBlocked||media.muted)){
       if(enableGuestAudioRelay(media.srcObject)){
         state.audioUnlockRequired=false;applyVolume();return;
       }
@@ -1377,6 +1405,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function stopGuestAudioRelay(closeContext=false){
     try{state.guestAudioSource?.disconnect();}catch{}
     try{state.guestAudioGain?.disconnect();}catch{}
+    if(state.guestAudioGain)disposePersonalAudio(state.guestAudioGain);
     state.guestAudioSource=null;
     state.guestAudioGain=null;
     state.guestAudioFallback=false;state.guestAudioStream=null;state.guestAudioTrackIds='';
@@ -1397,7 +1426,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const source=ctx.createMediaStreamSource(new MediaStream(audioTracks));
       const gain=ctx.createGain();
       source.connect(gain);
-      gain.connect(ctx.destination);
+      routePersonalAudio(gain,ctx);
       state.guestAudioSource=source;
       state.guestAudioGain=gain;
       state.guestAudioFallback=true;state.guestAudioStream=stream;state.guestAudioTrackIds=audioTracks.map(t=>t.id).join('|');
@@ -4595,7 +4624,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const guestRemote=state.role==='guest' && state.source==='remote';
     if(guestRemote){
       primeGuestAudioFromGesture(true);recoverGuestSound();
-      if(state.volumePercent>100&&!state.guestAudioFallback)enableGuestAudioRelay(media.srcObject);
+      if((audioProtection.checked||state.volumePercent>100)&&!state.guestAudioFallback)enableGuestAudioRelay(media.srcObject);
       return !!state.guestAudioFallback;
     }
     if(!state.audioContext){
@@ -4611,7 +4640,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       state.audioSourceNode=state.audioContext.createMediaElementSource(media);
       state.speakerGain=state.audioContext.createGain();
       state.audioSourceNode.connect(state.speakerGain);
-      state.speakerGain.connect(state.audioContext.destination);
+      routePersonalAudio(state.speakerGain,state.audioContext);
       media.volume=1;
     };
     // createMediaElementSource immediately redirects native media output into
@@ -5024,7 +5053,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   let hostMonitorAudioContext=null,hostMonitorAudioGain=null,hostMonitorGainPending=false;
   function updateHostMonitorGain(){
     if(!state.hostMonitorActive)return;
-    if(state.volumePercent>100&&!hostMonitorAudioGain&&!hostMonitorGainPending){
+    if((audioProtection.checked||state.volumePercent>100)&&!hostMonitorAudioGain&&!hostMonitorGainPending){
       const Context=window.AudioContext||window.webkitAudioContext;
       if(Context){
         try{
@@ -5033,7 +5062,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           const connect=()=>{
             if(ctx.state!=='running'||hostMonitorAudioGain||!state.hostMonitorActive)return;
             const source=ctx.createMediaElementSource(hostMonitor),gain=ctx.createGain();
-            source.connect(gain);gain.connect(ctx.destination);
+            source.connect(gain);routePersonalAudio(gain,ctx);
             hostMonitorAudioGain=gain;applyVolume();
           };
           if(ctx.state==='running'){hostMonitorGainPending=false;connect();}
@@ -5134,7 +5163,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   for(const event of ['playing','loadeddata','canplay'])media.addEventListener(event,()=>{
     if(state.role==='guest'&&state.source==='remote'){primeGuestAudioFromGesture(true);recoverGuestSound();}
-    else if(state.source&&state.volumePercent>100)void ensureAudioPlayback().catch(()=>{});
+    else if(state.source&&(audioProtection.checked||state.volumePercent>100))void ensureAudioPlayback().catch(()=>{});
   });
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState!=='visible')return;
@@ -6240,6 +6269,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       else if(state.source&&(state.volumePercent>100||state.audioContext))void ensureAudioPlayback().catch(()=>{});
     });
   }
+  audioProtection.addEventListener('change',()=>{
+    rememberPreference('audio-peak-protection',audioProtection.checked);
+    routePersonalAudio(state.speakerGain,state.audioContext);
+    routePersonalAudio(state.guestAudioGain,state.guestAudioContext);
+    routePersonalAudio(hostMonitorAudioGain,hostMonitorAudioContext);
+    if(state.role==='guest'&&state.source==='remote'){primeGuestAudioFromGesture(true);recoverGuestSound();}
+    else if(state.source&&state.source!=='screen'&&audioProtection.checked)void ensureAudioPlayback().catch(()=>{});
+    if(state.hostMonitorActive)updateHostMonitorGain();
+  });
   el.mute.addEventListener('click', () => {
     state.soundMuted = state.volumePercent>0&&!state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = Math.min(volumeMax,Math.round(state.lastVolume*100/volumeStep)*volumeStep||100);
