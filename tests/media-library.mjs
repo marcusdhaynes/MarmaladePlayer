@@ -106,7 +106,7 @@ try{
   await page.locator('#mlNewLibrary').click();
   assert.equal(await page.locator('#mlDialogTitle').textContent(),'Create Library');
   await page.locator('#mlLibraryName').fill('My Movies');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.waitForFunction(()=>document.querySelectorAll('#mlFolderList .ml-folder-entry').length===1);
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('3 videos'));
   assert((await page.locator('#mlScanPreview').textContent()).includes('3 videos'),
@@ -266,7 +266,7 @@ try{
   await page.locator('#mlNewLibrary').click();
   await page.locator('#mlLibraryName').fill('Series Shelf');
   await page.locator('#mlLibraryKind').selectOption('tv');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
     l.name==='Series Shelf'&&l.count===2));
@@ -334,7 +334,7 @@ try{
   });
   await page.locator('#mlNewLibrary').click();
   await page.locator('#mlLibraryName').fill('Disk Media');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('1 video'));
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.name==='Disk Media'&&l.count===1));
