@@ -94,6 +94,35 @@
  reset.addEventListener('click',()=>{window.MarmaladeSubtitleTiming?.set?.(0);$('subtitleTiming').value='0.0';});
  // Center the Reset button itself in the space between the label and timing controls.
  timingRow.insertBefore(reset,timingRow.querySelector('.subtitle-timing-control'));
+ // Secondary track controls live with timing so both languages can be aligned.
+ const secondary=document.createElement('details');
+ secondary.className='sub-more-filters';secondary.id='secondarySubtitleSettings';
+ secondary.innerHTML='<summary>Secondary subtitles</summary><p class="sub-note" id="secondarySubtitleStatus" aria-live="polite">No secondary captions loaded</p>'+
+   '<div class="sub-file-actions"><button type="button" id="loadSecondarySubtitle">Load File / ZIP</button><button type="button" id="clearSecondarySubtitle">Remove</button></div>'+
+   '<input type="file" id="secondarySubtitleFile" accept=".srt,.vtt,.sub,.ass,.ssa,.sbv,.zip" hidden>'+
+   '<label for="secondarySubtitleOffset">Secondary delay (seconds)</label><div class="sub-file-actions"><input id="secondarySubtitleOffset" type="number" min="-3600" max="3600" step="0.1" value="0.0" inputmode="decimal"><button type="button" id="secondarySubtitleReset">Reset</button></div>'+
+   '<p class="sub-note">Secondary captions and their delay are saved on this device for this video.</p>';
+ timing.append(secondary);
+ const secondaryStatus=$('secondarySubtitleStatus'),secondaryInput=$('secondarySubtitleFile'),secondaryOffset=$('secondarySubtitleOffset');
+ const refreshSecondary=()=>{
+   secondaryStatus.textContent=state.secondarySubtitleName||'No secondary captions loaded';
+   secondaryOffset.value=Number(state.secondarySubtitleOffset||0).toFixed(1);
+   $('clearSecondarySubtitle').disabled=!state.secondarySubtitles?.length;
+ };
+ $('loadSecondarySubtitle').addEventListener('click',()=>secondaryInput.click());
+ secondaryInput.addEventListener('change',async()=>{
+   const file=secondaryInput.files?.[0];secondaryInput.value='';
+   if(!file)return;
+   try{await window.MarmaladeSecondarySubtitle.load(file);}
+   catch(error){secondaryStatus.textContent=String(error?.message||error);}
+ });
+ $('clearSecondarySubtitle').addEventListener('click',()=>window.MarmaladeSecondarySubtitle.clear());
+ secondaryOffset.addEventListener('change',()=>{
+   if(secondaryOffset.value.trim()!=='')window.MarmaladeSecondarySubtitle.setOffset(secondaryOffset.value);
+   refreshSecondary();
+ });
+ $('secondarySubtitleReset').addEventListener('click',()=>window.MarmaladeSecondarySubtitle.setOffset(0));
+ window.addEventListener('marmalade:secondary-subtitle-changed',refreshSecondary);refreshSecondary();
  const cueTitle=document.createElement('label');
  cueTitle.htmlFor='subTimingCueSearch';
  cueTitle.textContent='Line Alignment';

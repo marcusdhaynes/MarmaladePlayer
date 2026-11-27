@@ -17,8 +17,8 @@ const types={'.html':'text/html','.js':'application/javascript',
 const server=createServer((req,res)=>{
   const file=resolve(root,decodeURIComponent(new URL(req.url,'http://localhost').pathname.slice(1)||'index.html'));
   if(file!==root&&!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
-  try{res.writeHead(200,{'content-type':types[extname(file)]||'application/octet-stream'});
-    res.end(readFileSync(file));}catch{res.writeHead(404);res.end();}
+  try{const data=readFileSync(file);res.writeHead(200,{'content-type':types[extname(file)]||'application/octet-stream'});
+    res.end(data);}catch{res.writeHead(404);res.end();}
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const engine=process.env.MARMALADE_BROWSER||'chromium';
@@ -62,7 +62,13 @@ try{
     'A failed folder selection must not create an empty indexed library');
   // Chromium (and current Firefox/Safari) provide webkitRelativePath for
   // folder-input selections, including nested videos.
-  await page.locator('#mlDirectoryInput').setInputFiles(directory);
+  // Release the intentional picker spy and use the real chooser event.
+  // WebKit can hang when setting a hidden directory input without a chooser.
+  await page.evaluate(()=>{delete document.getElementById('mlDirectoryInput').click;});
+  const folderChooserPromise=page.waitForEvent('filechooser');
+  await page.locator('#mlPickFolder').click();
+  const folderChooser=await folderChooserPromise;
+  await folderChooser.setFiles(directory);
   await page.waitForFunction(()=>
     (document.getElementById('mlScanPreview')?.textContent||'').includes('2 videos'));
   await page.locator('#mlDialogSave').click();

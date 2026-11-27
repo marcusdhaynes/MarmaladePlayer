@@ -11,8 +11,7 @@ const server=createServer((req,res)=>{
   const name=decodeURIComponent(new URL(req.url,'http://localhost').pathname.slice(1)||'index.html');
   const file=resolve(root,name);
   if(file!==root&&!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
-  try{res.writeHead(200,{'content-type':mime[extname(file)]||'application/octet-stream'});
-    res.end(readFileSync(file));}catch{res.writeHead(404);res.end();}
+  try{const data=readFileSync(file);res.writeHead(200,{'content-type':mime[extname(file)]||'application/octet-stream'});res.end(data);}catch{res.writeHead(404);res.end();}
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
@@ -125,8 +124,10 @@ try{
     bridge.state.role='host';
     bridge.chooseVideo=file=>{window.__playedLocalName=file.name;return true;};
   });
+  const chooserPromise=page.waitForEvent('filechooser');
   await page.locator('#onlyFramesChooseVideos').click();
-  await page.locator('#onlyFramesDirectVideos').setInputFiles([
+  const chooser=await chooserPromise;
+  await chooser.setFiles([
     {name:'ext.mp4',mimeType:'video/mp4',buffer:Buffer.from('fake-video-bytes')},
     {name:'second.mkv',mimeType:'video/x-matroska',buffer:Buffer.from('fake-video-bytes')},
     ...Array.from({length:36},(_,i)=>({name:'video-'+i+'.mp4',
@@ -136,13 +137,14 @@ try{
     const local=window.MarmaladeMediaLibrary.getGameLibraries()
       .find(lib=>lib.name.includes('Browser Library'));
     return local?.playableCount===38;
-  });
+  }).catch(async error=>{console.error('IMPORT FAILURE',await page.evaluate(()=>({libraries:window.MarmaladeMediaLibrary.getGameLibraries(),hint:document.querySelector('#onlyFramesHint')?.textContent,status:document.querySelector('#mlStatus')?.textContent})));throw error;});
   const localId=await page.evaluate(()=>{
     return window.MarmaladeMediaLibrary.getGameLibraries()
       .find(lib=>lib.name.includes('Browser Library'))?.id;
   });
   assert(localId&&localId!=='extlib:test',
     'Migrating extension-only metadata must create an independent local library');
+  await page.waitForFunction(id=>document.querySelector('#onlyFramesLibrary').value===id,localId);
   assert.equal(await page.locator('#onlyFramesLibrary').inputValue(),localId);
   assert.equal(await page.evaluate(()=>window.__nativePickerCalls),0,
     'The browser-independent file flow must never invoke a blocked directory picker');

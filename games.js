@@ -222,7 +222,7 @@
   const mediaLibrary=()=>window.MarmaladeMediaLibrary;
   const player=()=>window.MarmaladeAddonBridge;
   let activeGame=null,selectedLibrary=null,videoMode='random',timestampMode='random';
-  let gameCandidates=[],gameIndexById=new Map(),gameSearchIndex=[];
+  let gameCandidates=[],gameSearchIndex=[],shuffleBag=[];
   let videoMatches=[],videoRendered=0,videoPerRow=3;
   let busy=false,generation=0,pendingChoice=null;
   let history=[],cursor=-1,eventLog=[];
@@ -265,6 +265,26 @@
     return Math.floor(Math.random()*count);
   };
 
+  // Shuffle without replacement. A complete pass visits every video once.
+  // Refilling also prevents a repeat at the boundary of two cycles.
+  function refillDrawBag(count,previous,random=randomIndex){
+    const bag=Array.from({length:count},(_,i)=>i);
+    for(let i=bag.length-1;i>0;i--){
+      const j=random(i+1);[bag[i],bag[j]]=[bag[j],bag[i]];
+    }
+    if(bag.length>1&&bag[bag.length-1]===previous){
+      const j=random(bag.length-1);[bag[j],bag[bag.length-1]]=[bag[bag.length-1],bag[j]];
+    }
+    return bag;
+  }
+  // Avoid the most likely opening/closing title sequences in long films.
+  // Short clips retain the full range; exact Player Choice is unaffected.
+  function randomFrameTime(duration,random=randomIndex){
+    const max=Math.max(0,Math.floor(duration-.05));
+    const margin=duration>=600?Math.min(90,Math.floor(duration*.06)):0;
+    const last=Math.max(margin,max-margin);
+    return margin+random(last-margin+1);
+  }
   // The playable catalog is fetched only once when the game begins.
   // Video draws are O(1); searching builds at most one small page of DOM.
   const VIDEO_PAGE_SIZE=72;
@@ -721,7 +741,7 @@
     pendingChoice={...video,duration};
     overview.hidden=true;loadingStep.hidden=true;videoStep.hidden=true;step.hidden=false;
     showGameDialog();
-    pickedTitle.textContent=video.title+' · '+video.libraryName;
+    pickedTitle.textContent=videoMode==='random'?'Mystery video':video.title+' · '+video.libraryName;
     const max=Math.max(0,Math.floor(duration-0.05));
     timeRange.max=String(max);timeRange.value=String(Math.floor(max/2));
     timeDuration.textContent=timeText(duration);
@@ -756,7 +776,7 @@
     busy=true;pendingChoice=null;loadFailure=null;retryWork=null;
     const token=++generation;
     const options={existingIndex,direction};
-    showLoading('Loading Video',video.title+' · Waiting for a decoded picture before advancing.');
+    showLoading('Loading Video',(videoMode==='random'?'Mystery video':video.title)+' · Waiting for a decoded picture before advancing.');
     syncControls();
     try{
       player()?.setGameFrameMode?.(true);
@@ -774,8 +794,7 @@
         // Player Choice is never shown before the video has loaded a picture.
         displayTimePicker(video,duration);
       }else{
-        const max=Math.max(0,Math.floor(duration-0.05));
-        const frameTime=randomIndex(max+1);
+        const frameTime=randomFrameTime(duration);
         showLoading('Preparing Random Frame','Seeking to the random timestamp. Gameplay starts once the frame is ready.');
         const frame=await seekToLoadedFrame(token,frameTime,duration);
         if(token!==generation)return;
@@ -806,10 +825,12 @@
       return;
     }
     if(videoMode==='choice'){openVideoChooser();return;}
-    const n=gameCandidates.length,prior=gameIndexById.get(history[cursor]?.id);
-    let index=(n>1&&prior!==undefined)?randomIndex(n-1):randomIndex(n);
-    if(n>1&&prior!==undefined&&index>=prior)index++;
-    void displayVideo(gameCandidates[index],{direction:history.length?'Next':'First'});
+    if(!shuffleBag.length){
+      const previous=history[cursor];
+      const prior=previous?gameCandidates.findIndex(item=>item.id===previous.id&&item.libraryId===previous.libraryId):-1;
+      shuffleBag=refillDrawBag(gameCandidates.length,prior);
+    }
+    void displayVideo(gameCandidates[shuffleBag.pop()],{direction:history.length?'Next':'First'});
   }
   function previousVideo(){
     if(activeGame!=='onlyframes'||busy||pendingChoice||cursor<=0)return;
@@ -883,7 +904,7 @@
     activeGame='onlyframes';selectedLibrary=chosen;
     videoMode=selectedVideoMode();timestampMode=selectedTimestampMode();
     gameCandidates=list;
-    gameIndexById=new Map(list.map((item,index)=>[item.id,index]));
+    shuffleBag=[];
     gameSearchIndex=list.map(item=>
       (String(item.title||'')+' '+String(item.name||'')+' '+String(item.year||'')).toLocaleLowerCase());
     history=[];cursor=-1;pendingChoice=null;eventLog=[];renderLog();
@@ -906,7 +927,7 @@
     for(const item of players)item.score=0;
     persist();renderScores();
     activeGame=null;selectedLibrary=null;history=[];cursor=-1;
-    gameCandidates=[];gameIndexById.clear();gameSearchIndex=[];videoMatches=[];
+    gameCandidates=[];shuffleBag=[];gameSearchIndex=[];videoMatches=[];
     videoStep.hidden=true;
     loadingStep.hidden=true;
     setGameStatus('SELECT A GAME');

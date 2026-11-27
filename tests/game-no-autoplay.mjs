@@ -10,8 +10,8 @@ const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css'
 const server=createServer((req,res)=>{
   const path=resolve(root,decodeURIComponent(new URL(req.url,'http://localhost').pathname.slice(1)||'index.html'));
   if(path!==root&&!path.startsWith(root+sep)){res.writeHead(403);res.end();return;}
-  try{res.writeHead(200,{'content-type':mime[extname(path)]||'application/octet-stream'});
-    res.end(readFileSync(path));}catch{res.writeHead(404);res.end();}
+  try{const data=readFileSync(path);
+    res.writeHead(200,{'content-type':mime[extname(path)]||'application/octet-stream'});res.end(data);}catch{res.writeHead(404);res.end();}
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});

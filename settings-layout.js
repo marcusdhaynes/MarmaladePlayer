@@ -118,6 +118,7 @@
  into('volumeIncrement','controls');
  into('volumeSnap','controls','settings-toggle-row');
  into('volumeMaximum','controls');
+ into('audioProtection','controls','settings-toggle-row');
  const tapRow=into('tapVideoPlayback','controls','settings-toggle-row');
  if(tapRow){const input=tapRow.querySelector('input');if(input)tapRow.append(input);}
  const fadeRow=into('controlFadeDelay','controls');
@@ -128,7 +129,7 @@
  keyboard.innerHTML='<span>Keyboard</span><span><kbd>Space</kbd> Play / Pause <em>·</em> <kbd>←</kbd> <kbd>→</kbd> Skip</span>';
  pages.get('controls').appendChild(keyboard);
  into('stabilityMode','party');
- for(const id of ['strictSync','peerAssist','hostMatchRow']){
+ for(const id of ['strictSync','allowOriginalBuffer','peerAssist','hostMatchRow']){
    const row=into(id,'party','settings-toggle-row');
    // Native labels began with their checkbox. Put the title on the left,
    // the compact toggle on the far right without replacing the input.
@@ -158,6 +159,13 @@
  const footer=document.createElement('div');
  footer.className='settings-footer';
  footer.innerHTML='<span class="settings-saved-dot" aria-hidden="true"></span>Saved on this device';
+ // Display only a build identity returned by the deployed static artifact.
+ const build=document.createElement('small');build.className='settings-hint';build.textContent='Build: local or unverified';
+ footer.appendChild(build);
+ fetch(new URL('build-info.json',document.baseURI),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(info=>{
+   if(!/^[a-f0-9]{40}$/i.test(info?.commit||''))return;
+   build.textContent='Build: '+info.commit.slice(0,12);build.title=info.commit;
+ }).catch(()=>{});
  panel.appendChild(footer);
  const save=key=>{try{localStorage.setItem('marmalade:settings-category',key);}catch{}};
  const restore=()=>{try{return localStorage.getItem('marmalade:settings-category')||'video';}catch{return 'video';}};
@@ -192,6 +200,61 @@
  },true);
  advanced.addEventListener('toggle',reposition);
  if(typeof ResizeObserver==='function')new ResizeObserver(reposition).observe(panel);
+ // Search across every category, including dynamically inserted settings.
+ const search=document.createElement('input');search.type='search';search.id='settingsSearch';
+ search.className='settings-search';search.placeholder='Search Settings';search.setAttribute('aria-label','Search Settings');
+ const results=document.createElement('div');results.className='settings-search-results';results.hidden=true;results.id='settingsSearchResults';
+ results.setAttribute('role','region');results.setAttribute('aria-label','Matching settings');
+ const status=document.createElement('div');status.className='settings-hint';status.setAttribute('role','status');
+ nav.before(search,results);
+ function clearSearch(){search.value='';results.hidden=true;results.replaceChildren();reposition();}
+ function searchSettings(){
+   const query=search.value.trim().toLocaleLowerCase();
+   results.replaceChildren();results.hidden=!query;
+   if(!query){reposition();return;}
+   const terms=query.split(/\s+/),matches=[];
+   for(const [key,page] of pages){
+     const candidates=page.querySelectorAll('.settings-row,.settings-action-row,.settings-tools button,.settings-monitor label');
+     for(const row of candidates){
+       if(row.hidden)continue;
+       let ancestor=row.parentElement,hidden=false;
+       while(ancestor&&ancestor!==page){if(ancestor.hidden){hidden=true;break;}ancestor=ancestor.parentElement;}
+       if(hidden)continue;
+       const label=row.cloneNode(true);
+       label.querySelectorAll('select,input,svg').forEach(node=>node.remove());
+       const title=label.textContent.replace(/\s+/g,' ').trim();
+       const control=row.querySelector('input,select,button')||row;
+       const haystack=(title+' '+(control.getAttribute('aria-label')||'')+' '+key).toLocaleLowerCase();
+       if(title&&terms.every(term=>haystack.includes(term)))matches.push({key,row,control,title});
+     }
+   }
+   status.textContent=matches.length?matches.length+' matching settings':'No matching settings';
+   results.append(status);
+   for(const match of matches.slice(0,12)){
+     const button=document.createElement('button');button.type='button';
+     button.className='settings-search-result';
+     const title=document.createElement('span');title.textContent=match.title;
+     const category=document.createElement('small');category.textContent=buttons.get(match.key).textContent;
+     button.append(title,category);
+     button.addEventListener('click',()=>{
+       clearSearch();activate(match.key);
+       const details=match.row.closest('details');if(details)details.open=true;
+       if(match.row.isConnected){
+         match.row.scrollIntoView({block:'nearest',inline:'nearest'});
+         match.control.focus({preventScroll:true});
+       }
+     });
+     results.append(button);
+   }
+   reposition();
+ }
+ search.addEventListener('input',searchSettings);
+ search.addEventListener('keydown',event=>{
+   if(event.key==='Escape'&&search.value){event.preventDefault();event.stopPropagation();clearSearch();}
+   if(event.key==='Enter'){event.preventDefault();results.querySelector('button')?.click();}
+ });
+ for(const button of buttons.values())button.addEventListener('click',clearSearch);
+ close?.addEventListener('click',clearSearch);
  activate(restore(),{persist:false});
  window.MarmaladeSettingsLayout={activate,active:()=>active,panes:tabs.slice()};
 })();

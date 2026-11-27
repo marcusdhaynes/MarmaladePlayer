@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png?v=20261104-fullbleed-v1">
   <link rel="manifest" href="manifest.webmanifest?v=20261104-fullbleed-v1">
   <link rel="stylesheet" href="./movie-info.css?v=20261119-metacritic-card-v1">
-  <link rel="stylesheet" href="./media-library.css?v=20261120-game-library-layout-v2">
+  <link rel="stylesheet" href="./media-library.css?v=20261126-audit-v2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <style>
@@ -545,10 +545,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js" defer></script>
   <script src="https://unpkg.com/mediainfo.js@0.3.8" defer></script>
 
-<link rel="stylesheet" href="./settings-layout.css?v=20261126-glass-audit-v1">
+<link rel="stylesheet" href="./settings-layout.css?v=20261126-audit-v3">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261126-docked-local-resume-v1">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-browser-independent-v2">
+<link rel="stylesheet" href="./games.css?v=20261126-audit-v3">
 
 <style id="marmaladeum-mobile-theater-layout">
 /* Override the obsolete 365px minimum height on the empty mobile player.
@@ -703,10 +703,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label id="tapVideoPlaybackRow"><input type="checkbox" id="tapVideoPlayback"> Tap Video To Play / Pause</label>
             <label>Volume Increment <select id="volumeIncrement"><option value="1">1%</option><option value="5">5%</option><option value="10" selected>10%</option><option value="25">25%</option><option value="50">50%</option></select></label>
             <label><span>Snap Volume Every 50%</span><input type="checkbox" id="volumeSnap" checked></label>
-            <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
+            <label><span>Peak Protection <small>Reduce sudden loud peaks in personal audio.</small></span><input type="checkbox" id="audioProtection"></label>
+             <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
+             <label><span>Original-File Buffering <small>Host · Guests receive movie bytes; turn off for live-only streaming.</small></span><input type="checkbox" id="allowOriginalBuffer" checked></label>
             <label id="hostMatchRow"><input type="checkbox" id="hostMatchTiming"> Match My Playback To Guests (Host Only)</label>
             <small id="hostMatchStatus" aria-live="polite">Off · The host plays ahead of network viewers.</small>
             <label><input type="checkbox" id="peerAssist" checked> Peer Rescue</label>
@@ -762,7 +764,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 </div>
                 <div class="ml-filters">
                   <input type="search" id="mlSearch" placeholder="Search your collection" aria-label="Search videos in your libraries">
-                  <select id="mlKindFilter" aria-label="Filter by content type"><option value="all">All Videos</option><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="favorites">Favorites</option><option value="watchlist">Watchlist</option><option value="unwatched">Unwatched</option><option value="watched">Watched</option></select>
+                  <select id="mlKindFilter" aria-label="Filter by content type"><option value="all">All Videos</option><option value="continue">Continue Watching</option><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="favorites">Favorites</option><option value="watchlist">Watchlist</option><option value="unwatched">Unwatched</option><option value="watched">Watched</option></select>
                   <select id="mlCollectionFilter" aria-label="Filter by collection or playlist"><option value="all">All Collections</option></select>
                   <select id="mlSort" aria-label="Sort library"><option value="title">Title A–Z</option><option value="recent">Recently Added</option><option value="year">Year</option></select>
 
@@ -1056,6 +1058,33 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   let volumeStep=validVolumeSetting(volumeIncrement,'volume-increment',10);
   let volumeMax=validVolumeSetting(volumeMaximum,'volume-maximum',200);
   volumeSnap.checked=localPreference('volume-snap','true')==='true';
+  const audioProtection=$('audioProtection');
+  audioProtection.checked=localPreference('audio-peak-protection','false')==='true';
+  const personalAudioRoutes=new WeakMap();
+  function routePersonalAudio(gain,ctx){
+    if(!gain||!ctx)return;
+    let route=personalAudioRoutes.get(gain);
+    if(route?.protected===audioProtection.checked)return;
+    if(route){
+      try{gain.disconnect(route.node||ctx.destination);}catch{}
+      try{route.node?.disconnect();}catch{}
+    }
+    let node=null;
+    if(audioProtection.checked&&typeof ctx.createDynamicsCompressor==='function'){
+      try{
+        node=ctx.createDynamicsCompressor();
+        node.threshold.value=-8;node.knee.value=12;node.ratio.value=12;
+        node.attack.value=.003;node.release.value=.16;
+        node.connect(ctx.destination);gain.connect(node);
+      }catch{try{node?.disconnect();}catch{}node=null;gain.connect(ctx.destination);}
+    }else gain.connect(ctx.destination);
+    personalAudioRoutes.set(gain,{node,protected:audioProtection.checked});
+  }
+  function disposePersonalAudio(gain){
+    const route=personalAudioRoutes.get(gain);
+    try{route?.node?.disconnect();}catch{}
+    personalAudioRoutes.delete(gain);
+  }
   function quantizeVolume(raw,step,max,snap){
     const value=Math.max(0,Math.min(max,Number(raw)||0));
     const detent=Math.round(value/50)*50;
@@ -1311,12 +1340,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     hostStreamLive: false, mediaRequestAt: 0, mediaAwaitingAt: 0,
     showStatus: false, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
     subtitleRestoreKey:'', subtitleIdentity:'', subtitleLanguage:'',
+    secondarySubtitles:[],secondarySubtitleName:'',secondarySubtitleOffset:0,secondarySubtitleRevision:0,
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     // Local-file control clock only; remote media and buffered streaming are unchanged.
     localClockOffsetMs: null, localClockBestRtt: Infinity, localClockSampleAt: 0,
     localSnapshotSequence: 0, lastLocalSnapshotSeq: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
-    basePaint: null, basePaintIdle: false, highGfxMode: '2d',
+    basePaint: null, basePaintIdle: false, baseFrameHandle: null, highGfxMode: '2d',
     hostPictureSample: null, guestDarkStreak: 0, pictureRepairAsked: false,
     resumeChecked: false, lastProgressSaveAt: 0,
   };
@@ -1361,7 +1391,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       stopGuestAudioRelay(false);
     }
     if(state.guestAudioFallback&&!running){stopGuestAudioRelay(false);state.audioUnlockRequired=false;}
-    if(running&&(state.volumePercent>100||state.audioUnlockRequired||graphBlocked||media.muted)){
+    if(running&&(audioProtection.checked||state.volumePercent>100||state.audioUnlockRequired||graphBlocked||media.muted)){
       if(enableGuestAudioRelay(media.srcObject)){
         state.audioUnlockRequired=false;applyVolume();return;
       }
@@ -1376,6 +1406,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function stopGuestAudioRelay(closeContext=false){
     try{state.guestAudioSource?.disconnect();}catch{}
     try{state.guestAudioGain?.disconnect();}catch{}
+    if(state.guestAudioGain)disposePersonalAudio(state.guestAudioGain);
     state.guestAudioSource=null;
     state.guestAudioGain=null;
     state.guestAudioFallback=false;state.guestAudioStream=null;state.guestAudioTrackIds='';
@@ -1396,7 +1427,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const source=ctx.createMediaStreamSource(new MediaStream(audioTracks));
       const gain=ctx.createGain();
       source.connect(gain);
-      gain.connect(ctx.destination);
+      routePersonalAudio(gain,ctx);
       state.guestAudioSource=source;
       state.guestAudioGain=gain;
       state.guestAudioFallback=true;state.guestAudioStream=stream;state.guestAudioTrackIds=audioTracks.map(t=>t.id).join('|');
@@ -1452,9 +1483,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     try{return await new Promise((resolve,reject)=>{
       const transaction=db.transaction('handles',mode==='get'?'readonly':'readwrite');
       const store=transaction.objectStore('handles');
-      const request=mode==='get'?store.get(key):store.put(value,key);
-      request.onsuccess=()=>resolve(request.result);
+      const request=mode==='get'?store.get(key):mode==='delete'?store.delete(key):store.put(value,key);
+      let result;
+      request.onsuccess=()=>{result=request.result;};
       request.onerror=()=>reject(request.error);
+      transaction.oncomplete=()=>resolve(result);
+      transaction.onerror=()=>reject(transaction.error);
+      transaction.onabort=()=>reject(transaction.error||Error('Subtitle storage transaction aborted'));
     });}finally{db.close();}
   }
   function subtitleId(file,source){
@@ -1479,6 +1514,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return active?'active':loadedSearchSubtitles.has(searchSubtitleKey(item.url))?'loaded':'new';
   };
   function resetSubtitleSelection(){
+    clearSecondarySubtitle();
     ++subtitleRestoreSequence;
     loadedSearchSubtitles.clear();
     state.subtitleRestoreKey='';
@@ -1587,6 +1623,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     watchProgress=Object.fromEntries(entries);
     try{localStorage.setItem(WATCH_PROGRESS_KEY,JSON.stringify(watchProgress));}catch{}
     state.lastProgressSaveAt=now;
+    window.dispatchEvent(new Event('marmalade:watch-progress'));
   }
   function restoreWatchPosition(){
     if(state.gameFrameMode)return;
@@ -1762,7 +1799,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const localFile = state.role === 'host' &&
       (state.source === 'file' && Boolean(state.fileUrl) ||
        state.source === 'native' && Boolean(state.nativeStreamUrl));
-    const key = localFile ? 'file:' + state.fileUrl :
+    const key = localFile ? state.source==='native'?'native:'+state.nativeStreamUrl:'file:' + state.fileUrl :
       (state.source || '') + ':' + (media.currentSrc || media.src || '');
     if (key !== durationResourceKey) {
       durationResourceKey = key;
@@ -1931,6 +1968,72 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!decoder)throw Error('Subtitle Decoder Not Loaded');
     return decoder.decode(raw,name,{fps:Number(fps)||0});
   }
+  let secondaryLoadSequence=0,secondaryRecord=null;
+  const secondaryStorageKey=key=>'secondary\u0000'+key;
+  let secondaryWriteTail=Promise.resolve();
+  function writeSecondary(key,record){
+    if(!key)return Promise.resolve();
+    const snapshot=record?{...record}:null;
+    const operation=secondaryWriteTail.then(()=>subtitleHandleStore(snapshot?'put':'delete',secondaryStorageKey(key),snapshot));
+    secondaryWriteTail=operation.catch(()=>{});
+    return operation;
+  }
+  function clearSecondarySubtitle(){
+    ++secondaryLoadSequence;secondaryRecord=null;state.secondarySubtitles=[];state.secondarySubtitleName='';
+    state.secondarySubtitleOffset=0;state.secondarySubtitleRevision++;
+    window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));
+  }
+  async function loadSecondarySubtitle(file,options={}){
+    if(!file||file.size>20*1024*1024)throw Error('Choose a subtitle file under 20 MB');
+    if(!el.stage.classList.contains('has-video'))throw Error('Load a video first');
+    if(!state.subtitlesEnabled)throw Error('Load primary subtitles first');
+    const seq=++secondaryLoadSequence,key=subtitleMediaKey();
+    const buffer=await file.arrayBuffer(),archive=window.MarmaladeSubtitleArchive;
+    if(archive?.isZip(buffer)){
+      const match=await archive.extract(buffer,{video:String(state.file?.name||state.remoteFileName||'')});
+      file=new File([match.bytes],match.name,{type:'text/plain'});
+    }
+    if(file.size>5*1024*1024)throw Error('Subtitle text exceeds 5 MB');
+    const raw=await readSubtitleText(file);
+    const decoded=parseSubtitles(raw,file.name);
+    if(!decoded.cues.length)throw Error(decoded.error||'No readable subtitle cues');
+    if(seq!==secondaryLoadSequence||key!==subtitleMediaKey())throw Error('Video changed while loading captions');
+    state.secondarySubtitles=decoded.cues;state.secondarySubtitleName=file.name;
+    const offset=Number(options.offset);
+    state.secondarySubtitleOffset=Number.isFinite(offset)?Math.round(Math.max(-3600,Math.min(3600,offset))*10)/10:0;
+    state.secondarySubtitleRevision++;
+    secondaryRecord={name:file.name,content:raw,offset:state.secondarySubtitleOffset};
+    updateSubtitles();window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));
+    if(!options.restored)try{await writeSecondary(key,secondaryRecord);}catch{notify('Secondary subtitles loaded, but could not be saved on this device.');}
+  }
+  async function restoreSecondarySubtitle(){
+    const key=subtitleMediaKey(),seq=secondaryLoadSequence;
+    if(!key||!state.subtitlesEnabled||state.secondarySubtitles.length)return;
+    try{
+      await secondaryWriteTail;
+      const record=await subtitleHandleStore('get',secondaryStorageKey(key));
+      if(seq!==secondaryLoadSequence||key!==subtitleMediaKey()||!state.subtitlesEnabled||state.secondarySubtitles.length)return;
+      if(typeof record?.content!=='string'||!record.name)return;
+      await loadSecondarySubtitle(cachedSubtitleFile(record.content,record.name),{restored:true,offset:record.offset});
+    }catch{if(seq===secondaryLoadSequence&&key===subtitleMediaKey())notify('Previous secondary subtitles could not be restored.');}
+  }
+  window.MarmaladeSecondarySubtitle={
+    load:loadSecondarySubtitle,clear:()=>{const key=subtitleMediaKey();clearSecondarySubtitle();updateSubtitles();return writeSecondary(key,null).catch(()=>notify('Secondary captions removed for this session; saved copy could not be deleted.'));},
+    restore:restoreSecondarySubtitle,
+    setOffset:value=>{
+      const seconds=Number(value);if(!Number.isFinite(seconds))return false;
+      state.secondarySubtitleOffset=Math.round(Math.max(-3600,Math.min(3600,seconds))*10)/10;
+      state.secondarySubtitleRevision++;updateSubtitles();
+      if(secondaryRecord){secondaryRecord.offset=state.secondarySubtitleOffset;void writeSecondary(subtitleMediaKey(),secondaryRecord).catch(()=>notify('Secondary timing could not be saved.'));}
+      window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));return true;
+    }
+  };
+  function cueAt(cues,time){
+    let low=0,high=cues.length;
+    while(low<high){const mid=(low+high)>>1;if(cues[mid].start<=time)low=mid+1;else high=mid;}
+    for(let index=low-1;index>=Math.max(0,low-32);index--)if(cues[index].end>time)return cues[index];
+    return null;
+  }
   function updateSubtitles() {
     if(!el.stage.classList.contains('has-video')){
       el.subtitleOverlay.hidden=true;return;
@@ -1957,22 +2060,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       window.MarmaladeSubtitleClock(timeline):timeline;
     // Cues are ordered: logarithmic lookup instead of scanning thousands of cues
     // on every displayed frame. End is exclusive to avoid adjacent overlap.
-    let low=0,high=state.subtitles.length,cue=null;
-    while(low<high){
-      const middle=(low+high)>>1;
-      if(state.subtitles[middle].start<=subtitleTime)low=middle+1;
-      else high=middle;
-    }
-    // Subtitle releases may contain overlapping cues. Find the most recent
-    // still-live cue (end times need not themselves be sorted).
-    for(let index=low-1;index>=Math.max(0,low-32);index--){
-      const candidate=state.subtitles[index];
-      if(candidate.end>subtitleTime){cue=candidate;break;}
-    }
+    const cue=cueAt(state.subtitles,subtitleTime);
     // A sample cue can be inspected live while the editor is open—even when
     // playback is paused or seeking outside subtitle dialogue.
-    const shown=cue?.text||(editing&&!document.getElementById('subStyleView')?.hidden&&
+    const primary=cue?.text||(editing&&!document.getElementById('subStyleView')?.hidden&&
       state.subtitles.length?state.subtitles[0].text:'');
+    // Apply the same presentation-clock correction, but independent timing.
+    const secondaryTime=subtitleTime+(Number(state.subtitleOffsetSeconds)||0)-state.secondarySubtitleOffset;
+    const secondary=cueAt(state.secondarySubtitles,secondaryTime)?.text||'';
+    const shown=[primary,secondary].filter(Boolean).join('\n');
     el.subtitleOverlay.hidden=!shown;
     const naturalText=shown.normalize('NFC');
     if(shown&&el.subtitleOverlay.textContent!==naturalText){
@@ -2246,7 +2342,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function updateDiagnostics() {
     if (!state.diagnostics) return;
     const r = state.statsReport || {};
-    const label = state.localVerified ? 'Verified local file' : state.bufferedMode ? 'Buffered HTTP/HLS' : 'Live P2P';
+    const rolling=window.MarmaladeRollingBuffer?.getStatus();
+    const label = state.localVerified ? 'Verified local file' : state.source==='buffered-guest' ? 'Buffered original file' : state.bufferedMode ? 'Buffered HTTP/HLS' : 'Live P2P';
     el.stabilityInfo.textContent = `${label} | ${state.stabilityMode} | decoded FPS ${Math.round(r.fps || 0)} ` +
       `| loss ${((r.loss || 0) * 100).toFixed(1)}% | network jitter ${Math.round(r.packetJitterMs ?? r.jitter ?? 0)}ms ` +
       `| RTT ${Math.round(state.latencyStats?.rttMs || state.observedRtt || 0)}ms | ahead ${bufferAhead().toFixed(1)}s ` +
@@ -2255,6 +2352,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       (state.latencyStats ? ` | playout ${Math.round(state.latencyStats.playoutMs||0)}ms | receiver ${state.latencyStats.width||'?'}x${state.latencyStats.height||'?'} | decoder ${state.latencyStats.decoder||'unknown'}` : '') +
       (state.highEncoderStats ? ` | encoded ${Math.round(state.highEncoderStats.fps||0)}fps | encoder ${state.highEncoderStats.encoder||'unknown'} | limit ${state.highEncoderStats.limit||'unknown'} | headroom x${(state.highEncoderStats.headroomFactor||1).toFixed(2)}` : '') +
       ` | assessment ${performanceDiagnosis()}` +
+      (rolling ? ` | rolling ${rolling.seconds.toFixed(1)}/${rolling.target}s | capacity ${rolling.capacity.toFixed(1)}s${rolling.reconnecting?' | reconnecting':''}${rolling.quotaLimited?' | browser quota limited':''} | temporary range cache ${rolling.diskAvailable?(rolling.diskBytes/1048576).toFixed(1)+' MiB':'unavailable'}` : '') +
       ((state.bufferedMode || state.localVerified) && media.duration ? ` | drift ${Math.round((expectedHostTime()-media.currentTime)*1000)}ms` : '');
   }
   function recomputeBufferTarget(report = {}) {
@@ -2822,11 +2920,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     for(const entry of state.connections.values())entry.bufferedFile=false;
     releaseWakeLock();
     if (state.interval) { window.clearInterval(state.interval); state.interval = null; }
+    if(state.baseFrameHandle!=null){try{media.cancelVideoFrameCallback?.(state.baseFrameHandle);}catch{}state.baseFrameHandle=null;}
     state.basePaint = null;
     state.basePaintIdle = false;
     if (state.qualityTimer) { window.clearInterval(state.qualityTimer); state.qualityTimer = null; }
     if (state.animationFrame) { cancelAnimationFrame(state.animationFrame); state.animationFrame = 0; }
     // AudioContext's destination is reused; never end its audio track.
+    if(state.canvasStream)for(const track of state.canvasStream.getVideoTracks())track.stop();
     if (state.outgoing && !keepScreen) for (const track of state.outgoing.getVideoTracks()) track.stop();
     if (state.outgoing && keepScreen && state.source !== 'screen') for (const track of state.outgoing.getVideoTracks()) track.stop();
     if (state.screenStream && !keepScreen) for (const track of state.screenStream.getTracks()) track.stop();
@@ -4591,7 +4691,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const guestRemote=state.role==='guest' && state.source==='remote';
     if(guestRemote){
       primeGuestAudioFromGesture(true);recoverGuestSound();
-      if(state.volumePercent>100&&!state.guestAudioFallback)enableGuestAudioRelay(media.srcObject);
+      if((audioProtection.checked||state.volumePercent>100)&&!state.guestAudioFallback)enableGuestAudioRelay(media.srcObject);
       return !!state.guestAudioFallback;
     }
     if(!state.audioContext){
@@ -4607,7 +4707,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       state.audioSourceNode=state.audioContext.createMediaElementSource(media);
       state.speakerGain=state.audioContext.createGain();
       state.audioSourceNode.connect(state.speakerGain);
-      state.speakerGain.connect(state.audioContext.destination);
+      routePersonalAudio(state.speakerGain,state.audioContext);
       media.volume=1;
     };
     // createMediaElementSource immediately redirects native media output into
@@ -4632,7 +4732,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Native mute is a hard safety gate even when Web Audio exists but is suspended.
     // Gain is applied to speakers only; it is never part of the outgoing P2P track.
     const hardMute = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;
-    media.muted = hardMute || (state.guestAudioFallback&&state.guestAudioContext?.state==='running') || (state.role==='guest'&&state.source==='remote'&&state.audioUnlockRequired);
+    const isolatedHostAudio=state.role==='host'&&['file','native'].includes(state.source)&&state.audioDestination&&state.audioContext?.state==='running';
+    media.muted = (!isolatedHostAudio&&hardMute) || (state.guestAudioFallback&&state.guestAudioContext?.state==='running') || (state.role==='guest'&&state.source==='remote'&&state.audioUnlockRequired);
     if(state.guestAudioGain && state.guestAudioContext){
       try{
         const ctx=state.guestAudioContext;
@@ -4644,11 +4745,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // control source playback or the outgoing MediaStream, so remote viewers
     // and verified local copies remain on the original host timeline.
     const mirror=state.role==='host' && state.hostMonitorActive;
-    try { media.volume = mirror ? 0 : state.speakerGain ? 1 : Math.min(1,level); } catch {}
+    try { media.volume = isolatedHostAudio ? 1 : mirror ? 0 : state.speakerGain ? 1 : Math.min(1,level); } catch {}
     if (state.speakerGain) {
       const now = state.audioContext.currentTime;
       state.speakerGain.gain.cancelScheduledValues(now);
-      state.speakerGain.gain.setTargetAtTime(mirror || state.guestAudioFallback ? 0 : level, now,.012);
+      state.speakerGain.gain.setTargetAtTime(hardMute || mirror || state.guestAudioFallback ? 0 : level, now,.012);
     }
     const monitor=$('hostMonitor');
     if(monitor){
@@ -4716,20 +4817,36 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     canvas.height = Math.max(2, Math.round((media.videoHeight || STREAM_HEIGHT) * ratio));
     const context = canvas.getContext('2d', { alpha: false, desynchronized: true });
     if (!context || !canvas.captureStream) throw new Error('This browser cannot capture video frames.');
-    const paint = () => {
-      if (media.readyState >= 2) {
-        try { context.drawImage(media, 0, 0, canvas.width, canvas.height); }
-        catch { /* retry next frame */ }
-      }
+    // Use the same single-clock strategy as the high-resolution capture.
+    // A fixed canvas capture clock plus a fixed draw clock can undersample
+    // each other, even when the movie itself is decoding at full frame rate.
+    let stream=canvas.captureStream(0),v=stream.getVideoTracks()[0];
+    const manual=typeof v?.requestFrame==='function';
+    if(!manual){v?.stop();stream=canvas.captureStream(STREAM_FPS);v=stream.getVideoTracks()[0];}
+    state.canvasStream=stream;
+    // Match the verified high-tier manual capture cadence. Avoid comparing
+    // media.currentTime to frame metadata: the two timestamps can describe
+    // different frames and their mixed-clock deduplication drops real frames.
+    let lastPaint=-Infinity;
+    const paint=(now=performance.now())=>{
+      if(state.canvasStream!==stream||media.readyState<2||v?.readyState!=='live'||now-lastPaint<1000/30-4)return;
+      lastPaint=now;
+      try{
+        context.drawImage(media,0,0,canvas.width,canvas.height);
+        if(manual)v.requestFrame();
+      }catch{}
     };
-    paint();
-    // Limit raw pixels before the multiple WebRTC encoders, not just afterward.
-    // 24fps/540p reduces host load significantly without reducing local playback.
-    state.basePaint = paint;
-    state.basePaintIdle = false;
-    state.interval = window.setInterval(paint, Math.round(1000 / STREAM_FPS));
-    state.canvasStream = canvas.captureStream(STREAM_FPS);
-    const v=state.canvasStream.getVideoTracks()[0];
+    state.basePaint=paint;state.basePaintIdle=false;
+    paint(performance.now());
+    state.interval=window.setInterval(()=>{if(!media.paused)paint(performance.now());},Math.round(1000/STREAM_FPS));
+    if(manual&&typeof media.requestVideoFrameCallback==='function'){
+      const onFrame=now=>{
+        if(state.canvasStream!==stream||v.readyState!=='live')return;
+        if(!state.basePaintIdle)paint(now);
+        state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
+      };
+      state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
+    }
     if(v && 'contentHint' in v)try{v.contentHint='motion';}catch{}
     return v;
   }
@@ -4767,13 +4884,16 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Use Web Audio only for browsers without a usable native audio track,
     // or if a speaker-gain graph was explicitly created (e.g. 200% volume).
     let audioTracks = nativeAudioTracks.filter(t => t.readyState === 'live' && t.enabled);
-    if (!audioTracks.length || state.audioSourceNode) {
+    // A broadcast needs pre-speaker-gain audio even when the host changes volume,
+    // mutes or enables the delayed monitor. Native capture may reflect element volume.
+    {
       try {
         await ensureAudioCapture();
         const processed = state.audioDestination?.stream.getAudioTracks()
           .filter(t => t.readyState === 'live') || [];
-        if (processed.length && state.audioContext?.state === 'running')
-          audioTracks = processed;
+        if (processed.length && state.audioContext?.state === 'running'){
+          audioTracks = processed;applyVolume();
+        }
         else if(!audioTracks.length && processed.length)
           audioTracks = processed; // Will become audible on a host gesture.
       } catch (error) { console.debug('Native audio capture fallback', error); }
@@ -4948,6 +5068,21 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         hostMonitor.addEventListener('error',fail,{once:true});
       });
       if(!state.hostMonitorRequested || state.source!=='file')return;
+      // If the source was captured natively because the audio context was blocked,
+      // don't silence it until an independent outgoing track can be installed.
+      const outgoingAudio=state.outgoing?.getAudioTracks?.()||[];
+      if(outgoingAudio.length && !outgoingAudio.some(t=>state.audioDestination?.stream.getAudioTracks().includes(t))){
+        await ensureAudioCapture();
+        const replacement=state.audioDestination?.stream.getAudioTracks()[0];
+        if(!replacement||state.audioContext?.state!=='running')throw Error('Independent broadcast audio unavailable');
+        for(const entry of state.connections.values()){
+          const senders=entry.call?.peerConnection?.getSenders?.()||[];
+          for(const sender of senders)if(sender.track?.kind==='audio')await sender.replaceTrack(replacement);
+        }
+        for(const old of outgoingAudio)state.outgoing.removeTrack(old);
+        state.outgoing.addTrack(replacement);
+      }
+      if(!state.hostMonitorRequested || state.source!=='file')return;
       state.hostMonitorDelayMs=guestMonitorDelay();
       const target=Math.max(0,media.currentTime-state.hostMonitorDelayMs/1000);
       if(Number.isFinite(target))hostMonitor.currentTime=target;
@@ -5001,7 +5136,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   let hostMonitorAudioContext=null,hostMonitorAudioGain=null,hostMonitorGainPending=false;
   function updateHostMonitorGain(){
     if(!state.hostMonitorActive)return;
-    if(state.volumePercent>100&&!hostMonitorAudioGain&&!hostMonitorGainPending){
+    if((audioProtection.checked||state.volumePercent>100)&&!hostMonitorAudioGain&&!hostMonitorGainPending){
       const Context=window.AudioContext||window.webkitAudioContext;
       if(Context){
         try{
@@ -5010,7 +5145,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           const connect=()=>{
             if(ctx.state!=='running'||hostMonitorAudioGain||!state.hostMonitorActive)return;
             const source=ctx.createMediaElementSource(hostMonitor),gain=ctx.createGain();
-            source.connect(gain);gain.connect(ctx.destination);
+            source.connect(gain);routePersonalAudio(gain,ctx);
             hostMonitorAudioGain=gain;applyVolume();
           };
           if(ctx.state==='running'){hostMonitorGainPending=false;connect();}
@@ -5111,7 +5246,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   for(const event of ['playing','loadeddata','canplay'])media.addEventListener(event,()=>{
     if(state.role==='guest'&&state.source==='remote'){primeGuestAudioFromGesture(true);recoverGuestSound();}
-    else if(state.source&&state.volumePercent>100)void ensureAudioPlayback().catch(()=>{});
+    else if(state.source&&(audioProtection.checked||state.volumePercent>100))void ensureAudioPlayback().catch(()=>{});
   });
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState!=='visible')return;
@@ -5456,6 +5591,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     updateSubtitles();revealControls();
     window.dispatchEvent(new Event('marmalade:subtitles-loaded'));
     window.dispatchEvent(new Event('marmalade:subtitles-changed'));
+    void restoreSecondarySubtitle();
     if(key){
       const record={kind:source.kind==='search'?'search':'local',name:file.name,
         containerName:original.name,entryName:file.name,
@@ -5666,7 +5802,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Local movies can use the browser's native cue scheduler, including when
     // the tab is backgrounded. Remote live streams need clock mapping.
     const local=state.role==='host'||state.localVerified||state.bufferedMode||state.source==='hosted-guest';
-    const signature=String(state.subtitlesEnabled)+'|'+state.subtitleIdentity+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0);
+    const signature=String(state.subtitlesEnabled)+'|'+state.subtitleIdentity+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0)+'|'+state.secondarySubtitleRevision;
     if(local){
       if(nativePipLocalCues&&nativePipLocalSignature===signature)return;
       for(const cue of Array.from(nativePipTrack.cues||[]))nativePipTrack.removeCue(cue);
@@ -5674,6 +5810,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(state.subtitlesEnabled&&typeof VTTCue==='function')for(const cue of state.subtitles){
         const offset=Number(state.subtitleOffsetSeconds)||0;
         const start=Math.max(0,cue.start+offset),end=cue.end+offset;
+        if(end<=start)continue;
+        const nativeCue=new VTTCue(start,end,String(cue.text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+        nativeCue.align='center';nativePipTrack.addCue(nativeCue);
+      }
+      if(state.subtitlesEnabled&&typeof VTTCue==='function')for(const cue of state.secondarySubtitles){
+        const start=Math.max(0,cue.start+state.secondarySubtitleOffset),end=cue.end+state.secondarySubtitleOffset;
         if(end<=start)continue;
         const nativeCue=new VTTCue(start,end,String(cue.text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
         nativeCue.align='center';nativePipTrack.addCue(nativeCue);
@@ -6005,6 +6147,22 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.stabilityMode=storedStability;
   }
   state.strictSync=el.strictSync.checked=localPreference('strict-sync','true')==='true';
+  const originalBuffer=$('allowOriginalBuffer');
+  state.allowOriginalBuffer=originalBuffer.checked=localPreference('original-file-buffer','true')==='true';
+  originalBuffer.addEventListener('change',()=>{
+    state.allowOriginalBuffer=originalBuffer.checked;
+    rememberPreference('original-file-buffer',state.allowOriginalBuffer);
+    if(state.role!=='host')return;
+    if(!state.allowOriginalBuffer){
+      window.MarmaladeRollingBuffer?.closeHost();
+      for(const [peerId,entry] of state.connections){
+        if(!entry.bufferedFile)continue;
+        entry.bufferedFile=false;entry.bufferReady=null;
+        if(state.outgoing&&!entry.localMirror)callGuest(peerId);
+      }
+    }
+    syncState();
+  });
   state.peerAssistance=el.peerAssist.checked=localPreference('peer-assist','true')==='true';
   el.stabilityMode.addEventListener('change',()=>{
     state.highPlayoutTarget=0;
@@ -6201,6 +6359,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       else if(state.source&&(state.volumePercent>100||state.audioContext))void ensureAudioPlayback().catch(()=>{});
     });
   }
+  audioProtection.addEventListener('change',()=>{
+    rememberPreference('audio-peak-protection',audioProtection.checked);
+    routePersonalAudio(state.speakerGain,state.audioContext);
+    routePersonalAudio(state.guestAudioGain,state.guestAudioContext);
+    routePersonalAudio(hostMonitorAudioGain,hostMonitorAudioContext);
+    if(state.role==='guest'&&state.source==='remote'){primeGuestAudioFromGesture(true);recoverGuestSound();}
+    else if(state.source&&state.source!=='screen'&&audioProtection.checked)void ensureAudioPlayback().catch(()=>{});
+    if(state.hostMonitorActive)updateHostMonitorGain();
+  });
   el.mute.addEventListener('click', () => {
     state.soundMuted = state.volumePercent>0&&!state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = Math.min(volumeMax,Math.round(state.lastVolume*100/volumeStep)*volumeStep||100);
@@ -6475,7 +6642,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   });
   media.addEventListener('timeupdate', () => {
     saveWatchPosition();
-    if (state.role === 'host' && ['file','hosted'].includes(state.source)) { updateTransport(); syncState(); }
+    if (state.role === 'host' && ['file','native','hosted'].includes(state.source)) { updateTransport(); syncState(); }
   });
   window.setInterval(() => {
     if(state.role==='guest'&&state.guestConn?.open&&!state.seeking){
@@ -6621,20 +6788,20 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 </script>
 <script src="./mkv-decoder-io.js?v=20261120-webview-range-audio-v2"></script>
 <script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
-<script src="./rolling-buffer.js?v=20261126-v2"></script>
+<script src="./rolling-buffer.js?v=20261126-audit-v5"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
-<script src="./media-library.js?v=20261121-extension-retention-v1" defer></script>
-<script src="./games.js?v=20261121-browser-independent-v3" defer></script>
+<script src="./media-library.js?v=20261126-audit-v5" defer></script>
+<script src="./games.js?v=20261126-audit-v4" defer></script>
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261126-subtitle-compact-v3"></script>
-<script src="./settings-layout.js?v=20261126-volume-controls-v1"></script>
+<script src="./settings-layout.js?v=20261126-audit-v5"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261126-docked-local-resume-v1"></script>
 <script src="./rapid-controls.js?v=20261126-docked-local-resume-v1"></script>
-<script src="./subtitle-compact.js?v=20261126-glass-audit-v1"></script>
+<script src="./subtitle-compact.js?v=20261126-audit-v3"></script>
 <script src="./seek-preview.js?v=20261118-full-duration-v1"></script>
 <script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>
 <script src="./standalone-pip.js?v=20261126-background-pip-v2"></script>

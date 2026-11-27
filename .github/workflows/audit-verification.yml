@@ -1,0 +1,41 @@
+name: Marmaladeum audit verification
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: marmalade-audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check rolling-buffer.js && node --check sw.js && node --check settings-layout.js
+      - run: node --test tests/rolling-buffer.test.cjs tests/offline-shell.test.cjs tests/library-reconcile.test.mjs tests/game-randomization.test.mjs
+      - run: node scripts/install-mkv-decoder.mjs
+      - run: node --test tests/mkv-compatibility.test.cjs tests/mkv-playback-pipeline.test.cjs
+      - run: node scripts/validate-mkv-decoder-assets.mjs
+  browser:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --no-package-lock playwright@1.51.1
+      - run: npx playwright install --with-deps ${{ matrix.engine }}
+      - run: node scripts/install-mkv-decoder.mjs
+      - run: |
+          python3 -m http.server 8080 > /tmp/marmalade-server.log 2>&1 &
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8080/index.html >/dev/null && break; sleep 1; done
+          node tests/audit-browser-smoke.mjs ${{ matrix.engine }}

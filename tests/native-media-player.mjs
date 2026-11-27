@@ -69,11 +69,15 @@ const listen=server=>new Promise((resolve,reject)=>{
 let browser;
 try{
   await listen(app);await listen(mediaServer);
-  browser=await chromium.launch({headless:true,
+  // The unbranded headless Chromium shell may lack proprietary H.264/AAC codecs.
+  // This native MP4 compatibility test must run on a codec-capable browser.
+  browser=await chromium.launch({channel:'chrome',headless:true,
     args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});
   const page=await browser.newPage();
-  const errors=[];
+  const errors=[],mediaRequests=[];
   page.on('pageerror',error=>errors.push(String(error)));
+  page.on('requestfailed',request=>{if(request.url().includes(':18761/'))mediaRequests.push({failed:request.failure()?.errorText});});
+  page.on('response',response=>{if(response.url().includes(':18761/'))mediaRequests.push({status:response.status()});});
   await page.route('**/peerjs@*/**',route=>route.fulfill({
     status:200,contentType:'application/javascript',
     body:'window.Peer=class{constructor(){this.open=false}on(){}destroy(){}};'
@@ -95,12 +99,17 @@ try{
   await page.goto('http://127.0.0.1:'+originPort+'/',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>Boolean(window.MarmaladeMediaLibrary?.ready));
   await page.evaluate(()=>window.MarmaladeMediaLibrary.ready);
+  // Native integration is optional, not an automatic dependency of the site.
+  // Explicitly load the granted compatibility catalog before exercising playback.
+  const imported=await page.evaluate(()=>window.MarmaladeMediaLibrary.syncFromNative());
+  assert.equal(imported.count,1,'Granted native catalog is available through the optional bridge');
   await page.locator('#settingsBtn').click();
   await page.locator('#mlVisibilityToggle').check();
   await page.locator('#closeSettingsPanel').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(
     l=>l.name==='Native Movies'&&l.count===1));
   const video=page.locator('#mlCards .ml-card').filter({hasText:'Controls'});
+  await video.waitFor({state:'visible'});
   assert.equal(await video.count(),1);
   await video.click();
   await page.waitForFunction(()=>{
@@ -111,14 +120,17 @@ try{
       !document.querySelector('#skipForward').disabled&&
       !document.querySelector('#seek').disabled&&
       player?.media?.duration>10;
-  },null,{timeout:20000});
+  },null,{timeout:20000}).catch(async error=>{
+    console.error('NATIVE PLAYBACK DIAGNOSTICS',JSON.stringify({mediaRequests,errors,browser:await page.evaluate(()=>{const {state,media}=window.MarmaladeAddonBridge;return {role:state.role,source:state.source,fileReady:state.fileReady,readyState:media.readyState,networkState:media.networkState,error:media.error?.message,code:media.error?.code,duration:media.duration,canMP4:media.canPlayType('video/mp4; codecs="avc1.42E01E,mp4a.40.2"'),canWebM:media.canPlayType('video/webm; codecs="vp8,opus"'),url:media.currentSrc,toast:document.querySelector('#toast')?.textContent,libraryStatus:document.querySelector('#mlStatus')?.textContent};})}));throw error;
+  });
   const actual=await page.evaluate(()=>({
     source:window.MarmaladeAddonBridge.state.source,
     ready:window.MarmaladeAddonBridge.state.fileReady,
     name:document.querySelector('#fileName')?.textContent,
-    stage:document.querySelector('#stage').className
+    stage:document.querySelector('#dropZone').className
   }));
   assert.equal(actual.source,'native');
+  await page.waitForFunction(()=>!document.querySelector('#player').paused,null,{timeout:8000});
   await page.locator('#playPause').click();
   let paused=await page.locator('#player').evaluate(m=>m.paused);
   assert.equal(paused,true,'Native video responds to the normal pause control');

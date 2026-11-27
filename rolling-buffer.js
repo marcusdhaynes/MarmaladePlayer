@@ -4,7 +4,7 @@
  */
 (function(root){
  'use strict';
- const TARGET=180,LOW=3,BLOCK=1024*1024,PART=16*1024,CACHE_LIMIT=24*BLOCK;
+ const TARGET=180,LOW=3,BLOCK=1024*1024,PART=16*1024,CACHE_LIMIT=24*BLOCK,QUOTA_RETRY_MS=30000;
  const LABEL='marmalade-buffer-v1';
  const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  const bridge=()=>root.MarmaladeAddonBridge;
@@ -16,8 +16,63 @@
    return 0;
  }
  function goal(time,duration){return Math.max(0,Math.min(TARGET+5,duration-time));}
+ function playable(ranges,time,duration){return ahead(ranges,time)>=Math.min(LOW,goal(time,duration))-.05;}
  function validRange(offset,length,total){
    return Number.isSafeInteger(offset)&&Number.isSafeInteger(length)&&offset>=0&&length>0&&length<=BLOCK&&offset<total&&length<=total-offset;
+ }
+ // A second-tier, encrypted temporary range cache. The key is only in RAM:
+ // browser crashes cannot leave readable movie data behind. Storage is optional
+ // and bounded; MSE playable-buffer quota remains a separate browser limit.
+ async function openDiskCache(env,limit=128*BLOCK){
+   if(!env?.caches||!env.crypto?.subtle||!env.crypto.randomUUID||!env.Response||!env.URL||!env.location)return null;
+   const prefix='marmalade-range-v1-',name=prefix+Date.now()+'-'+env.crypto.randomUUID();
+   let cache,key;
+   try{
+     key=await env.crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+     // Remove abandoned encrypted caches only; do not touch other app caches.
+     const stale=Date.now()-24*60*60*1000;
+     for(const n of await env.caches.keys()){
+       if(n.startsWith(prefix)&&Number(n.slice(prefix.length).split('-')[0])<stale)
+         await env.caches.delete(n).catch(()=>{});
+     }
+     cache=await env.caches.open(name);
+   }catch{return null;}
+   const entries=new Map();let bytes=0,closed=false,tail=Promise.resolve();
+   const url=offset=>new env.URL('/__marmalade_temporary_range__/'+offset,env.location.origin).href;
+   const queue=fn=>{const next=tail.then(fn);tail=next.catch(()=>{});return next;};
+   return {
+     get size(){return bytes;},
+     get:offset=>queue(async()=>{
+       if(closed||!entries.has(offset))return null;
+       try{
+         const res=await cache.match(url(offset));if(!res)throw Error('Cache entry evicted');
+         const data=new Uint8Array(await res.arrayBuffer());
+         const clear=await env.crypto.subtle.decrypt({name:'AES-GCM',iv:data.subarray(0,12)},key,data.subarray(12));
+         const result=new Uint8Array(clear);
+         if(result.length!==entries.get(offset))throw Error('Invalid cached range');
+         entries.delete(offset);entries.set(offset,result.length);return result;
+       }catch{
+         bytes-=entries.get(offset)||0;entries.delete(offset);
+         await cache.delete(url(offset)).catch(()=>{});return null;
+       }
+     }),
+     put:(offset,data)=>queue(async()=>{
+       if(closed||entries.has(offset)||data.byteLength>limit)return false;
+       try{
+         while(entries.size&&bytes+data.byteLength>limit){
+           const k=entries.keys().next().value;
+           await cache.delete(url(k));bytes-=entries.get(k);entries.delete(k);
+         }
+         const iv=env.crypto.getRandomValues(new Uint8Array(12));
+         const cipher=new Uint8Array(await env.crypto.subtle.encrypt({name:'AES-GCM',iv},key,data));
+         if(closed)return false;
+         const packed=new Uint8Array(iv.length+cipher.length);packed.set(iv);packed.set(cipher,iv.length);
+         await cache.put(url(offset),new env.Response(packed));
+         entries.set(offset,data.byteLength);bytes+=data.byteLength;return true;
+       }catch{return false;}
+     }),
+     close:()=>{closed=true;return queue(async()=>{entries.clear();bytes=0;key=null;await env.caches.delete(name).catch(()=>{});});}
+   };
  }
  function hostSource(state){
    if(state?.source==='file'&&state.file?.size)return state.file;
@@ -26,7 +81,7 @@
  }
  function offer(){
    const a=bridge(),s=a?.state,file=hostSource(s);
-   if(!s||s.role!=='host'||!s.broadcasting||!s.fileReady||!file)return null;
+   if(!s||s.role!=='host'||!s.broadcasting||!s.fileReady||!file||s.allowOriginalBuffer===false)return null;
    if(!keys.has(file))keys.set(file,crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join(''));
    return {id:keys.get(file),size:file.size||file.length,name:file.name};
  }
@@ -38,12 +93,15 @@
    const file=hostSource(a.state);
    for(const prior of hostChannels)if(prior.peer===conn.peer)prior.close();
    hostChannels.add(conn);
-   let busy=false;
+   let busy=false,invalid=0,lastId=0;
    const authorized=()=>conn.open&&a.state.connections.get(conn.peer)?.conn.open&&hostSource(a.state)===file&&offer()?.id===o.id;
    const reply=m=>{if(authorized())conn.send(m);};
    conn.on('data',async m=>{
      if(!authorized()){conn.close();return;}
-     if(m?.type!=='read'||!Number.isSafeInteger(m.id)||!validRange(m.offset,m.length,o.size)||busy)return;
+     if(m?.type!=='read'||!Number.isSafeInteger(m.id)||m.id<=lastId||!validRange(m.offset,m.length,o.size)||busy){
+       if(++invalid>=8)conn.close();return;
+     }
+     invalid=0;lastId=m.id;
      busy=true;
      try{
        const bytes=new Uint8Array(await (file.read?file.read(m.offset,m.length):file.slice(m.offset,m.offset+m.length).arrayBuffer()));
@@ -72,6 +130,7 @@
    s.closed=true;clearInterval(s.timer);clearTimeout(s.kickTimer);
    for(const req of s.requests.values()){clearTimeout(req.timer);req.reject(Error('Buffer session cancelled'));}
    s.requests.clear();s.cache.clear();
+   void s.disk?.close();s.disk=null;
    try{s.conn?.close();}catch{}
    try{Promise.resolve(s.remuxer?.destroy?.()).catch(()=>{});}catch{}
    if(s.url)URL.revokeObjectURL(s.url);
@@ -122,10 +181,15 @@
      const pos=offset+written,start=Math.floor(pos/BLOCK)*BLOCK;
      let block=s.cache.get(start);
      if(!block){
-       block=new Uint8Array(await request(s,start,Math.min(BLOCK,s.offer.size-start)));
+       const expected=Math.min(BLOCK,s.offer.size-start);
+       block=await s.disk?.get(start);
+       if(!block||block.length!==expected){
+         if(!current(s))throw Error('Buffer session cancelled');
+         block=new Uint8Array(await request(s,start,expected));
+       }
        if(!current(s))throw Error('Buffer session cancelled');
        s.cache.set(start,block);s.cacheBytes+=block.length;
-       while(s.cacheBytes>CACHE_LIMIT){const k=s.cache.keys().next().value;s.cacheBytes-=s.cache.get(k).length;s.cache.delete(k);}
+       while(s.cacheBytes>CACHE_LIMIT){const k=s.cache.keys().next().value,evicted=s.cache.get(k);s.cacheBytes-=evicted.length;s.cache.delete(k);if(s.disk)await s.disk.put(k,evicted);}
      }else{s.cache.delete(start);s.cache.set(start,block);}
      const count=Math.min(length-written,block.length-(pos-start));
      out.set(block.subarray(pos-start,pos-start+count),written);written+=count;
@@ -159,7 +223,12 @@
  async function pump(s){
    if(!current(s)||!s.buffer||s.running||s.buffer.updating||s.reconnecting)return;
    const a=bridge(),v=a.media,time=position(s);
-   const available=ahead(s.buffer.buffered,time),wanted=Math.min(s.capacity,goal(time,s.duration));
+   const available=ahead(s.buffer.buffered,time);
+    // Recover the target gradually after a browser quota event; do not permanently lock a room to the first observed limit.
+    if(s.capacity<TARGET+5&&Date.now()>=(s.quotaRetryAt||0)){
+      s.capacity=Math.min(TARGET+5,Math.max(LOW,s.capacity+5));s.quotaRetryAt=Date.now()+QUOTA_RETRY_MS;
+    }
+    const wanted=Math.min(s.capacity,goal(time,s.duration));
    if(available>=wanted-.15){kick(s,200);return;}
    s.running=true;
    try{
@@ -185,7 +254,7 @@
          catch(e2){
            if(e2.name!=='QuotaExceededError')throw e2;
            // Device MSE quota is a hard limit; report actual buffered seconds.
-           s.capacity=Math.max(LOW,ahead(s.buffer.buffered,latest)-.25);
+           s.capacity=Math.max(LOW,ahead(s.buffer.buffered,latest)-.25);s.quotaRetryAt=Date.now()+QUOTA_RETRY_MS;
            s.cursor=null;kick(s,500);return;
          }
        }
@@ -193,9 +262,9 @@
        s.cursor=latest+ahead(ranges,latest);
        if(!ahead(ranges,latest)&&ranges.length)s.cursor=ranges.end(ranges.length-1);
        s.emptyReads=0;
-       if(!s.ready&&ahead(ranges,latest)>.1){
+       if(!s.ready&&playable(ranges,latest,s.duration)){
          s.ready=true;send(s,{type:'buffered-file-active',id:s.offer.id,active:true});
-         send(s,{type:'buffer-status',ready:ahead(ranges,latest)>=Math.min(LOW,goal(latest,s.duration))});
+         send(s,{type:'buffer-status',ready:playable(ranges,latest,s.duration)});
          const call=a.state.guestCall;a.state.guestCall=null;try{call?.close();}catch{}
        }
        a.updateBufferDisplay();a.recoveryCheck();a.updateQualityHint?.();void a.syncSeekablePlayback();
@@ -250,6 +319,8 @@
    const s={offer:o,control,conn:null,requests:new Map(),sequence:0,cache:new Map(),cacheBytes:0,readTail:Promise.resolve(),closed:false,attached:false,ready:false,running:false,cursor:null,capacity:TARGET+5,emptyReads:0};
    session=s;
    try{
+     // Optional storage must never delay room playback or connection setup.
+     void openDiskCache(root).then(disk=>{if(current(s))s.disk=disk;else void disk?.close();}).catch(()=>{});
      await openChannel(s);
      if(!current(s))return;
      const module=await import('./vendor/libav-wasm/index.js');
@@ -282,7 +353,7 @@
      await update(s.buffer,()=>s.buffer.appendBuffer(header.data));
      if(!current(s))return;
      a.media.currentTime=position(s);
-     s.timer=setInterval(()=>{kick(s);if(s.ready&&Date.now()-(s.lastReport||0)>1000){s.lastReport=Date.now();const t=position(s);send(s,{type:'buffer-status',ready:ahead(s.buffer.buffered,t)>=Math.min(LOW,goal(t,s.duration))});}},250);
+     s.timer=setInterval(()=>{kick(s);if(s.ready&&Date.now()-(s.lastReport||0)>1000){s.lastReport=Date.now();const t=position(s);send(s,{type:'buffer-status',ready:playable(s.buffer.buffered,t,s.duration)});}},250);
      kick(s);
    }catch(e){if(current(s))stop(true,e.message);}
  }
@@ -299,15 +370,15 @@
  function observe(o){
    const a=bridge(),s=a?.state;
    if(!s||s.role!=='guest'||s.localVerified){stop();return;}
-   if(!validOffer(o)){if(session)stop();return;}
+   if(!validOffer(o)){if(session)stop(true,'Original-file buffering no longer available');return;}
    if(session?.offer.id===o.id){kick(session);return;}
    if(session)stop();
    if(failedKey===o.id&&Date.now()<retryAt)return;
    if(s.guestConn?.open)void start(o,s.guestConn);
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,goal,validRange,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,goal,playable,validRange,openDiskCache,TARGET};
  if(!root)return;
- root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?{target:TARGET,capacity:session.capacity,ready:session.ready}:null};
+ root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?{target:TARGET,capacity:session.capacity,ready:session.ready,seconds:session.buffer&&current(session)?ahead(session.buffer.buffered,position(session)):0,reconnecting:!!session.reconnecting,quotaLimited:session.capacity<TARGET+5,diskBytes:session.disk?.size||0,diskAvailable:!!session.disk}:null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});
  const media=bridge()?.media;
  for(const event of ['play','pause','seeking','seeked','waiting','stalled','loadeddata','canplay','progress','timeupdate','suspend','ended'])media?.addEventListener(event,()=>{if(session)kick(session);});

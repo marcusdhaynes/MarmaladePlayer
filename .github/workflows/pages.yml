@@ -37,7 +37,9 @@ jobs:
           node scripts/validate-mkv-decoder-assets.mjs
           node --check auto-mkv-audio.js
           node --check rolling-buffer.js
-          node --test tests/rolling-buffer.test.cjs
+          node --test tests/rolling-buffer.test.cjs tests/offline-shell.test.cjs
+          node --check sw.js
+          node --check settings-layout.js
           node --check mkv-decoder-io.js
           node --check mkv-asyncify-worker.js
       - name: Validate static web app
@@ -57,9 +59,17 @@ jobs:
           test -s favicon-32.png
           test -s assets/approved-fullbleed-icon.webp
           test -s assets/marmalade-icon.webp
+      - name: Stamp deployment identity and isolate the release cache
+        run: |
+          node -e 'const fs=require("node:fs");const sha=process.env.GITHUB_SHA;fs.writeFileSync("build-info.json",JSON.stringify({commit:sha,run:process.env.GITHUB_RUN_ID}));const sw=fs.readFileSync("sw.js","utf8");fs.writeFileSync("sw.js",sw.replace(/marmalade-shell-v75-audit/,"marmalade-shell-"+sha));'
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
       - id: deployment
         uses: actions/deploy-pages@v4
+      - name: Verify deployed release identity
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          node -e 'const u=new URL("build-info.json",process.env.PAGE_URL.endsWith("/")?process.env.PAGE_URL:process.env.PAGE_URL+"/");u.searchParams.set("verify",process.env.GITHUB_SHA);(async()=>{for(let i=0;i<8;i++){try{const r=await fetch(u,{cache:"no-store"});if(r.ok&&(await r.json()).commit===process.env.GITHUB_SHA)return;}catch{}await new Promise(r=>setTimeout(r,5000));}throw Error("Published commit could not be verified");})().catch(e=>{console.error(e);process.exitCode=1});'

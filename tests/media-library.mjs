@@ -27,8 +27,8 @@ const server=createServer((req,res)=>{
   const file=resolve(root,decodeURIComponent(url.pathname.slice(1)||'index.html'));
   if(file!==root&&!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
   try{
-    res.writeHead(200,{'content-type':mime[extname(file)]||'application/octet-stream'});
-    res.end(readFileSync(file));
+    const data=readFileSync(file);
+    res.writeHead(200,{'content-type':mime[extname(file)]||'application/octet-stream'});res.end(data);
   }catch{res.writeHead(404);res.end();}
 });
 await new Promise(ok=>server.listen(0,'127.0.0.1',ok));
@@ -106,7 +106,7 @@ try{
   await page.locator('#mlNewLibrary').click();
   assert.equal(await page.locator('#mlDialogTitle').textContent(),'Create Library');
   await page.locator('#mlLibraryName').fill('My Movies');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.waitForFunction(()=>document.querySelectorAll('#mlFolderList .ml-folder-entry').length===1);
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('3 videos'));
   assert((await page.locator('#mlScanPreview').textContent()).includes('3 videos'),
@@ -142,8 +142,9 @@ try{
   assert.equal(await page.locator('#mlCards').getByText('Arrival',{exact:false}).count(),1);
   assert.equal(await page.locator('.ml-shelf-edit').count(),1,
     'Every named library exposes a direct pencil edit control');
-  assert.equal(await page.locator('.ml-tool-icon svg.glass-icon').count(),6,
-    'Library actions and the new settings gear share the player SVG style');
+  for(const id of ['mlSettingsBtn','mlQuickAdd','mlQuickAddVideos','mlFindArt','mlRescan','mlManage','mlView']){
+    assert.equal(await page.locator('#'+id+' svg.glass-icon').count(),1,'Missing glass SVG icon: '+id);
+  }
   const arrival=()=>page.locator('#mlCards .ml-card').filter({hasText:'Arrival'});
   const aspect=await arrival().locator('.ml-card-art').evaluate(art=>{
     const bounds=art.getBoundingClientRect();
@@ -199,12 +200,10 @@ try{
   await page.locator('#mlContextMenu').getByText('Edit Details').waitFor({state:'visible'});
   await page.locator('#mlContextMenu').getByText('Mark as Watched').waitFor({state:'visible'});
   // Uploading a poster must use the user's own image, not fetch a metadata API.
+  const posterChooserPromise=page.waitForEvent('filechooser');
   await page.locator('#mlContextMenu').getByText('Edit Poster').click();
-  // Exercise the actual image input/change handler. Some headless WebView/CI
-  // environments suppress native OS picker events for programmatic .click().
-  const posterInput=page.locator('input[type="file"][aria-label="Choose Poster Image"]');
-  await posterInput.waitFor({state:'attached',timeout:5000});
-  await posterInput.setInputFiles({name:'cover.png',mimeType:'image/png',
+  const posterChooser=await posterChooserPromise;
+  await posterChooser.setFiles({name:'cover.png',mimeType:'image/png',
     buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAwAAAASCAIAAADgy6hbAAAAGUlEQVR4nGNcEDCNgRBgIqhiVNGoIiorAgAlRAGq0hp+tgAAAABJRU5ErkJggg==','base64')});
   await page.waitForFunction(()=>Boolean(document.querySelector('#mlCards .ml-card img.ml-art-poster')));
   assert((await arrival().locator('img.ml-art-poster').getAttribute('src')).startsWith('data:image/'),
@@ -266,7 +265,7 @@ try{
   await page.locator('#mlNewLibrary').click();
   await page.locator('#mlLibraryName').fill('Series Shelf');
   await page.locator('#mlLibraryKind').selectOption('tv');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>
     l.name==='Series Shelf'&&l.count===2));
@@ -334,7 +333,7 @@ try{
   });
   await page.locator('#mlNewLibrary').click();
   await page.locator('#mlLibraryName').fill('Disk Media');
-  await page.locator('#mlPickFolder').click();
+  await page.locator('#mlCompatibilityFolder').click();
   await page.waitForFunction(()=>document.getElementById('mlScanPreview')?.textContent.includes('1 video'));
   await page.locator('#mlDialogSave').click();
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.name==='Disk Media'&&l.count===1));

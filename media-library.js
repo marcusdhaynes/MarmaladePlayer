@@ -304,6 +304,15 @@
       setting.setAttribute('aria-expanded',String(opening));
     });
     $('mlSettingsClose').addEventListener('click',close);
+    const backupRow=append(settingsPanel,'div','ml-backup-actions');
+    const exportButton=append(backupRow,'button','ml-primary','Export Catalog');exportButton.type='button';exportButton.id='mlExportCatalog';
+    const importButton=append(backupRow,'button','ml-primary','Import Catalog');importButton.type='button';importButton.id='mlImportCatalog';
+    const backupInput=append(backupRow,'input');backupInput.type='file';backupInput.accept='.json,application/json';backupInput.hidden=true;
+    backupInput.id='mlCatalogBackupInput';
+    exportButton.addEventListener('click',downloadLibraryBackup);
+    importButton.addEventListener('click',()=>backupInput.click());
+    backupInput.addEventListener('change',()=>{const file=backupInput.files?.[0];backupInput.value='';void importLibraryBackup(file);});
+    append(settingsPanel,'p','','Portable backups preserve local catalog metadata. Reconnect media folders after importing.');
     document.addEventListener('pointerdown',event=>{
       if(!settingsPanel.hidden&&!settingsPanel.contains(event.target)&&
          !setting.contains(event.target))close();
@@ -387,6 +396,34 @@
     return {id:folder.id+'|'+path,folderId:folder.id,path,name:file.name,
       size:file.size||0,lastModified:file.lastModified||0,addedAt:now(),...info};
   }
+  // Preserve metadata when a unique unchanged file moves inside a scanned
+  // folder. Never guess between equal-size/equal-mtime candidates.
+  function reconcileFolder(previous,found,hiddenIds=[]){
+    const oldById=new Map(previous.map(item=>[item.id,item]));
+    const newIds=new Set(found.map(item=>item.id));
+    const identity=item=>Number(item.size)>0&&Number(item.lastModified)>0?item.size+'|'+item.lastModified:null;
+    const missing=new Map(),added=new Map(),renamed=new Map();
+    const add=(map,key,item)=>{if(key){if(!map.has(key))map.set(key,[]);map.get(key).push(item);}};
+    for(const item of previous)if(!newIds.has(item.id))add(missing,identity(item),item);
+    for(const item of found)if(!oldById.has(item.id))add(added,identity(item),item);
+    for(const item of found){
+      let old=oldById.get(item.id);
+      if(!old){
+        const key=identity(item),from=missing.get(key),to=added.get(key);
+        if(from?.length===1&&to?.length===1){old=from[0];renamed.set(old.id,item.id);}
+      }
+      if(!old)continue;
+      // A replacement at the same path is not the previous movie.
+      if(!item.metadataPending&&old.size>0&&item.size>0&&
+          (old.size!==item.size&&old.lastModified!==item.lastModified))continue;
+      const current={id:item.id,path:item.path,folderId:item.folderId,name:item.name,
+        size:item.metadataPending?old.size:item.size,
+        lastModified:item.metadataPending?old.lastModified:item.lastModified,
+        metadataPending:!!item.metadataPending,addedAt:old.addedAt||item.addedAt};
+      Object.assign(item,old,current);
+    }
+    return [...new Set(hiddenIds.map(id=>renamed.get(id)||id))];
+  }
   function scanPreview(message){
     const el=$('mlScanPreview');
     if(el)el.textContent=message||'';
@@ -410,12 +447,7 @@
           return null;
         }
         state.scanProblems.delete(folder.id);
-        const previous=new Map((draft.items||[]).map(i=>[i.id,i]));
-        for(const item of found){
-          const old=previous.get(item.id);
-          if(old)Object.assign(item,{...old,id:item.id,path:item.path,folderId:item.folderId,
-            name:item.name,size:item.size,lastModified:item.lastModified});
-        }
+        draft.hiddenIds=reconcileFolder((draft.items||[]).filter(i=>i.folderId===folder.id),found,draft.hiddenIds||[]);
         draft.items=(draft.items||[]).filter(i=>i.folderId!==folder.id).concat(found);
         const deferred=found.filter(item=>item.metadataPending).length;
         const direct=state.autoAttachDraft===draft;
@@ -473,8 +505,8 @@
     }
     state.scanning=true;
     const seq=++state.scanSeq,oldItems=(lib.items||[]).slice();
-    const prior=new Map(oldItems.map(item=>[item.id,item]));
     let items=oldItems.slice(),accessIssues=0,folderIssues=0;
+    let hiddenIds=(lib.hiddenIds||[]).slice();
     ui.rescan.disabled=true;notify('Scanning '+lib.name+'…');
     try{
       for(const folder of lib.folders){
@@ -490,16 +522,8 @@
         }
         if(found!==null){
           items=items.filter(item=>item.folderId!==folder.id);
-          for(const item of found){
-            const previous=prior.get(item.id);
-            if(previous){
-              Object.assign(item,{...previous,id:item.id,path:item.path,folderId:item.folderId,
-                name:item.name,size:item.size,lastModified:item.lastModified,
-                metadataPending:!!item.metadataPending,
-                addedAt:previous.addedAt||item.addedAt});
-            }
-          }
-          const blocked=new Set(lib.hiddenIds||[]);
+          hiddenIds=reconcileFolder(oldItems.filter(item=>item.folderId===folder.id),found,hiddenIds);
+          const blocked=new Set(hiddenIds);
           items.push(...found.filter(item=>!blocked.has(item.id)));
           state.scanProblems.delete(folder.id);
         }else{
@@ -508,7 +532,7 @@
         }
       }
       if(seq!==state.scanSeq)return;
-      lib.items=items;
+      lib.items=items;lib.hiddenIds=hiddenIds;
       lib.lastScan=now();
       await persist(lib);
       if(folderIssues)notify('Some folders failed to scan. Edit Library to reconnect; previously indexed titles are kept.');
@@ -1036,6 +1060,13 @@
       image.src=picture;image.loading='lazy';image.alt='';
       image.addEventListener('error',()=>image.remove(),{once:true});
     }
+    if(data.progress){
+      const progress=append(art,'span','ml-card-progress');
+      progress.setAttribute('role','progressbar');progress.setAttribute('aria-label','Watch progress');
+      const percent=Math.max(0,Math.min(100,100*data.progress.time/data.progress.duration));
+      progress.setAttribute('aria-valuemin','0');progress.setAttribute('aria-valuemax','100');progress.setAttribute('aria-valuenow',String(Math.round(percent)));
+      const fill=append(progress,'span','ml-card-progress-fill');fill.style.width=percent+'%';
+    }
     // No letter monograms or folder glyphs above the poster artwork.
     append(art,'span','ml-play-symbol',dir?'›':'▶');
     const copy=append(surface,'span','ml-card-copy');
@@ -1044,6 +1075,10 @@
     const titleYear=String(data.title||data.name||'').match(/\(((?:18|19|20|21)\d{2})\)/);
     const sub=String(data.year||titleYear?.[1]||data.detail||'').trim();
     if(sub)append(copy,'span','ml-card-year',sub);
+    if(data.metadataPending&&sub!=='File access needed'){
+      const access=append(copy,'span','ml-card-year ml-card-access','File access needed');
+      access.title='The file is indexed; its metadata will be verified when accessed.';
+    }
     if(menuTarget?.kind==='item'||menuTarget?.kind==='show'){
       const star=append(surface,'button','ml-card-star',data.favorite?'★':'☆');
       star.type='button';
@@ -1179,6 +1214,18 @@
     state.collection=[...ui.collections.options].some(o=>o.value===current)?current:'all';
     ui.collections.value=state.collection;
   }
+  // Watch progress is already stored by the player. Use exactly its keys,
+  // not a fuzzy movie-title match which could resume a different release.
+  function libraryProgress(){
+    try{const data=JSON.parse(readLocal('marmalade:watch-progress:v1','{}'));return data&&typeof data==='object'&&!Array.isArray(data)?data:{};}catch{return {};}
+  }
+  function progressFor(item,records){
+    const size=Number(item.size)||0,name=String(item.name||'');
+    const candidates=[records['file:'+name.toLowerCase()+'|'+size],records['library:'+String(item.id||name)+'|'+size]];
+    return candidates.filter(r=>r&&Number.isFinite(r.time)&&Number.isFinite(r.duration)&&Number.isFinite(r.updated)&&
+      r.updated>Date.now()-365*86400000&&r.time>=5&&r.duration>0&&r.time<Math.max(r.duration-30,r.duration*.98))
+      .sort((a,b)=>b.updated-a.updated)[0]||null;
+  }
   function filteredItems(){
     let items=shelfItems();
     const search=state.query.trim().toLocaleLowerCase();
@@ -1187,6 +1234,10 @@
     else if(state.kind==='watchlist')items=items.filter(i=>!!i.watchlist);
     else if(state.kind==='watched')items=items.filter(i=>!!i.watched);
     else if(state.kind==='unwatched')items=items.filter(i=>!i.watched);
+    else if(state.kind==='continue'){
+      const records=libraryProgress();
+      items=items.map(item=>({...item,progress:progressFor(item,records)})).filter(item=>item.progress);
+    }
     if(state.collection!=='all'){
       const key=state.collection.startsWith('playlist:')?'playlists':'collections';
       const name=state.collection.slice(state.collection.indexOf(':')+1);
@@ -1196,6 +1247,7 @@
       [i.title,i.show,i.path,i.name,i.libraryName].some(value=>
         String(value||'').toLocaleLowerCase().includes(search)));
     items.sort((a,b)=>{
+      if(state.kind==='continue')return b.progress.updated-a.progress.updated;
       if(state.sort==='recent')return (b.addedAt||0)-(a.addedAt||0)||(a.title||'').localeCompare(b.title||'');
       if(state.sort==='year')return (b.year||0)-(a.year||0)||(a.title||'').localeCompare(b.title||'');
       return (a.show||a.title||'').localeCompare(b.show||b.title||'')||
@@ -1265,12 +1317,17 @@
     const lib=selectedLibrary();
     const items=filteredItems();
     ui.count.textContent=countLabel(items.length);
-    ui.title.textContent=lib?.name||'All Videos';
+    ui.title.textContent=state.kind==='continue'?'Continue Watching':lib?.name||'All Videos';
     ui.manage.disabled=!lib||state.scanning;
     ui.quickAdd.disabled=!lib||state.scanning;
     ui.art.disabled=state.scanning||state.artworkBusy||!items.length;
     ui.rescan.disabled=!state.libraries.length||state.scanning;
     breadcrumbs();
+    if(state.kind==='continue'){
+      for(const item of items.slice(0,state.showCount))ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item),false,{kind:'item',item}));
+      if(!items.length)empty('Nothing to Resume','Partially watched videos in this library will appear here.');
+      more(items.length);return;
+    }
     if(state.folderMode){renderFolders(items);return;}
     if(state.series){
       const episodes=items.filter(i=>i.libraryId===state.series.libId&&i.show===state.series.show);
@@ -1356,14 +1413,8 @@
     }
     more(visible.length);
   }
-  let libraryBackupTimer=null;
-  // The optional WebExtension retains only catalog metadata. Video bytes,
-  // browser File objects and directory handles never cross the site origin.
-  function queueLibraryBackup(){
-    if(!state.backupReady)return;
-    clearTimeout(libraryBackupTimer);
-    libraryBackupTimer=setTimeout(()=>{
-      const libraries=state.libraries.filter(lib=>
+  function portableCatalog(){
+    return state.libraries.filter(lib=>
         !/^(addon:|extlib:)/.test(lib.id)).map(lib=>({
         id:lib.id,name:lib.name,kind:lib.kind,createdAt:lib.createdAt,
         lastScan:lib.lastScan,hiddenIds:lib.hiddenIds||[],
@@ -1382,6 +1433,71 @@
           analyzedAt:item.analyzedAt||null
         }))
       }));
+  }
+  // Portable backup excludes file handles, media bytes, credentials and absolute
+  // native paths. Existing libraries are never replaced by importing a backup.
+  function validatePortableCatalog(data){
+    if(data?.format!=='marmaladeum-library-backup'||data.version!==1||!Array.isArray(data.libraries)||data.libraries.length>500)throw Error('Unrecognized library backup');
+    const string=(v,max)=>typeof v==='string'?v.slice(0,max):'';
+    const number=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0?v:null;
+    const names=v=>Array.isArray(v)?v.filter(x=>typeof x==='string').slice(0,100).map(x=>x.slice(0,180)):[];
+    const safeId=v=>typeof v==='string'&&/^[a-zA-Z0-9._-]{1,100}$/.test(v);
+    const relative=v=>typeof v==='string'&&v.length<=2048&&!/^(?:[\\/]|[a-z]:)/i.test(v)&&!v.includes('\\')&&!v.split('/').some(x=>x==='..'||x==='.'||!x||/[\x00-\x1f]/.test(x));
+    let total=0;const seen=new Set();
+    return data.libraries.map(lib=>{
+      if(!safeId(lib?.id)||seen.has(lib.id)||!Array.isArray(lib.folders)||!Array.isArray(lib.items)||lib.folders.length>1000)throw Error('Invalid or duplicate library record');
+      seen.add(lib.id);total+=lib.items.length;if(total>100000)throw Error('Backup exceeds 100,000 titles');
+      const folderIds=new Set();
+      const folders=lib.folders.map(f=>{
+        if(!safeId(f?.id)||folderIds.has(f.id))throw Error('Invalid or duplicate folder');
+        folderIds.add(f.id);return {id:f.id,name:string(f.name,240)||'Recovered Folder'};
+      });
+      const itemIds=new Set();
+      const items=lib.items.map(item=>{
+        if(!folderIds.has(item?.folderId)||!relative(item.path)||!VIDEO.test(item.path))throw Error('Invalid media path');
+        const id=item.folderId+'|'+item.path;if(itemIds.has(id))throw Error('Duplicate media path');itemIds.add(id);
+        const poster=string(item.poster,2500000);
+        return {id,folderId:item.folderId,path:item.path,name:item.path.split('/').pop(),
+          title:string(item.title,180)||item.path.split('/').pop(),show:string(item.show,180),
+          type:item.type==='tv'?'tv':'movie',year:number(item.year),season:number(item.season),episode:number(item.episode),
+          size:number(item.size),lastModified:number(item.lastModified),addedAt:number(item.addedAt),
+          favorite:item.favorite===true,watched:item.watched===true,watchlist:item.watchlist===true,
+          poster:/^https:\/\//i.test(poster)||/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(poster)?poster:'',
+          posterCustomized:item.posterCustomized===true,overview:string(item.overview,3000),runtimeSec:number(item.runtimeSec),
+          collections:names(item.collections),playlists:names(item.playlists),
+          metadataSource:string(item.metadataSource,120),customized:item.customized===true,analyzedAt:number(item.analyzedAt)};
+      });
+      return {id:lib.id,name:string(lib.name,100)||'Recovered Library',kind:['movie','tv','mixed'].includes(lib.kind)?lib.kind:'movie',
+        folders,items,hiddenIds:Array.isArray(lib.hiddenIds)?[...new Set(lib.hiddenIds.filter(x=>typeof x==='string'&&folderIds.has(x.split('|')[0])&&relative(x.slice(x.indexOf('|')+1))))]:[],createdAt:number(lib.createdAt),lastScan:number(lib.lastScan)};
+    });
+  }
+  function downloadLibraryBackup(){
+    const libraries=portableCatalog();
+    const blob=new Blob([JSON.stringify({format:'marmaladeum-library-backup',version:1,createdAt:new Date().toISOString(),libraries})],{type:'application/json'});
+    if(blob.size>64*1024*1024){notify('Catalog exceeds the 64 MiB portable backup limit. Use the library extension backup for this catalog.');return;}
+    const url=URL.createObjectURL(blob),a=create('a');a.href=url;a.download='Marmaladeum-Library-Backup-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    notify('Catalog backup exported. No media files or folder permissions are included.');
+  }
+  async function importLibraryBackup(file){
+    if(!file)return;
+    try{
+      if(file.size>64*1024*1024)throw Error('Backup is larger than 64 MiB');
+      const records=validatePortableCatalog(JSON.parse(await file.text()));
+      if(!state.ready||state.scanning)throw Error('Wait for the current library scan to finish');
+      if(!state.db)throw Error('Persistent library storage is unavailable on this device');
+      const result=await restoreSiteCatalog(records,{durable:true});
+      notify(result.restored?result.items+' titles restored. Reconnect folders to play them. Existing libraries were kept.':'No new libraries to restore; existing libraries were kept.');
+    }catch(e){notify('Backup not imported: '+(e.message||'Invalid backup'));}
+  }
+  let libraryBackupTimer=null;
+  // The optional WebExtension retains only catalog metadata. Video bytes,
+  // browser File objects and directory handles never cross the site origin.
+  function queueLibraryBackup(){
+    if(!state.backupReady)return;
+    clearTimeout(libraryBackupTimer);
+    libraryBackupTimer=setTimeout(()=>{
+      const libraries=portableCatalog();
       window.postMessage({source:'marmalade-web',type:'backup-site-catalog',
         libraries,revision:Date.now()},location.origin);
     },200);
@@ -2276,6 +2392,13 @@
       searchTimer=setTimeout(()=>{state.query=ui.search.value;state.showCount=120;render();},110);
     });
     ui.filter.addEventListener('change',()=>{state.kind=ui.filter.value;state.showCount=120;render();});
+    let progressRefresh=0;
+    const refreshProgress=()=>{
+      if(state.kind!=='continue'||!state.ready||panel.hidden)return;
+      clearTimeout(progressRefresh);progressRefresh=setTimeout(()=>{if(state.kind==='continue'&&!panel.hidden)renderCards();},250);
+    };
+    window.addEventListener('marmalade:watch-progress',refreshProgress);
+    window.addEventListener('storage',event=>{if(event.key==='marmalade:watch-progress:v1')refreshProgress();});
     ui.collections.addEventListener('change',()=>{state.collection=ui.collections.value;state.showCount=120;renderCards();});
     ui.sort.addEventListener('change',()=>{state.sort=ui.sort.value;render();});
     ui.view.addEventListener('click',()=>{
@@ -2468,8 +2591,8 @@
     const libraries=Array.isArray(catalog)?catalog:(catalog?.libraries||[]);
     return importAddonCatalog(libraries);
   }
-  async function restoreSiteCatalog(libraries){
-    let restored=0,items=0;
+  async function restoreSiteCatalog(libraries,{durable=false}={}){
+    let restored=0,items=0;const staged=[];
     for(const backup of (Array.isArray(libraries)?libraries:[])){
       if(!backup?.id||/^(addon:|extlib:)/.test(backup.id)||
          !Array.isArray(backup.items))continue;
@@ -2484,9 +2607,19 @@
         kind:backup.kind||'movie',folders,items:entries,
         hiddenIds:backup.hiddenIds||[],createdAt:backup.createdAt||now(),
         lastScan:backup.lastScan||0};
-      state.libraries.push(record);
-      await persist(record);
+      if(durable)staged.push(record);
+      else{state.libraries.push(record);await persist(record);}
       restored++;items+=entries.length;
+    }
+    if(durable&&staged.length){
+      // A portable restore must commit all new records before showing success.
+      await new Promise((resolve,reject)=>{
+        const tx=state.db.transaction('libraries','readwrite');
+        tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('Catalog restore failed'));
+        tx.onabort=()=>reject(tx.error||Error('Catalog restore aborted'));
+        const store=tx.objectStore('libraries');for(const record of staged)store.add(record);
+      });
+      state.libraries.push(...staged);
     }
     if(restored)render();
     return {restored,items};
