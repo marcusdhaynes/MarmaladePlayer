@@ -1352,6 +1352,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     localSnapshotSequence: 0, lastLocalSnapshotSeq: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
     basePaint: null, baseTick: null, basePaintIdle: false, baseFrameHandle: null, highPaintIdle: false, highGfxMode: '2d',
+    baseCaptureFrames:0,highCaptureFrames:0,
     hostPictureSample: null, guestDarkStreak: 0, pictureRepairAsked: false,
     resumeChecked: false, lastProgressSaveAt: 0,
   };
@@ -2983,7 +2984,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if (state.interval) { window.clearInterval(state.interval); state.interval = null; }
     if(state.baseFrameHandle!=null){try{media.cancelVideoFrameCallback?.(state.baseFrameHandle);}catch{}state.baseFrameHandle=null;}
     state.basePaint = null;state.baseTick=null;
-    state.basePaintIdle = false;state.highPaintIdle=false;
+    state.basePaintIdle = false;state.highPaintIdle=false;state.baseCaptureFrames=0;state.highCaptureFrames=0;
     if (state.qualityTimer) { window.clearInterval(state.qualityTimer); state.qualityTimer = null; }
     if (state.animationFrame) { cancelAnimationFrame(state.animationFrame); state.animationFrame = 0; }
     // AudioContext's destination is reused; never end its audio track.
@@ -3619,12 +3620,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         capturedTrack=highStream.getVideoTracks()[0]||null;
       }
       let lastPaint=-Infinity,lastDecodedCallback=-Infinity;
-      const paint=now=>{
-        if(media.readyState<2 || now-lastPaint<1000/30-4)return;
+      const paint=(now,decoded=false)=>{
+        // Decoded callbacks may arrive in bursts on 60 Hz displays. A wall-clock
+        // minimum interval discards valid 24 fps source frames in those bursts.
+        if(media.readyState<2 || (!decoded&&now-lastPaint<1000/STREAM_FPS-2))return;
         lastPaint=now;
         try{
           ctx.drawImage(media,0,0,canvas.width,canvas.height);
           if(manualCapture)capturedTrack.requestFrame();
+          state.highCaptureFrames++;
         }catch(error){console.debug('High-res capture paint skipped',error);}
       };
       // No redundant timer when decoded video-frame callbacks exist.
@@ -3636,7 +3640,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         const onFrame=now=>{
           if(state.highCanvas!==canvas)return;
           lastDecodedCallback=performance.now();
-          if(!state.highPaintIdle)paint(now);
+          if(!state.highPaintIdle)paint(now,true);
           state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
         };
         state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
@@ -3833,7 +3837,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const params = sender.getParameters();
       if (!params.encodings?.length) return;
       params.encodings[0].maxBitrate = bitrate;
-      params.encodings[0].maxFramerate = 24;
+      // Manual capture carries the source cadence. Allow scheduler jitter
+      // without a second 24 fps limiter silently dropping legitimate frames.
+      const captureFpsCeiling=newTrack===state.nativeCapture?.getVideoTracks()[0]?24:30;
+      params.encodings[0].maxFramerate = captureFpsCeiling;
       params.encodings[0].scaleResolutionDownBy = scale;
       // Preserve genuine 720p/1080p on capable networks. The original bug
       // was leaving maintain-resolution active permanently even while FPS
@@ -3855,7 +3862,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             const compatible=sender.getParameters();
             if (!compatible.encodings?.length) throw error;
             compatible.encodings[0].maxBitrate=bitrate;
-            compatible.encodings[0].maxFramerate=24;
+            compatible.encodings[0].maxFramerate=captureFpsCeiling;
             compatible.encodings[0].scaleResolutionDownBy=scale;
             compatible.degradationPreference=entry.motionRescue?'maintain-framerate':'maintain-resolution';
             await sender.setParameters(compatible);
@@ -4896,12 +4903,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // media.currentTime to frame metadata: the two timestamps can describe
     // different frames and their mixed-clock deduplication drops real frames.
     let lastPaint=-Infinity,lastDecodedCallback=-Infinity;
-    const paint=(now=performance.now())=>{
-      if(state.canvasStream!==stream||media.readyState<2||v?.readyState!=='live'||now-lastPaint<1000/30-4)return;
+    const paint=(now=performance.now(),decoded=false)=>{
+      if(state.canvasStream!==stream||media.readyState<2||v?.readyState!=='live'||(!decoded&&now-lastPaint<1000/STREAM_FPS-2))return;
       lastPaint=now;
       try{
         context.drawImage(media,0,0,canvas.width,canvas.height);
         if(manual)v.requestFrame();
+        state.baseCaptureFrames++;
       }catch{}
     };
     state.basePaint=paint;state.basePaintIdle=false;
@@ -4912,7 +4920,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const onFrame=now=>{
         if(state.canvasStream!==stream||v.readyState!=='live')return;
         lastDecodedCallback=performance.now();
-        if(!state.basePaintIdle)paint(now);
+        if(!state.basePaintIdle)paint(now,true);
         state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
       };
       state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);

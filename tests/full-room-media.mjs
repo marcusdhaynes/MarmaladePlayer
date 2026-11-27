@@ -550,6 +550,7 @@ try {
         compatibilityCanvas:direction==='host'
           ?!![...state.connections.values()][0]?.compatCanvas:false,
         highCanvas:!!state.highCanvas,highPaintIdle:!!state.highPaintIdle,
+        baseCaptureFrames:state.baseCaptureFrames||0,highCaptureFrames:state.highCaptureFrames||0,
         muted:document.querySelector('#player').muted,
         audioRelayed:!!state.guestAudioFallback &&
           state.guestAudioContext?.state==='running',
@@ -579,7 +580,8 @@ try {
       compatibilityCanvas:hostB.compatibilityCanvas,
       limited:hostB.limitation,videoPaused:guestB.paused,
       guestMuted:guestB.muted,hostTime:hostB.sourceTime};
-    console.log('SUSTAINED FRAME RATE',JSON.stringify({...metrics,highPaintIdle:hostB.highPaintIdle}));
+    const captureFps=((Number(tier)<=540?hostB.baseCaptureFrames-hostA.baseCaptureFrames:hostB.highCaptureFrames-hostA.highCaptureFrames)*1000/(hostB.time-hostA.time));
+    console.log('SUSTAINED FRAME RATE',JSON.stringify({...metrics,captureFps,highPaintIdle:hostB.highPaintIdle}));
     if(Number(tier)<=540&&hostB.highCanvas)assert(hostB.highPaintIdle,'Unused HD canvas must be idle at '+tier+'p');
     if(Number(tier)>540&&hostB.highCanvas)assert(!hostB.highPaintIdle,'HD canvas must resume at '+tier+'p');
     assert(!guestB.paused,'Guest video must keep playing at '+tier+'p');
