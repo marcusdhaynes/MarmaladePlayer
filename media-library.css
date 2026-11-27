@@ -465,3 +465,6 @@
 
 .ml-settings-panel .ml-backup-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:6px 0}
 .ml-settings-panel .ml-backup-actions button{min-width:0;padding:6px 4px;white-space:normal;font-size:10px}
+
+.ml-card-art .ml-card-progress{position:absolute;inset:auto 5px 5px;height:3px;overflow:hidden;border-radius:3px;background:#0b0918c9;z-index:2;pointer-events:none}
+.ml-card-art .ml-card-progress-fill{height:100%;display:block;border-radius:inherit;background:linear-gradient(90deg,#bf7ed5,#f5bb7a)}
