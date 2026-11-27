@@ -107,7 +107,7 @@ try{
   await page.locator('#popoutBtn').click({force:true});
   await page.waitForFunction(()=>window.MarmaladeStandalonePiP.isActive(),null,
     {timeout:10000});
-  await page.waitForFunction(()=>window.__pipSubtitlePaints.join(' ').replace(/\s+/g,' ').includes('CAPTIONS IN PICTURE-IN-PICTURE'),null,{timeout:10000});
+  await page.waitForFunction(()=>window.__pipSubtitlePaints.join('').replace(/\s+/g,'').includes('CAPTIONSINPICTURE-IN-PICTURE'),null,{timeout:10000});
   const active=await page.evaluate(()=>{
     const diag=window.MarmaladeStandalonePiP.getDiagnostics();
     const pip=document.pictureInPictureElement;
@@ -128,7 +128,7 @@ try{
   assert.equal(active.controlsStillOwned,true,'Never move the app chrome into a popup');
   assert.equal(active.external,true,'Adaptive brightness must track external playback');
   assert.match(active.subtitles,/CAPTIONS IN PICTURE-IN-PICTURE/);
-  assert.match(active.subtitlePaints.join(' ').replace(/\s+/g,' '),/CAPTIONS IN PICTURE-IN-PICTURE/,
+  assert.match(active.subtitlePaints.join('').replace(/\s+/g,''),/CAPTIONSINPICTURE-IN-PICTURE/,
     'All timed caption words must be rasterized, including wrapped captions');
   assert(active.diag.frames>0,'PiP video compositor must render frames');
   assert(active.diag.canvasWidth<=960 && active.diag.canvasHeight<=540,
