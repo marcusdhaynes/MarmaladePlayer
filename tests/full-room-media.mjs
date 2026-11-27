@@ -549,6 +549,7 @@ try {
           pc.getSenders().find(sender=>sender.track?.kind==='video')?.track?.getSettings?.().height||0:0,
         compatibilityCanvas:direction==='host'
           ?!![...state.connections.values()][0]?.compatCanvas:false,
+        highCanvas:!!state.highCanvas,highPaintIdle:!!state.highPaintIdle,
         muted:document.querySelector('#player').muted,
         audioRelayed:!!state.guestAudioFallback &&
           state.guestAudioContext?.state==='running',
@@ -578,7 +579,9 @@ try {
       compatibilityCanvas:hostB.compatibilityCanvas,
       limited:hostB.limitation,videoPaused:guestB.paused,
       guestMuted:guestB.muted,hostTime:hostB.sourceTime};
-    console.log('SUSTAINED FRAME RATE',JSON.stringify(metrics));
+    console.log('SUSTAINED FRAME RATE',JSON.stringify({...metrics,highPaintIdle:hostB.highPaintIdle}));
+    if(Number(tier)<=540&&hostB.highCanvas)assert(hostB.highPaintIdle,'Unused HD canvas must be idle at '+tier+'p');
+    if(Number(tier)>540&&hostB.highCanvas)assert(!hostB.highPaintIdle,'HD canvas must resume at '+tier+'p');
     assert(!guestB.paused,'Guest video must keep playing at '+tier+'p');
     assert(!guestB.muted||guestB.audioRelayed,
       'Guest audio must remain audible at '+tier+'p');
