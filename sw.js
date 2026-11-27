@@ -1,27 +1,71 @@
-/* Offline shell only. Rooms and WebRTC streaming require connectivity. */
-const CACHE = 'marmalade-shell-v74-rolling-buffer';
-const FILES = ['./rolling-buffer.js', './rolling-buffer.js?v=20261126-v2', './', './index.html', './manifest.webmanifest', './favicon.svg', './favicon.ico', './favicon-32.png', './assets/marmalade-icon.webp', './assets/marmalade-transparent.png', './assets/marmalade-maskable.png', './assets/cosmic-02.svg', './assets/apple-touch-icon.png', './mkv-decoder-io.js', './mkv-decoder-io.js?v=20261120-webview-range-audio-v2', './mkv-asyncify-worker.js', './auto-mkv-audio.js', './auto-mkv-audio.js?v=20261120-webview-range-audio-v2', './public-movie-info.js', './public-movie-info.js?v=20261103-imdb-score-v3', './movie-info.js', './movie-info.js?v=20261120-native-library-parity-v15', './movie-info.css?v=20261119-metacritic-card-v1', './media-library.js', './media-library.js?v=20261121-extension-retention-v1', './media-library.css', './media-library.js?v=20261120-auto-posters-v18', './media-library.css?v=20261120-unboxed-posters-v16', './watch-sync-subtitles.js', './subtitle-codec.js', './subtitle-codec.js?v=20261126-natural-subtitles-v1', './subtitle-archive.js', './subtitle-archive.js?v=20261112-subdl-zip-v2', './settings-layout.css', './settings-layout.css?v=20261126-glass-audit-v1', './settings-layout.js', './settings-layout.js?v=20261126-volume-controls-v1', './watch-sync-subtitles.js?v=20261126-subtitle-compact-v3', './subtitle-match.js', './subtitle-match.js?v=20261112-matching-v1', './subtitle-search.js', './subtitle-search.js?v=20261126-docked-local-resume-v1', './rapid-controls.css', './rapid-controls.css?v=20261126-docked-local-resume-v1', './rapid-controls.js', './rapid-controls.js?v=20261126-docked-local-resume-v1', './subtitle-compact.js', './subtitle-compact.js?v=20261126-glass-audit-v1',     './seek-preview.js', './seek-preview.js?v=20261113-scene-hover-v1', './seek-preview.js?v=20261118-full-duration-v1', './adaptive-brightness.js', './adaptive-brightness.js?v=20261116-flashlight-lucide-v1', './standalone-pip.js', './standalone-pip.js?v=20261126-background-pip-v2',   './games.css', './games.css?v=20261121-mobile-width-layout-v1', './games.js', './games.js?v=20261121-exact-timestamp-v6'];
+/* Offline application shell only. Never cache media, credentials or peer data. */
+const CACHE = 'marmalade-shell-v75-audit';
+const PREFIX = 'marmalade-shell-';
+const CORE = ['./','./index.html','./manifest.webmanifest','./favicon.svg','./favicon.ico','./favicon-32.png','./assets/marmalade-icon.webp','./assets/apple-touch-icon.png'];
+const scope = new URL(self.registration.scope);
+const local = path => {
+  try {
+    const u = new URL(path, scope);
+    return u.origin === scope.origin && u.pathname.startsWith(scope.pathname) ? u : null;
+  } catch { return null; }
+};
+function isShell(u) {
+  if (!u || u.pathname.includes('/vendor/libav-wasm/')) return false;
+  const path = u.pathname.slice(scope.pathname.length);
+  return path === '' || path === 'index.html' || /^[a-z0-9_-]+\.(?:js|css|webmanifest|svg|ico|png)$/i.test(path) ||
+    /^assets\/[a-z0-9_./-]+\.(?:png|webp|svg|ico|jpg|jpeg)$/i.test(path);
+}
+function discover(html) {
+  const urls = new Set(CORE.map(p=>local(p).href));
+  for (const match of html.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)) {
+    const u = local(match[1]);
+    if (isShell(u) && !u.hash) urls.add(u.href);
+  }
+  return [...urls];
+}
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
+  event.waitUntil((async()=>{
+    const cache=await caches.open(CACHE);
+    const shell=await fetch(local('./index.html').href,{cache:'reload'});
+    if(!shell.ok) throw Error('Application shell unavailable');
+    const urls=discover(await shell.clone().text());
+    await cache.put(local('./index.html').href,shell.clone());
+    await cache.put(local('./').href,shell);
+    // Require script/style assets to succeed; optional artwork cannot block an update.
+    for(const url of urls){
+      if(url===local('./').href||url===local('./index.html').href)continue;
+      try {
+        const response=await fetch(url,{cache:'reload'});
+        if(!response.ok)throw Error('Missing shell asset: '+url);
+        await cache.put(url,response);
+      }catch(e){
+        if(/\.(?:js|css|webmanifest)(?:\?|$)/i.test(url))throw e;
+      }
+    }
+    await self.skipWaiting();
+  })());
 });
 self.addEventListener('activate', event => {
   event.waitUntil(Promise.all([
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))),
+    caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==CACHE).map(k=>caches.delete(k)))),
     self.clients.claim()
   ]));
 });
 self.addEventListener('fetch', event => {
-  const req = event.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
-  // FFmpeg's worker and WASM engine are large, version-sensitive binaries.
-  // Never serve an obsolete decoder from the offline app shell or double-store
-  // dozens of MB in WebView2's more limited service-worker cache.
-  if(new URL(req.url).pathname.includes('/vendor/libav-wasm/'))return;
-  event.respondWith(fetch(req).then(response => {
-    if (response.ok) {
-      const copy = response.clone();
-      event.waitUntil(caches.open(CACHE).then(cache => cache.put(req, copy)));
+  const req=event.request,u=local(req.url);
+  if(req.method!=='GET'||req.headers.has('range')||!isShell(u))return;
+  // Never persist URLs with arbitrary query parameters or cache non-shell requests.
+  if(u.search && !/^\?v=[a-z0-9._-]+$/i.test(u.search))return;
+  event.respondWith((async()=>{
+    const cache=await caches.open(CACHE);
+    try{
+      const response=await fetch(req);
+      if(response.ok && response.type!=='opaque' && await cache.match(req)) {
+        await cache.put(req,response.clone()).catch(()=>{});
+      }
+      return response;
+    }catch{
+      return await cache.match(req) || Response.error();
     }
-    return response;
-  }).catch(() => caches.match(req).then(cached => cached || Response.error())));
+  })());
 });
