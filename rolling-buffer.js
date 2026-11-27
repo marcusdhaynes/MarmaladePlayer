@@ -19,30 +19,34 @@
  function validRange(offset,length,total){
    return Number.isSafeInteger(offset)&&Number.isSafeInteger(length)&&offset>=0&&length>0&&length<=BLOCK&&offset<total&&length<=total-offset;
  }
+ function hostSource(state){
+   if(state?.source==='file'&&state.file?.size)return state.file;
+   if(state?.source==='native'&&state.nativeBufferSource?.length)return state.nativeBufferSource;
+   return null;
+ }
  function offer(){
-   const a=bridge(),s=a?.state;
-   if(!s||s.role!=='host'||!s.broadcasting||!s.fileReady||s.source!=='file'||!s.file?.size)return null;
-   const file=s.file;
+   const a=bridge(),s=a?.state,file=hostSource(s);
+   if(!s||s.role!=='host'||!s.broadcasting||!s.fileReady||!file)return null;
    if(!keys.has(file))keys.set(file,crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join(''));
-   return {id:keys.get(file),size:file.size,name:file.name};
+   return {id:keys.get(file),size:file.size||file.length,name:file.name};
  }
  function validOffer(o){return o&&typeof o.id==='string'&&o.id.length<=100&&typeof o.name==='string'&&o.name.length<=512&&Number.isSafeInteger(o.size)&&o.size>0;}
  function hostChannel(conn){
    if(conn.label!==LABEL)return false;
    const a=bridge(),o=offer(),entry=a?.state.connections.get(conn.peer);
    if(!o||!entry?.conn.open||conn.metadata?.id!==o.id){conn.close();return true;}
-   const file=a.state.file;
+   const file=hostSource(a.state);
    for(const prior of hostChannels)if(prior.peer===conn.peer)prior.close();
    hostChannels.add(conn);
    let busy=false;
-   const authorized=()=>conn.open&&a.state.connections.get(conn.peer)?.conn.open&&a.state.file===file&&offer()?.id===o.id;
+   const authorized=()=>conn.open&&a.state.connections.get(conn.peer)?.conn.open&&hostSource(a.state)===file&&offer()?.id===o.id;
    const reply=m=>{if(authorized())conn.send(m);};
    conn.on('data',async m=>{
      if(!authorized()){conn.close();return;}
      if(m?.type!=='read'||!Number.isSafeInteger(m.id)||!validRange(m.offset,m.length,o.size)||busy)return;
      busy=true;
      try{
-       const bytes=new Uint8Array(await file.slice(m.offset,m.offset+m.length).arrayBuffer());
+       const bytes=new Uint8Array(await (file.read?file.read(m.offset,m.length):file.slice(m.offset,m.offset+m.length).arrayBuffer()));
        if(bytes.length!==m.length)throw Error('Short file read');
        for(let pos=0;pos<bytes.length;pos+=PART){
          const started=Date.now();
@@ -61,7 +65,7 @@
    conn.on('error',()=>{hostChannels.delete(conn);try{conn.close();}catch{}});
    return true;
  }
- function closeHost(){const file=bridge()?.state.file;if(file)keys.delete(file);for(const conn of hostChannels)try{conn.close();}catch{}hostChannels.clear();}
+ function closeHost(){const file=hostSource(bridge()?.state);if(file)keys.delete(file);for(const conn of hostChannels)try{conn.close();}catch{}hostChannels.clear();}
  function current(s){const a=bridge();return session===s&&!s.closed&&a?.state.role==='guest'&&a.state.guestConn===s.control&&!a.state.localVerified;}
  function send(s,m){if(s.control.open)try{s.control.send(m);}catch{}}
  function cancel(s){
@@ -194,7 +198,7 @@
          send(s,{type:'buffer-status',ready:ahead(ranges,latest)>=Math.min(LOW,goal(latest,s.duration))});
          const call=a.state.guestCall;a.state.guestCall=null;try{call?.close();}catch{}
        }
-       a.updateBufferDisplay();a.recoveryCheck();void a.syncSeekablePlayback();
+       a.updateBufferDisplay();a.recoveryCheck();a.updateQualityHint?.();void a.syncSeekablePlayback();
      }else if(++s.emptyReads>6&&goal(latest,s.duration)>.5&&ahead(s.buffer.buffered,latest)<.1){
        throw Error('No playable segments at requested time');
      }
