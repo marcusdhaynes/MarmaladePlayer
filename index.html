@@ -1340,6 +1340,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     hostStreamLive: false, mediaRequestAt: 0, mediaAwaitingAt: 0,
     showStatus: false, controlHideTimer: null, subtitles: [], subtitlesEnabled: false,
     subtitleRestoreKey:'', subtitleIdentity:'', subtitleLanguage:'',
+    secondarySubtitles:[],secondarySubtitleName:'',secondarySubtitleOffset:0,secondarySubtitleRevision:0,
     clientCommandId: 0, pendingTransport: null, lastTransportAck: null, lastAcceptedRevision: -1,
     // Local-file control clock only; remote media and buffered streaming are unchanged.
     localClockOffsetMs: null, localClockBestRtt: Infinity, localClockSampleAt: 0,
@@ -1509,6 +1510,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return active?'active':loadedSearchSubtitles.has(searchSubtitleKey(item.url))?'loaded':'new';
   };
   function resetSubtitleSelection(){
+    clearSecondarySubtitle();
     ++subtitleRestoreSequence;
     loadedSearchSubtitles.clear();
     state.subtitleRestoreKey='';
@@ -1962,6 +1964,45 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!decoder)throw Error('Subtitle Decoder Not Loaded');
     return decoder.decode(raw,name,{fps:Number(fps)||0});
   }
+  let secondaryLoadSequence=0;
+  function clearSecondarySubtitle(){
+    ++secondaryLoadSequence;state.secondarySubtitles=[];state.secondarySubtitleName='';
+    state.secondarySubtitleOffset=0;state.secondarySubtitleRevision++;
+    window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));
+  }
+  async function loadSecondarySubtitle(file){
+    if(!file||file.size>20*1024*1024)throw Error('Choose a subtitle file under 20 MB');
+    if(!el.stage.classList.contains('has-video'))throw Error('Load a video first');
+    if(!state.subtitlesEnabled)throw Error('Load primary subtitles first');
+    const seq=++secondaryLoadSequence,key=subtitleMediaKey();
+    const buffer=await file.arrayBuffer(),archive=window.MarmaladeSubtitleArchive;
+    if(archive?.isZip(buffer)){
+      const match=await archive.extract(buffer,{video:String(state.file?.name||state.remoteFileName||'')});
+      file=new File([match.bytes],match.name,{type:'text/plain'});
+    }
+    if(file.size>5*1024*1024)throw Error('Subtitle text exceeds 5 MB');
+    const decoded=parseSubtitles(await readSubtitleText(file),file.name);
+    if(!decoded.cues.length)throw Error(decoded.error||'No readable subtitle cues');
+    if(seq!==secondaryLoadSequence||key!==subtitleMediaKey())throw Error('Video changed while loading captions');
+    state.secondarySubtitles=decoded.cues;state.secondarySubtitleName=file.name;
+    state.secondarySubtitleOffset=0;state.secondarySubtitleRevision++;
+    updateSubtitles();window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));
+  }
+  window.MarmaladeSecondarySubtitle={
+    load:loadSecondarySubtitle,clear:()=>{clearSecondarySubtitle();updateSubtitles();},
+    setOffset:value=>{
+      const seconds=Number(value);if(!Number.isFinite(seconds))return false;
+      state.secondarySubtitleOffset=Math.round(Math.max(-3600,Math.min(3600,seconds))*10)/10;
+      state.secondarySubtitleRevision++;updateSubtitles();
+      window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));return true;
+    }
+  };
+  function cueAt(cues,time){
+    let low=0,high=cues.length;
+    while(low<high){const mid=(low+high)>>1;if(cues[mid].start<=time)low=mid+1;else high=mid;}
+    for(let index=low-1;index>=Math.max(0,low-32);index--)if(cues[index].end>time)return cues[index];
+    return null;
+  }
   function updateSubtitles() {
     if(!el.stage.classList.contains('has-video')){
       el.subtitleOverlay.hidden=true;return;
@@ -1988,22 +2029,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       window.MarmaladeSubtitleClock(timeline):timeline;
     // Cues are ordered: logarithmic lookup instead of scanning thousands of cues
     // on every displayed frame. End is exclusive to avoid adjacent overlap.
-    let low=0,high=state.subtitles.length,cue=null;
-    while(low<high){
-      const middle=(low+high)>>1;
-      if(state.subtitles[middle].start<=subtitleTime)low=middle+1;
-      else high=middle;
-    }
-    // Subtitle releases may contain overlapping cues. Find the most recent
-    // still-live cue (end times need not themselves be sorted).
-    for(let index=low-1;index>=Math.max(0,low-32);index--){
-      const candidate=state.subtitles[index];
-      if(candidate.end>subtitleTime){cue=candidate;break;}
-    }
+    const cue=cueAt(state.subtitles,subtitleTime);
     // A sample cue can be inspected live while the editor is open—even when
     // playback is paused or seeking outside subtitle dialogue.
-    const shown=cue?.text||(editing&&!document.getElementById('subStyleView')?.hidden&&
+    const primary=cue?.text||(editing&&!document.getElementById('subStyleView')?.hidden&&
       state.subtitles.length?state.subtitles[0].text:'');
+    // Apply the same presentation-clock correction, but independent timing.
+    const secondaryTime=subtitleTime+(Number(state.subtitleOffsetSeconds)||0)-state.secondarySubtitleOffset;
+    const secondary=cueAt(state.secondarySubtitles,secondaryTime)?.text||'';
+    const shown=[primary,secondary].filter(Boolean).join('\n');
     el.subtitleOverlay.hidden=!shown;
     const naturalText=shown.normalize('NFC');
     if(shown&&el.subtitleOverlay.textContent!==naturalText){
@@ -5742,7 +5776,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Local movies can use the browser's native cue scheduler, including when
     // the tab is backgrounded. Remote live streams need clock mapping.
     const local=state.role==='host'||state.localVerified||state.bufferedMode||state.source==='hosted-guest';
-    const signature=String(state.subtitlesEnabled)+'|'+state.subtitleIdentity+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0);
+    const signature=String(state.subtitlesEnabled)+'|'+state.subtitleIdentity+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0)+'|'+state.secondarySubtitleRevision;
     if(local){
       if(nativePipLocalCues&&nativePipLocalSignature===signature)return;
       for(const cue of Array.from(nativePipTrack.cues||[]))nativePipTrack.removeCue(cue);
@@ -5750,6 +5784,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(state.subtitlesEnabled&&typeof VTTCue==='function')for(const cue of state.subtitles){
         const offset=Number(state.subtitleOffsetSeconds)||0;
         const start=Math.max(0,cue.start+offset),end=cue.end+offset;
+        if(end<=start)continue;
+        const nativeCue=new VTTCue(start,end,String(cue.text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+        nativeCue.align='center';nativePipTrack.addCue(nativeCue);
+      }
+      if(state.subtitlesEnabled&&typeof VTTCue==='function')for(const cue of state.secondarySubtitles){
+        const start=Math.max(0,cue.start+state.secondarySubtitleOffset),end=cue.end+state.secondarySubtitleOffset;
         if(end<=start)continue;
         const nativeCue=new VTTCue(start,end,String(cue.text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
         nativeCue.align='center';nativePipTrack.addCue(nativeCue);
@@ -6735,7 +6775,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261126-docked-local-resume-v1"></script>
 <script src="./rapid-controls.js?v=20261126-docked-local-resume-v1"></script>
-<script src="./subtitle-compact.js?v=20261126-glass-audit-v1"></script>
+<script src="./subtitle-compact.js?v=20261126-audit-v2"></script>
 <script src="./seek-preview.js?v=20261118-full-duration-v1"></script>
 <script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>
 <script src="./standalone-pip.js?v=20261126-background-pip-v2"></script>
