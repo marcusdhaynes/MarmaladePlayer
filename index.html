@@ -2257,7 +2257,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       (state.latencyStats ? ` | playout ${Math.round(state.latencyStats.playoutMs||0)}ms | receiver ${state.latencyStats.width||'?'}x${state.latencyStats.height||'?'} | decoder ${state.latencyStats.decoder||'unknown'}` : '') +
       (state.highEncoderStats ? ` | encoded ${Math.round(state.highEncoderStats.fps||0)}fps | encoder ${state.highEncoderStats.encoder||'unknown'} | limit ${state.highEncoderStats.limit||'unknown'} | headroom x${(state.highEncoderStats.headroomFactor||1).toFixed(2)}` : '') +
       ` | assessment ${performanceDiagnosis()}` +
-      (rolling ? ` | rolling ${rolling.seconds.toFixed(1)}/${rolling.target}s | capacity ${rolling.capacity.toFixed(1)}s${rolling.reconnecting?' | reconnecting':''}${rolling.quotaLimited?' | browser quota limited':''}` : '') +
+      (rolling ? ` | rolling ${rolling.seconds.toFixed(1)}/${rolling.target}s | capacity ${rolling.capacity.toFixed(1)}s${rolling.reconnecting?' | reconnecting':''}${rolling.quotaLimited?' | browser quota limited':''} | temporary range cache ${rolling.diskAvailable?(rolling.diskBytes/1048576).toFixed(1)+' MiB':'unavailable'}` : '') +
       ((state.bufferedMode || state.localVerified) && media.duration ? ` | drift ${Math.round((expectedHostTime()-media.currentTime)*1000)}ms` : '');
   }
   function recomputeBufferTarget(report = {}) {
@@ -6640,7 +6640,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 </script>
 <script src="./mkv-decoder-io.js?v=20261120-webview-range-audio-v2"></script>
 <script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
-<script src="./rolling-buffer.js?v=20261126-audit-v3"></script>
+<script src="./rolling-buffer.js?v=20261126-audit-v4"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261121-extension-retention-v1" defer></script>
