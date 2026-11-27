@@ -304,6 +304,15 @@
       setting.setAttribute('aria-expanded',String(opening));
     });
     $('mlSettingsClose').addEventListener('click',close);
+    const backupRow=append(settingsPanel,'div','ml-backup-actions');
+    const exportButton=append(backupRow,'button','ml-primary','Export Catalog');exportButton.type='button';exportButton.id='mlExportCatalog';
+    const importButton=append(backupRow,'button','ml-primary','Import Catalog');importButton.type='button';importButton.id='mlImportCatalog';
+    const backupInput=append(backupRow,'input');backupInput.type='file';backupInput.accept='.json,application/json';backupInput.hidden=true;
+    backupInput.id='mlCatalogBackupInput';
+    exportButton.addEventListener('click',downloadLibraryBackup);
+    importButton.addEventListener('click',()=>backupInput.click());
+    backupInput.addEventListener('change',()=>{const file=backupInput.files?.[0];backupInput.value='';void importLibraryBackup(file);});
+    append(settingsPanel,'p','','Portable backups preserve local catalog metadata. Reconnect media folders after importing.');
     document.addEventListener('pointerdown',event=>{
       if(!settingsPanel.hidden&&!settingsPanel.contains(event.target)&&
          !setting.contains(event.target))close();
@@ -1356,14 +1365,8 @@
     }
     more(visible.length);
   }
-  let libraryBackupTimer=null;
-  // The optional WebExtension retains only catalog metadata. Video bytes,
-  // browser File objects and directory handles never cross the site origin.
-  function queueLibraryBackup(){
-    if(!state.backupReady)return;
-    clearTimeout(libraryBackupTimer);
-    libraryBackupTimer=setTimeout(()=>{
-      const libraries=state.libraries.filter(lib=>
+  function portableCatalog(){
+    return state.libraries.filter(lib=>
         !/^(addon:|extlib:)/.test(lib.id)).map(lib=>({
         id:lib.id,name:lib.name,kind:lib.kind,createdAt:lib.createdAt,
         lastScan:lib.lastScan,hiddenIds:lib.hiddenIds||[],
@@ -1382,6 +1385,69 @@
           analyzedAt:item.analyzedAt||null
         }))
       }));
+  }
+  // Portable backup excludes file handles, media bytes, credentials and absolute
+  // native paths. Existing libraries are never replaced by importing a backup.
+  function validatePortableCatalog(data){
+    if(data?.format!=='marmaladeum-library-backup'||data.version!==1||!Array.isArray(data.libraries)||data.libraries.length>500)throw Error('Unrecognized library backup');
+    const string=(v,max)=>typeof v==='string'?v.slice(0,max):'';
+    const number=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0?v:null;
+    const names=v=>Array.isArray(v)?v.filter(x=>typeof x==='string').slice(0,100).map(x=>x.slice(0,180)):[];
+    const safeId=v=>typeof v==='string'&&/^[a-zA-Z0-9._-]{1,100}$/.test(v);
+    const relative=v=>typeof v==='string'&&v.length<=2048&&!/^(?:[\\/]|[a-z]:)/i.test(v)&&!v.includes('\\')&&!v.split('/').some(x=>x==='..'||x==='.'||!x||/[\x00-\x1f]/.test(x));
+    let total=0;const seen=new Set();
+    return data.libraries.map(lib=>{
+      if(!safeId(lib?.id)||seen.has(lib.id)||!Array.isArray(lib.folders)||!Array.isArray(lib.items)||lib.folders.length>1000)throw Error('Invalid or duplicate library record');
+      seen.add(lib.id);total+=lib.items.length;if(total>100000)throw Error('Backup exceeds 100,000 titles');
+      const folderIds=new Set();
+      const folders=lib.folders.map(f=>{
+        if(!safeId(f?.id)||folderIds.has(f.id))throw Error('Invalid or duplicate folder');
+        folderIds.add(f.id);return {id:f.id,name:string(f.name,240)||'Recovered Folder'};
+      });
+      const itemIds=new Set();
+      const items=lib.items.map(item=>{
+        if(!folderIds.has(item?.folderId)||!relative(item.path)||!VIDEO.test(item.path))throw Error('Invalid media path');
+        const id=item.folderId+'|'+item.path;if(itemIds.has(id))throw Error('Duplicate media path');itemIds.add(id);
+        const poster=string(item.poster,2500000);
+        return {id,folderId:item.folderId,path:item.path,name:item.path.split('/').pop(),
+          title:string(item.title,180)||item.path.split('/').pop(),show:string(item.show,180),
+          type:item.type==='tv'?'tv':'movie',year:number(item.year),season:number(item.season),episode:number(item.episode),
+          size:number(item.size),lastModified:number(item.lastModified),addedAt:number(item.addedAt),
+          favorite:item.favorite===true,watched:item.watched===true,watchlist:item.watchlist===true,
+          poster:/^https:\/\//i.test(poster)||/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(poster)?poster:'',
+          posterCustomized:item.posterCustomized===true,overview:string(item.overview,3000),runtimeSec:number(item.runtimeSec),
+          collections:names(item.collections),playlists:names(item.playlists),
+          metadataSource:string(item.metadataSource,120),customized:item.customized===true,analyzedAt:number(item.analyzedAt)};
+      });
+      return {id:lib.id,name:string(lib.name,100)||'Recovered Library',kind:lib.kind==='tv'?'tv':'movie',
+        folders,items,hiddenIds:names(lib.hiddenIds).filter(x=>itemIds.has(x)),createdAt:number(lib.createdAt),lastScan:number(lib.lastScan)};
+    });
+  }
+  function downloadLibraryBackup(){
+    const libraries=portableCatalog();
+    const blob=new Blob([JSON.stringify({format:'marmaladeum-library-backup',version:1,createdAt:new Date().toISOString(),libraries})],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=create('a');a.href=url;a.download='Marmaladeum-Library-Backup-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    notify('Catalog backup exported. No media files or folder permissions are included.');
+  }
+  async function importLibraryBackup(file){
+    if(!file)return;
+    try{
+      if(file.size>64*1024*1024)throw Error('Backup is larger than 64 MiB');
+      const records=validatePortableCatalog(JSON.parse(await file.text()));
+      if(!state.ready||state.scanning)throw Error('Wait for the current library scan to finish');
+      const result=await restoreSiteCatalog(records);
+      notify(result.restored?result.items+' titles restored. Reconnect folders to play them. Existing libraries were kept.':'No new libraries to restore; existing libraries were kept.');
+    }catch(e){notify('Backup not imported: '+(e.message||'Invalid backup'));}
+  }
+  let libraryBackupTimer=null;
+  // The optional WebExtension retains only catalog metadata. Video bytes,
+  // browser File objects and directory handles never cross the site origin.
+  function queueLibraryBackup(){
+    if(!state.backupReady)return;
+    clearTimeout(libraryBackupTimer);
+    libraryBackupTimer=setTimeout(()=>{
+      const libraries=portableCatalog();
       window.postMessage({source:'marmalade-web',type:'backup-site-catalog',
         libraries,revision:Date.now()},location.origin);
     },200);
