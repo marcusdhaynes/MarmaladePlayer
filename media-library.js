@@ -415,7 +415,7 @@
       if(!old)continue;
       // A replacement at the same path is not the previous movie.
       if(!item.metadataPending&&old.size>0&&item.size>0&&
-          (old.size!==item.size||old.lastModified!==item.lastModified))continue;
+          (old.size!==item.size&&old.lastModified!==item.lastModified))continue;
       const current={id:item.id,path:item.path,folderId:item.folderId,name:item.name,
         size:item.metadataPending?old.size:item.size,
         lastModified:item.metadataPending?old.lastModified:item.lastModified,
