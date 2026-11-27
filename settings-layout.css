@@ -343,3 +343,18 @@ html[data-window-theme="glass"] :is(.primary-btn,.file-btn,.compact-retry,.movie
 html[data-window-theme="glass"] #gamesPanel .game-score-card.delete-armed .game-score-name{
  background:rgba(106,29,58,.25)!important;
 }
+
+/* Search uses the same compact glass materials as existing settings. */
+.settings-popover .settings-search{
+ width:100%;min-width:0;min-height:31px;box-sizing:border-box;border:1px solid #ffffff25;
+ background:#ffffff08;color:inherit;border-radius:7px;padding:5px 9px;font:inherit;font-size:11px;
+}
+.settings-popover .settings-search:focus-visible{outline:2px solid #ffbd87;outline-offset:1px}
+.settings-popover .settings-search-results{display:grid;gap:3px;max-height:230px;overflow-y:auto;min-width:0}
+.settings-popover .settings-search-results[hidden]{display:none!important}
+.settings-popover .settings-search-result{display:flex;align-items:center;justify-content:space-between;
+ text-align:left;gap:8px;min-height:29px;padding:5px 8px;border:1px solid #ffffff18;
+ background:#ffffff08;border-radius:6px;color:inherit;font-size:10.5px}
+.settings-popover .settings-search-result:hover{background:#ffffff15;border-color:#e6ab7355}
+.settings-popover .settings-search-result small{color:#d0ad97;flex:none;font-size:9px}
+.settings-popover .settings-search-result span{min-width:0;overflow-wrap:anywhere}
