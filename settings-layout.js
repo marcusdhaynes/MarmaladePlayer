@@ -215,7 +215,10 @@
    for(const [key,page] of pages){
      const candidates=page.querySelectorAll('.settings-row,.settings-action-row,.settings-tools button,.settings-monitor label');
      for(const row of candidates){
-       if(row.hidden||row.closest('[hidden]:not(.settings-page)'))continue;
+       if(row.hidden)continue;
+       let ancestor=row.parentElement,hidden=false;
+       while(ancestor&&ancestor!==page){if(ancestor.hidden){hidden=true;break;}ancestor=ancestor.parentElement;}
+       if(hidden)continue;
        const label=row.cloneNode(true);
        label.querySelectorAll('select,input,svg').forEach(node=>node.remove());
        const title=label.textContent.replace(/\s+/g,' ').trim();
@@ -235,11 +238,10 @@
      button.addEventListener('click',()=>{
        clearSearch();activate(match.key);
        const details=match.row.closest('details');if(details)details.open=true;
-       requestAnimationFrame(()=>{
-         if(!match.row.isConnected)return;
+       if(match.row.isConnected){
          match.row.scrollIntoView({block:'nearest',inline:'nearest'});
          match.control.focus({preventScroll:true});
-       });
+       }
      });
      results.append(button);
    }
