@@ -61,7 +61,7 @@
    conn.on('error',()=>{hostChannels.delete(conn);try{conn.close();}catch{}});
    return true;
  }
- function closeHost(){for(const conn of hostChannels)try{conn.close();}catch{}hostChannels.clear();}
+ function closeHost(){const file=bridge()?.state.file;if(file)keys.delete(file);for(const conn of hostChannels)try{conn.close();}catch{}hostChannels.clear();}
  function current(s){const a=bridge();return session===s&&!s.closed&&a?.state.role==='guest'&&a.state.guestConn===s.control&&!a.state.localVerified;}
  function send(s,m){if(s.control.open)try{s.control.send(m);}catch{}}
  function cancel(s){
@@ -153,7 +153,7 @@
  }
  function position(s){return Math.max(0,Math.min(Math.max(0,s.duration-.02),bridge().expectedHostTime()));}
  async function pump(s){
-   if(!current(s)||!s.buffer||s.running||s.buffer.updating)return;
+   if(!current(s)||!s.buffer||s.running||s.buffer.updating||s.reconnecting)return;
    const a=bridge(),v=a.media,time=position(s);
    const available=ahead(s.buffer.buffered,time),wanted=Math.min(s.capacity,goal(time,s.duration));
    if(available>=wanted-.15){kick(s,200);return;}
@@ -191,6 +191,7 @@
        s.emptyReads=0;
        if(!s.ready&&ahead(ranges,latest)>.1){
          s.ready=true;send(s,{type:'buffered-file-active',id:s.offer.id,active:true});
+         send(s,{type:'buffer-status',ready:ahead(ranges,latest)>=Math.min(LOW,goal(latest,s.duration))});
          const call=a.state.guestCall;a.state.guestCall=null;try{call?.close();}catch{}
        }
        a.updateBufferDisplay();a.recoveryCheck();void a.syncSeekablePlayback();
@@ -199,8 +200,41 @@
      }
      if(chunk?.finished&&ahead(s.buffer.buffered,latest)<wanted-.5)s.cursor=null;
      kick(s,chunk?.data?.byteLength?0:300);
-   }catch(e){if(current(s))stop(true,e.message);}
+   }catch(e){if(current(s)){if(s.reconnecting||!s.conn?.open){s.cursor=null;void reconnect(s);}else stop(true,e.message);}}
    finally{s.running=false;}
+ }
+ async function openChannel(s){
+   const a=bridge(),conn=a.state.peer.connect(s.control.peer,{label:LABEL,reliable:true,metadata:{id:s.offer.id}});
+   s.conn=conn;
+   conn.on('data',m=>{if(s.conn===conn)receive(s,m);});
+   const lost=()=>{
+     if(!current(s)||s.conn!==conn)return;
+     for(const req of s.requests.values()){clearTimeout(req.timer);req.reject(Error('Movie transfer disconnected'));}
+     s.requests.clear();
+     if(s.buffer)void reconnect(s);
+   };
+   conn.on('close',lost);conn.on('error',lost);
+   await new Promise((resolve,reject)=>{
+     const timer=setTimeout(()=>reject(Error('Media transfer connection timed out')),10000);
+     conn.on('open',()=>{clearTimeout(timer);resolve();});conn.on('error',e=>{clearTimeout(timer);reject(e);});conn.on('close',()=>{clearTimeout(timer);reject(Error('Media transfer closed'));});
+   });
+ }
+ async function reconnect(s){
+   if(!current(s)||s.reconnecting)return;
+   s.reconnecting=true;
+   // Keep already appended A/V available while the bulk channel reconnects.
+   // A data interruption does not discard the guest's downloaded window.
+   for(let attempt=0;attempt<5&&current(s)&&s.control.open;attempt++){
+     try{
+       const old=s.conn;s.conn=null;try{old?.close();}catch{}
+       await delay(attempt?Math.min(3000,400*2**attempt):0);
+       if(!current(s))return;
+       await openChannel(s);
+       if(!current(s))return;
+       s.cursor=null;s.reconnecting=false;kick(s);return;
+     }catch{}
+   }
+   if(current(s))stop(true,'Media transfer could not reconnect');
  }
  async function start(o,control){
    const a=bridge();
@@ -208,15 +242,7 @@
    const s={offer:o,control,conn:null,requests:new Map(),sequence:0,cache:new Map(),cacheBytes:0,readTail:Promise.resolve(),closed:false,attached:false,ready:false,running:false,cursor:null,capacity:TARGET+5,emptyReads:0};
    session=s;
    try{
-     const conn=a.state.peer.connect(control.peer,{label:LABEL,reliable:true,metadata:{id:o.id}});
-     s.conn=conn;
-     conn.on('data',m=>receive(s,m));
-     conn.on('close',()=>{if(current(s))stop(true,'Media transfer disconnected');});
-     conn.on('error',()=>{if(current(s))stop(true,'Media transfer failed');});
-     await new Promise((resolve,reject)=>{
-       const timer=setTimeout(()=>reject(Error('Media transfer connection timed out')),10000);
-       conn.on('open',()=>{clearTimeout(timer);resolve();});conn.on('error',e=>{clearTimeout(timer);reject(e);});conn.on('close',()=>{clearTimeout(timer);reject(Error('Media transfer closed'));});
-     });
+     await openChannel(s);
      if(!current(s))return;
      const module=await import('./vendor/libav-wasm/index.js');
      const base=new URL('./vendor/libav-wasm/',document.baseURI).href;
@@ -242,12 +268,13 @@
      s.attached=true;a.state.bufferedMode=true;a.state.waitingForBuffer=true;a.state.source='buffered-guest';
      a.stopGuestAudioRelay(false);a.media.pause();a.media.srcObject=null;a.media.src=s.url;a.media.preload='auto';a.media.load();a.applyVolume();
      a.showStage(true);a.badge('BUFFERED MOVIE');
+     clearTimeout(a.state.streamWaitTimer);a.state.streamWaitTimer=null;
      await opened;if(!current(s))return;
      s.buffer=ms.addSourceBuffer(mime);s.buffer.mode='segments';s.buffer.timestampOffset=header.timestampOffset||0;ms.duration=s.duration;
      await update(s.buffer,()=>s.buffer.appendBuffer(header.data));
      if(!current(s))return;
      a.media.currentTime=position(s);
-     s.timer=setInterval(()=>kick(s),250);
+     s.timer=setInterval(()=>{kick(s);if(s.ready&&Date.now()-(s.lastReport||0)>1000){s.lastReport=Date.now();const t=position(s);send(s,{type:'buffer-status',ready:ahead(s.buffer.buffered,t)>=Math.min(LOW,goal(t,s.duration))});}},250);
      kick(s);
    }catch(e){if(current(s))stop(true,e.message);}
  }
