@@ -1345,7 +1345,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     localClockOffsetMs: null, localClockBestRtt: Infinity, localClockSampleAt: 0,
     localSnapshotSequence: 0, lastLocalSnapshotSeq: -1,
     lastBufferVisualAt: 0, highTierHeight: 0, highFrameHandle: null, retiredHighTracks: [],
-    basePaint: null, basePaintIdle: false, highGfxMode: '2d',
+    basePaint: null, basePaintIdle: false, baseFrameHandle: null, highGfxMode: '2d',
     hostPictureSample: null, guestDarkStreak: 0, pictureRepairAsked: false,
     resumeChecked: false, lastProgressSaveAt: 0,
   };
@@ -2855,11 +2855,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     for(const entry of state.connections.values())entry.bufferedFile=false;
     releaseWakeLock();
     if (state.interval) { window.clearInterval(state.interval); state.interval = null; }
+    if(state.baseFrameHandle!=null){try{media.cancelVideoFrameCallback?.(state.baseFrameHandle);}catch{}state.baseFrameHandle=null;}
     state.basePaint = null;
     state.basePaintIdle = false;
     if (state.qualityTimer) { window.clearInterval(state.qualityTimer); state.qualityTimer = null; }
     if (state.animationFrame) { cancelAnimationFrame(state.animationFrame); state.animationFrame = 0; }
     // AudioContext's destination is reused; never end its audio track.
+    if(state.canvasStream)for(const track of state.canvasStream.getVideoTracks())track.stop();
     if (state.outgoing && !keepScreen) for (const track of state.outgoing.getVideoTracks()) track.stop();
     if (state.outgoing && keepScreen && state.source !== 'screen') for (const track of state.outgoing.getVideoTracks()) track.stop();
     if (state.screenStream && !keepScreen) for (const track of state.screenStream.getTracks()) track.stop();
@@ -4750,20 +4752,42 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     canvas.height = Math.max(2, Math.round((media.videoHeight || STREAM_HEIGHT) * ratio));
     const context = canvas.getContext('2d', { alpha: false, desynchronized: true });
     if (!context || !canvas.captureStream) throw new Error('This browser cannot capture video frames.');
-    const paint = () => {
-      if (media.readyState >= 2) {
-        try { context.drawImage(media, 0, 0, canvas.width, canvas.height); }
-        catch { /* retry next frame */ }
-      }
+    // Use the same single-clock strategy as the high-resolution capture.
+    // A fixed canvas capture clock plus a fixed draw clock can undersample
+    // each other, even when the movie itself is decoding at full frame rate.
+    let stream=canvas.captureStream(0),v=stream.getVideoTracks()[0];
+    const manual=typeof v?.requestFrame==='function';
+    if(!manual){v?.stop();stream=canvas.captureStream(STREAM_FPS);v=stream.getVideoTracks()[0];}
+    state.canvasStream=stream;
+    let lastPaint=-Infinity,lastMediaTime=-Infinity;
+    const paintFrame=(now,mediaTime)=>{
+      if(state.canvasStream!==stream||media.readyState<2||v?.readyState!=='live')return;
+      // Allow source-rate 24fps and modest scheduling jitter; do not paint
+      // twice for one decoded frame or render 60fps into a 24fps sender.
+      if(now-lastPaint<29 || (Number.isFinite(mediaTime)&&mediaTime===lastMediaTime))return;
+      try{
+        context.drawImage(media,0,0,canvas.width,canvas.height);
+        if(manual)v.requestFrame();
+        lastPaint=now;lastMediaTime=mediaTime;
+      }catch{}
     };
-    paint();
-    // Limit raw pixels before the multiple WebRTC encoders, not just afterward.
-    // 24fps/540p reduces host load significantly without reducing local playback.
-    state.basePaint = paint;
-    state.basePaintIdle = false;
-    state.interval = window.setInterval(paint, Math.round(1000 / STREAM_FPS));
-    state.canvasStream = canvas.captureStream(STREAM_FPS);
-    const v=state.canvasStream.getVideoTracks()[0];
+    const decodedCallbacks=manual&&typeof media.requestVideoFrameCallback==='function';
+    const paint=()=>{
+      const now=performance.now();
+      if(decodedCallbacks&&now-lastPaint<75)return;
+      paintFrame(now,media.currentTime);
+    };
+    state.basePaint=paint;state.basePaintIdle=false;
+    paintFrame(performance.now(),media.currentTime);
+    state.interval=window.setInterval(paint,Math.round(1000/STREAM_FPS));
+    if(decodedCallbacks){
+      const onFrame=(now,metadata)=>{
+        if(state.canvasStream!==stream||v.readyState!=='live')return;
+        if(!state.basePaintIdle)paintFrame(now,metadata.mediaTime);
+        state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
+      };
+      state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
+    }
     if(v && 'contentHint' in v)try{v.contentHint='motion';}catch{}
     return v;
   }
