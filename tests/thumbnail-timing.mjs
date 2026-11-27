@@ -106,6 +106,28 @@ try{
  assert.equal(await page.locator('#timelineBookmarkMarkers .timeline-bookmark-marker').count(),0);
  assert.equal(await page.evaluate(()=>Object.keys(JSON.parse(localStorage.getItem('marmalade:timeline-bookmarks:v1'))).length),0);
  console.log('PASS movie bookmarks persist across reload, seek precisely and delete durably');
+ // A typed timestamp must not be rounded to the range slider step.
+ await page.evaluate(()=>document.querySelector('#dropZone').classList.add('controls-visible'));
+ await page.locator('#timestampToggle').click({force:true});
+ await page.locator('#timestampInput').fill('00:00:03.125');
+ await page.locator('#timestampInput').press('Enter');
+ await page.waitForFunction(()=>Math.abs(document.querySelector('#player').currentTime-3.125)<.025&&!document.querySelector('#player').seeking);
+ assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
+ assert.equal(await page.locator('#timestampEditor').isVisible(),false);
+ await page.locator('#timestampToggle').click({force:true});
+ for(const bad of ['00:00:60','-1','00:00:09.000','NaN']){
+   await page.locator('#timestampInput').fill(bad);
+   await page.locator('#timestampInput').press('Enter');
+   assert.equal(await page.locator('#timestampInput').getAttribute('aria-invalid'),'true');
+   assert(Math.abs(await page.locator('#player').evaluate(v=>v.currentTime)-3.125)<.025);
+ }
+ await page.locator('#timestampInput').press('Escape');
+ assert.equal(await page.locator('#timestampEditor').isVisible(),false);
+ await page.locator('#timestampToggle').click({force:true});
+ await page.locator('#timestampInput').fill('5.25');
+ await page.locator('#timestampGo').click();
+ await page.waitForFunction(()=>Math.abs(document.querySelector('#player').currentTime-5.25)<.025&&!document.querySelector('#player').seeking);
+ console.log('PASS precise timestamp entry, invalid range rejection, cancel and paused state');
 
  await page.locator('#subtitlesBtn').click({force:true});
  await page.locator('#subSyncTab').click({force:true});
@@ -212,6 +234,13 @@ try{
  });
  assert(peerPixel[2]>95&&peerPixel[0]<85,'Guest sees host blue scene '+peerPixel);
  console.log('PASS on-demand host/guest thumbnail requests and scene response over room data channel');
+ await page.evaluate(()=>{const b=window.MarmaladeAddonBridge;b.el.stage.classList.add('controls-visible');b.state.hostPlaying=false;b.state.sharedTime=6;b.state.sharedAt=performance.now();document.querySelector('#timestampToggle').disabled=false;});
+ await page.locator('#timestampToggle').click({force:true});
+ await page.locator('#timestampInput').fill('00:00:01.375');
+ await page.locator('#timestampInput').press('Enter');
+ const precise=await page.evaluate(()=>window.MarmaladeAddonBridge.state.guestConn.sent.findLast(p=>p.type==='transport'&&p.action==='seek'));
+ assert.equal(precise?.value,1.375,'Guest sends precise timestamp through shared transport');
+ console.log('PASS exact guest timestamp uses synchronized transport');
 
  assert.deepEqual(errors,[],'No uncaught JS errors');
 }finally{await browser.close();await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});}

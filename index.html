@@ -663,9 +663,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           <div class="theater-controls" id="theaterControls" aria-label="Video controls">
             <div class="theater-title"><button type="button" id="mediaInfoToggle" class="theater-title-info" title="Movie &amp; Series Information" aria-label="Movie &amp; Series Information" aria-expanded="false" aria-controls="mediaInfoPanel"><strong id="fileName">Nothing Selected</strong></button><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 Watching</span></span></div>
             <div class="theater-seek" id="seekArea">
-              <span class="timecode" id="currentTime">00:00</span>
+              <button type="button" class="timecode timestamp-toggle" id="timestampToggle" title="Go to Timestamp" aria-label="Go to Timestamp" aria-expanded="false" aria-controls="timestampEditor" disabled><span id="currentTime">00:00</span></button>
               <div class="seek-stack"><div id="bufferedFill" class="buffered-fill" aria-hidden="true"></div><div id="timelineBookmarkMarkers" aria-hidden="true"></div><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled></div>
               <span class="timecode" id="duration">00:00</span>
+              <form id="timestampEditor" class="timestamp-editor" aria-label="Go to Timestamp" hidden novalidate><label for="timestampInput">Go to Timestamp</label><div class="timestamp-entry"><input id="timestampInput" type="text" inputmode="decimal" maxlength="16" autocomplete="off" spellcheck="false" placeholder="HH:MM:SS.sss" aria-describedby="timestampError"><button type="submit" id="timestampGo">Go</button><button type="button" id="timestampCancel" aria-label="Cancel timestamp entry">×</button></div><small id="timestampError" role="status">HH:MM:SS or seconds · optional milliseconds</small></form>
             </div>
             <div class="theater-bottom">
               <div class="theater-actions">
@@ -2033,6 +2034,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     el.forward.disabled = !(isFile || guestHasTimeline);
     el.seek.disabled = !(isFile || guestHasTimeline) ||
       !(state.role === 'guest' ? guestHasTimeline : Number.isFinite(duration) && duration > 0);
+    const timestampEnabled=!el.seek.disabled&&!state.gameFrameMode;
+    $('timestampToggle').disabled=!timestampEnabled;
+    if(!timestampEnabled&&!$('timestampEditor').hidden)closeTimestampEditor(false);
     if (isFile && Number.isFinite(duration) && duration > 0) {
       el.seek.value = String(Math.round(media.currentTime / duration * 1000));
       el.current.textContent = timeString(media.currentTime);
@@ -2074,7 +2078,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   function canHideControls(){
     if(!el.stage.classList.contains('has-video'))return false;
-    if(!el.settingsPanel.hidden||!el.subtitlePanel.hidden)return false;
+    if(!el.settingsPanel.hidden||!el.subtitlePanel.hidden||!$('timestampEditor').hidden)return false;
     // A persistent tapped focus must not trap controls on touch devices.
     // Hover and persistent focus cannot block the timeout on desktop.
     // Active settings/subtitle panels still remain visible for editing.
@@ -3233,6 +3237,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Joining resets the old video, but must NOT destroy an AudioContext
     // just unlocked by the visitor typing/pasting their room code.
     stopGuestAudioRelay(!preserveGuestAudio);
+    closeTimestampEditor(false);
     window.dispatchEvent(new Event('marmalade:media-cleared'));
     stopBroadcast();
     media.pause();
@@ -6608,6 +6613,76 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     else applyTransport('seek',time);
     revealControls();
   };
+  // Exact typed timestamps bypass the scrubber's 1/1000 quantization.
+  // The ordinary host/guest transport still owns playback synchronization.
+  function parseTimestamp(value){
+    const text=String(value).trim();
+    if(!/^(?:\d{1,7}(?:\.\d{1,3})?|\d{1,7}:\d{2}(?:\.\d{1,3})?|\d{1,5}:\d{2}:\d{2}(?:\.\d{1,3})?)$/.test(text))return null;
+    const parts=text.split(':').map(Number);
+    if(parts.slice(1).some(n=>n>=60))return null;
+    const seconds=parts.reduce((sum,n)=>sum*60+n,0);
+    return Number.isFinite(seconds)?seconds:null;
+  }
+  function timestampText(seconds){
+    const ms=Math.max(0,Math.round(seconds*1000)),s=Math.floor(ms/1000);
+    return [Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(n=>String(n).padStart(2,'0')).join(':')+
+      (ms%1000?'.'+String(ms%1000).padStart(3,'0'):'');
+  }
+  let timestampSession=null;
+  function timestampIdentity(){
+    return [state.role,state.source,state.file,state.nativeStreamUrl,state.hostedUrl,state.code,state.remoteFingerprint];
+  }
+  function closeTimestampEditor(focus=true){
+    const form=$('timestampEditor');
+    if(!form||form.hidden)return;
+    form.hidden=true;timestampSession=null;
+    $('timestampToggle').setAttribute('aria-expanded','false');
+    $('timestampInput').removeAttribute('aria-invalid');
+    if(focus&&!$('timestampToggle').disabled)$('timestampToggle').focus({preventScroll:true});
+    scheduleControlsFade();
+  }
+  $('timestampToggle').addEventListener('click',()=>{
+    if(!$('timestampEditor').hidden){closeTimestampEditor();return;}
+    if(el.seek.disabled||state.gameFrameMode)return;
+    const duration=state.role==='guest'?state.sharedDuration:stableMovieDuration();
+    if(!Number.isFinite(duration)||duration<=0)return;
+    const current=state.role==='guest'?Math.max(0,Math.min(duration,state.sharedTime+(state.hostPlaying?Math.max(0,performance.now()-state.sharedAt)/1000:0))):media.currentTime;
+    if(!Number.isFinite(current))return;
+    timestampSession=timestampIdentity();
+    $('timestampEditor').hidden=false;
+    $('timestampToggle').setAttribute('aria-expanded','true');
+    $('timestampError').textContent='HH:MM:SS or seconds · optional milliseconds';
+    $('timestampInput').value=timestampText(current);
+    $('timestampInput').removeAttribute('aria-invalid');
+    revealControls();
+    $('timestampInput').focus({preventScroll:true});$('timestampInput').select();
+  });
+  $('timestampEditor').addEventListener('submit',event=>{
+    event.preventDefault();
+    const now=timestampIdentity();
+    if(!timestampSession||now.some((v,i)=>v!==timestampSession[i])||el.seek.disabled||state.gameFrameMode){closeTimestampEditor(false);return;}
+    const input=$('timestampInput'),time=parseTimestamp(input.value);
+    const duration=state.role==='guest'?state.sharedDuration:stableMovieDuration();
+    if(time===null||!Number.isFinite(duration)||duration<=0||time>duration){
+      input.setAttribute('aria-invalid','true');
+      $('timestampError').textContent='Enter a valid timestamp from 00:00:00 to '+timestampText(duration)+'.';
+      input.focus();return;
+    }
+    // Explicit typed seeks must not be discarded by pointer double-event deduplication.
+    previousSeek={at:0,time:-1};
+    commitSeek(time);closeTimestampEditor();
+  });
+  $('timestampCancel').addEventListener('click',()=>closeTimestampEditor());
+  $('timestampInput').addEventListener('input',()=>{
+    $('timestampInput').removeAttribute('aria-invalid');
+    $('timestampError').textContent='HH:MM:SS or seconds · optional milliseconds';
+  });
+  $('timestampEditor').addEventListener('keydown',event=>{
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeTimestampEditor();}
+  });
+  document.addEventListener('pointerdown',event=>{
+    if(!$('timestampEditor').hidden&&!event.target.closest?.('#timestampEditor,#timestampToggle'))closeTimestampEditor(false);
+  },{capture:true});
   $('bookmarkAdd').addEventListener('click',()=>{
     const key=bookmarkIdentity(),duration=stableMovieDuration(),time=media.currentTime;
     if(!key||!Number.isFinite(time)||!Number.isFinite(duration)||time<0||time>duration)return;
