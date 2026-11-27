@@ -118,6 +118,7 @@
  into('volumeIncrement','controls');
  into('volumeSnap','controls','settings-toggle-row');
  into('volumeMaximum','controls');
+ into('audioProtection','controls','settings-toggle-row');
  const tapRow=into('tapVideoPlayback','controls','settings-toggle-row');
  if(tapRow){const input=tapRow.querySelector('input');if(input)tapRow.append(input);}
  const fadeRow=into('controlFadeDelay','controls');
