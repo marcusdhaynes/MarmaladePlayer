@@ -98,9 +98,10 @@ try{
   assert.deepEqual(await page.locator('#settingsCategoryJump option').evaluateAll(options=>options.slice(1).map(o=>o.value)),Object.keys(jumpTargets));
   for(const [category,id] of Object.entries(jumpTargets)){
     await page.locator('#settingsCategoryJump').selectOption(category);
-    await page.waitForFunction(id=>document.activeElement?.id===id,id);
+    await page.waitForFunction(id=>{const target=document.getElementById(id),active=document.activeElement;return active===target||(target.disabled&&active?.dataset.categoryFocus===id);},id);
     assert.equal(await page.locator('#'+id).isVisible(),true,category+' target is visible');
     assert.equal(await page.locator('#'+id).count(),1,category+' target remains unique');
+    console.log('PASS category navigation '+category);
   }
   await page.locator('#settingsSearch').fill('automatic update checks');
   await page.locator('#settingsSearchResults button').filter({hasText:'Automatic Update Checks'}).click();
@@ -170,6 +171,54 @@ try{
     await page.waitForFunction(()=>!document.querySelector('#settingsPanel').classList.contains('player-docked')&&document.querySelector('#settingsPanel').parentElement===document.body);
     assert.equal(await page.locator('#settingsTabVideo').getAttribute('aria-selected'),'true');
     await page.setViewportSize(viewport);
+  }
+  if(viewport.width===1366){
+    // Exercise all thirteen real reset actions with a non-default preference
+    // in every category. Reload after each reset; check independent values
+    // and actual controls, not just the existence of dropdown options.
+    const fixtures=[
+      ['video','mobile:match-video-aspect','true','false','mobileMatchVideoAspect','checkbox'],
+      ['audio','volume-maximum','400','200','volumeMaximum','select'],
+      ['subtitles','preferred-subtitle-language','ar','en','preferredSubtitleLanguage','select'],
+      ['party','strict-sync','false','true','strictSync','checkbox'],
+      ['buffering','original-file-buffer','false','true','allowOriginalBuffer','checkbox'],
+      ['library','media-library:auto-next','true','false','mlAutoNext','checkbox'],
+      ['games','games:visible:v1','true','false','gamesVisibilityToggle','checkbox'],
+      ['controls','skip-interval-seconds','30','10','skipInterval','select'],
+      ['miniPlayer','mini-player-fade','8','follow','miniPlayerFadeDelay','select'],
+      ['appearance','window-theme','glass','classic','windowTheme','select'],
+      ['privacy','remember-last-room','false','true','rememberLastRoom','checkbox'],
+      ['performance','playback-diagnostics','true','false','diagnosticsToggle','expanded'],
+      ['updates','auto-update-checks','false','true','automaticUpdateChecks','checkbox']
+    ];
+    await page.evaluate(fixtures=>{for(const [,key,value] of fixtures)localStorage.setItem('marmalade:'+key,value);
+      localStorage.setItem('marmalade:watch-progress:v1','{}');},fixtures);
+    await page.reload({waitUntil:'domcontentloaded'});
+    async function verifyFixtures(done){
+      await page.waitForFunction(()=>window.MarmaladeSettingsLayout&&document.getElementById('mlAutoNext')&&document.getElementById('gamesVisibilityToggle'));
+      const actual=await page.evaluate(fixtures=>fixtures.map(([,key,,,id,type])=>{
+        const el=document.getElementById(id);
+        return {stored:localStorage.getItem('marmalade:'+key),value:type==='checkbox'?String(el.checked):type==='expanded'?el.getAttribute('aria-expanded'):el.value};
+      }),fixtures);
+      for(let i=0;i<fixtures.length;i++){
+        const [category,,chosen,reset]=fixtures[i];
+        const expected=i<done?reset:chosen;
+        assert.equal(actual[i].value,expected,category+' live value after '+done+' resets');
+        assert(actual[i].stored===expected||(i<done&&actual[i].stored===null),category+' persisted value '+JSON.stringify(actual[i]));
+      }
+      assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:watch-progress:v1')),'{}','Viewing history storage must not be reset');
+    }
+    await verifyFixtures(0);
+    for(let i=0;i<fixtures.length;i++){
+      const category=fixtures[i][0];
+      await page.locator('#settingsBtn').click({force:true});
+      await page.locator('#settingsBackup > summary').click();
+      await page.locator('#settingsResetCategory').selectOption(category);
+      await page.locator('#settingsReset').click();
+      await Promise.all([page.waitForEvent('load'),page.locator('#settingsApplyBackup').click()]);
+      await verifyFixtures(i+1);
+      console.log('PASS independent reset, reload and all other categories preserved: '+category);
+    }
   }
   assert.deepEqual(errors,[], 'No runtime exceptions during settings interactions');
   await page.close();

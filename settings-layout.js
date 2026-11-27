@@ -228,7 +228,7 @@
   video:{
    'mobile:match-video-aspect':bool,'fullscreen-orientation':choices('portrait','landscape'),
    'guest-quality':choices('144','240','360','480','540','720','1080'),
-   'adaptive-video-brightness:v1':numeric(0,200)
+   'adaptive-video-brightness:v1':numeric(0,100)
   },
   controls:{
    'skip-interval-seconds':choices('5','10','15','20','30','60'),'control-fade-seconds':choices('2','3','5','8','10','15'),'tap-video-playback':bool
@@ -245,7 +245,7 @@
   subtitles:{'preferred-subtitle-language':choices(...subtitleLanguages.map(([value])=>value))},
   party:{'stability-mode':choices('fast','balanced','smooth'),'strict-sync':bool},
   buffering:{'original-file-buffer':bool,'peer-assist':bool},
-  library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':numeric(1,20)},
+  library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':numeric(1,20),'media-library:list':bool},
   games:{'games:visible:v1':bool},
   miniPlayer:{'mini-player-fade':choices('follow','2','3','5','8','10','15')},
   performance:{'playback-diagnostics':bool},
@@ -395,7 +395,10 @@
    requestAnimationFrame(()=>requestAnimationFrame(()=>{
      if(panel.hidden||categoryJump.value!==key)return;
      row.scrollIntoView({block:'nearest',inline:'nearest'});
-     control.focus({preventScroll:true});
+     // Host-only quality controls can be disabled; focus the labelled row instead.
+     const target=control.disabled?row:control;
+     if(target===row){row.tabIndex=-1;row.dataset.categoryFocus=id;}
+     target.focus({preventScroll:true});
    }));
    return true;
  }
@@ -445,7 +448,9 @@
        const details=match.row.closest('details');if(details)details.open=true;
        if(match.row.isConnected){
          match.row.scrollIntoView({block:'nearest',inline:'nearest'});
-         match.control.focus({preventScroll:true});
+         const target=match.control.disabled?match.row:match.control;
+         if(target===match.row)target.tabIndex=-1;
+         target.focus({preventScroll:true});
        }
      });
      results.append(button);

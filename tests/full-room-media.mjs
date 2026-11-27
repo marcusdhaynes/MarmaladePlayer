@@ -593,7 +593,7 @@ try {
     // floor for that compatibility path; don't misrepresent it as 24 FPS.
     const floor=hostB.compatibilityCanvas && tier==='720'?18:20;
     if(encodedFps<floor||decodedFps<floor||renderedFps<18)
-      performanceIssues.push(metrics);
+      performanceIssues.push({...metrics,captureFps,highPaintIdle:hostB.highPaintIdle});
   }
   console.log('SUSTAINED PERFORMANCE RESULTS',JSON.stringify(performanceIssues));
   if(!performanceIssues.length)
