@@ -213,14 +213,16 @@ try {
     const palette=await page.locator('#settingsPanel').evaluate(panel=>{
       const r=panel.getBoundingClientRect();
       return {detached:panel.parentElement===document.body||panel.parentElement.id==='playerPanelDock',
-        clipped: r.top < -1 || r.left < -1 || r.right > innerWidth+1 || r.bottom > innerHeight+1,
+        clipped: r.left < -1 || r.right > innerWidth+1 || (!panel.classList.contains('player-docked')&&(r.top < -1 || r.bottom > innerHeight+1)),
         stageContains: document.querySelector('#dropZone').contains(panel),
         stageBottom:document.querySelector('#dropZone').getBoundingClientRect().bottom,
         paletteTop:r.top};
     });
     assert.equal(palette.detached,true,'Settings palette must be outside clipped video');
     assert.equal(palette.stageContains,false,'Stage may not clip Settings');
-    assert.equal(palette.clipped,false,'Settings must remain fully visible within viewport');
+    assert.equal(palette.clipped,false,'Settings must fit horizontally and floating settings must fit vertically');
+    await page.locator('#closeSettingsPanel').scrollIntoViewIfNeeded();
+    assert(await page.locator('#closeSettingsPanel').isVisible(),'Docked settings must be reachable by scrolling');
     await page.locator('#joinTab').evaluate(el=>el.click()); // hidden compatibility action, not user-facing
     await page.locator('#dropZone').evaluate(el=>el.classList.add('has-video'));
     const options=await page.locator('#qualitySelect option').allTextContents();
