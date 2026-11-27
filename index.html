@@ -548,7 +548,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <link rel="stylesheet" href="./settings-layout.css?v=20261126-glass-audit-v1">
 <link rel="stylesheet" href="./rapid-controls.css?v=20261126-docked-local-resume-v1">
 <link rel="stylesheet" href="./updates-ui.css?v=20261120-u2">
-<link rel="stylesheet" href="./games.css?v=20261121-browser-independent-v2">
+<link rel="stylesheet" href="./games.css?v=20261126-audit-v3">
 
 <style id="marmaladeum-mobile-theater-layout">
 /* Override the obsolete 365px minimum height on the empty mobile player.
@@ -4635,7 +4635,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Native mute is a hard safety gate even when Web Audio exists but is suspended.
     // Gain is applied to speakers only; it is never part of the outgoing P2P track.
     const hardMute = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;
-    media.muted = hardMute || (state.guestAudioFallback&&state.guestAudioContext?.state==='running') || (state.role==='guest'&&state.source==='remote'&&state.audioUnlockRequired);
+    const isolatedHostAudio=state.role==='host'&&['file','native'].includes(state.source)&&state.audioDestination&&state.audioContext?.state==='running';
+    media.muted = (!isolatedHostAudio&&hardMute) || (state.guestAudioFallback&&state.guestAudioContext?.state==='running') || (state.role==='guest'&&state.source==='remote'&&state.audioUnlockRequired);
     if(state.guestAudioGain && state.guestAudioContext){
       try{
         const ctx=state.guestAudioContext;
@@ -4647,11 +4648,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // control source playback or the outgoing MediaStream, so remote viewers
     // and verified local copies remain on the original host timeline.
     const mirror=state.role==='host' && state.hostMonitorActive;
-    try { media.volume = mirror ? 0 : state.speakerGain ? 1 : Math.min(1,level); } catch {}
+    try { media.volume = isolatedHostAudio ? 1 : mirror ? 0 : state.speakerGain ? 1 : Math.min(1,level); } catch {}
     if (state.speakerGain) {
       const now = state.audioContext.currentTime;
       state.speakerGain.gain.cancelScheduledValues(now);
-      state.speakerGain.gain.setTargetAtTime(mirror || state.guestAudioFallback ? 0 : level, now,.012);
+      state.speakerGain.gain.setTargetAtTime(hardMute || mirror || state.guestAudioFallback ? 0 : level, now,.012);
     }
     const monitor=$('hostMonitor');
     if(monitor){
@@ -4770,13 +4771,16 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Use Web Audio only for browsers without a usable native audio track,
     // or if a speaker-gain graph was explicitly created (e.g. 200% volume).
     let audioTracks = nativeAudioTracks.filter(t => t.readyState === 'live' && t.enabled);
-    if (!audioTracks.length || state.audioSourceNode) {
+    // A broadcast needs pre-speaker-gain audio even when the host changes volume,
+    // mutes or enables the delayed monitor. Native capture may reflect element volume.
+    {
       try {
         await ensureAudioCapture();
         const processed = state.audioDestination?.stream.getAudioTracks()
           .filter(t => t.readyState === 'live') || [];
-        if (processed.length && state.audioContext?.state === 'running')
-          audioTracks = processed;
+        if (processed.length && state.audioContext?.state === 'running'){
+          audioTracks = processed;applyVolume();
+        }
         else if(!audioTracks.length && processed.length)
           audioTracks = processed; // Will become audible on a host gesture.
       } catch (error) { console.debug('Native audio capture fallback', error); }
@@ -4950,6 +4954,21 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         hostMonitor.addEventListener('loadeddata',ready,{once:true});
         hostMonitor.addEventListener('error',fail,{once:true});
       });
+      if(!state.hostMonitorRequested || state.source!=='file')return;
+      // If the source was captured natively because the audio context was blocked,
+      // don't silence it until an independent outgoing track can be installed.
+      const outgoingAudio=state.outgoing?.getAudioTracks?.()||[];
+      if(outgoingAudio.length && !outgoingAudio.some(t=>state.audioDestination?.stream.getAudioTracks().includes(t))){
+        await ensureAudioCapture();
+        const replacement=state.audioDestination?.stream.getAudioTracks()[0];
+        if(!replacement||state.audioContext?.state!=='running')throw Error('Independent broadcast audio unavailable');
+        for(const entry of state.connections.values()){
+          const senders=entry.call?.peerConnection?.getSenders?.()||[];
+          for(const sender of senders)if(sender.track?.kind==='audio')await sender.replaceTrack(replacement);
+        }
+        for(const old of outgoingAudio)state.outgoing.removeTrack(old);
+        state.outgoing.addTrack(replacement);
+      }
       if(!state.hostMonitorRequested || state.source!=='file')return;
       state.hostMonitorDelayMs=guestMonitorDelay();
       const target=Math.max(0,media.currentTime-state.hostMonitorDelayMs/1000);
