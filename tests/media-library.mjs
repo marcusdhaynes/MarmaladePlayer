@@ -142,8 +142,9 @@ try{
   assert.equal(await page.locator('#mlCards').getByText('Arrival',{exact:false}).count(),1);
   assert.equal(await page.locator('.ml-shelf-edit').count(),1,
     'Every named library exposes a direct pencil edit control');
-  assert.equal(await page.locator('.ml-tool-icon svg.glass-icon').count(),6,
-    'Library actions and the new settings gear share the player SVG style');
+  for(const id of ['mlSettingsBtn','mlQuickAdd','mlQuickAddVideos','mlFindArt','mlRescan','mlManage','mlView']){
+    assert.equal(await page.locator('#'+id+' svg.glass-icon').count(),1,'Missing glass SVG icon: '+id);
+  }
   const arrival=()=>page.locator('#mlCards .ml-card').filter({hasText:'Arrival'});
   const aspect=await arrival().locator('.ml-card-art').evaluate(art=>{
     const bounds=art.getBoundingClientRect();
