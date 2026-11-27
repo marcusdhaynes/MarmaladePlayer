@@ -68,6 +68,32 @@ try{
   assert.equal(await page.locator('#settingsPageControls #audioEqPreset').inputValue(),'cinema');
   assert.equal(await page.locator('#settingsPageControls #audioOutput').inputValue(),'');
   assert.equal(await page.locator('#settingsPageControls #audioOutput').count(),1);
+  // Simulate the optional AudioTrackList interface consistently on every
+  // engine. This verifies application logic, not native decoder support.
+  const audioTracks=await page.evaluate(async()=>{
+   const {state,media}=window.MarmaladeAddonBridge;
+   const old={role:state.role,source:state.source,fileReady:state.fileReady,broadcasting:state.broadcasting};
+   const descriptor=Object.getOwnPropertyDescriptor(media,'audioTracks');
+   const list=new EventTarget(),tracks=[{id:'a',language:'eng',label:'English',enabled:true},{id:'b',language:'ara',label:'Arabic',enabled:false},{id:'c',language:'ara',kind:'commentary',label:'Commentary',enabled:false}];
+   tracks.forEach((t,i)=>list[i]=t);list.length=tracks.length;
+   const language=document.querySelector('#audioLanguage'),select=document.querySelector('#audioTrack');
+   const change=(control,value)=>{control.value=value;control.dispatchEvent(new Event('change',{bubbles:true}));};
+   try{
+    Object.defineProperty(media,'audioTracks',{configurable:true,value:list});
+    Object.assign(state,{role:'host',source:'file',fileReady:true,broadcasting:false});
+    change(language,'ar');const preferred=tracks.map(t=>t.enabled);
+    change(select,'0');const manual=tracks.map(t=>t.enabled);
+    list.dispatchEvent(new Event('change'));await Promise.resolve();
+    const retained=tracks.map(t=>t.enabled);
+    state.broadcasting=true;change(language,'ar');const blocked=select.disabled&&tracks[0].enabled;
+    return {preferred,manual,retained,blocked,saved:localStorage.getItem('marmalade:preferred-audio-language')};
+   }finally{
+    Object.assign(state,old);
+    if(descriptor)Object.defineProperty(media,'audioTracks',descriptor);else delete media.audioTracks;
+    change(language,'');
+   }
+  });
+  assert.deepEqual(audioTracks,{preferred:[false,true,false],manual:[true,false,false],retained:[true,false,false],blocked:true,saved:'ar'});
   // Deterministic browser API simulation: verify routing success and rollback
   // without sending sound to a physical device on the CI runner.
   const routing=await page.evaluate(async()=>{

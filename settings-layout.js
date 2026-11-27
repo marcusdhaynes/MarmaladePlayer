@@ -123,6 +123,8 @@
  into('audioNightMode','controls','settings-toggle-row');
  into('audioDialogue','controls');
  into('audioNormalize','controls','settings-toggle-row');
+ into('audioLanguage','controls');
+ into('audioTrack','controls');
  into('audioOutput','controls');
  into('audioOutputChoose','controls');
  into('audioEqPreset','controls');
