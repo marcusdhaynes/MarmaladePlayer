@@ -72,8 +72,10 @@ try{
   browser=await chromium.launch({headless:true,
     args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});
   const page=await browser.newPage();
-  const errors=[];
+  const errors=[],mediaRequests=[];
   page.on('pageerror',error=>errors.push(String(error)));
+  page.on('requestfailed',request=>{if(request.url().includes(':18761/'))mediaRequests.push({failed:request.failure()?.errorText});});
+  page.on('response',response=>{if(response.url().includes(':18761/'))mediaRequests.push({status:response.status()});});
   await page.route('**/peerjs@*/**',route=>route.fulfill({
     status:200,contentType:'application/javascript',
     body:'window.Peer=class{constructor(){this.open=false}on(){}destroy(){}};'
@@ -116,7 +118,9 @@ try{
       !document.querySelector('#skipForward').disabled&&
       !document.querySelector('#seek').disabled&&
       player?.media?.duration>10;
-  },null,{timeout:20000});
+  },null,{timeout:20000}).catch(async error=>{
+    console.error('NATIVE PLAYBACK DIAGNOSTICS',JSON.stringify({mediaRequests,errors,browser:await page.evaluate(()=>{const {state,media}=window.MarmaladeAddonBridge;return {role:state.role,source:state.source,fileReady:state.fileReady,readyState:media.readyState,networkState:media.networkState,error:media.error?.message,code:media.error?.code,duration:media.duration,canMP4:media.canPlayType('video/mp4; codecs="avc1.42E01E,mp4a.40.2"'),canWebM:media.canPlayType('video/webm; codecs="vp8,opus"'),url:media.currentSrc,toast:document.querySelector('#toast')?.textContent,libraryStatus:document.querySelector('#mlStatus')?.textContent};})}));throw error;
+  });
   const actual=await page.evaluate(()=>({
     source:window.MarmaladeAddonBridge.state.source,
     ready:window.MarmaladeAddonBridge.state.fileReady,
