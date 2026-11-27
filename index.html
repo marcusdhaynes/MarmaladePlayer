@@ -1483,9 +1483,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     try{return await new Promise((resolve,reject)=>{
       const transaction=db.transaction('handles',mode==='get'?'readonly':'readwrite');
       const store=transaction.objectStore('handles');
-      const request=mode==='get'?store.get(key):store.put(value,key);
-      request.onsuccess=()=>resolve(request.result);
+      const request=mode==='get'?store.get(key):mode==='delete'?store.delete(key):store.put(value,key);
+      let result;
+      request.onsuccess=()=>{result=request.result;};
       request.onerror=()=>reject(request.error);
+      transaction.oncomplete=()=>resolve(result);
+      transaction.onerror=()=>reject(transaction.error);
+      transaction.onabort=()=>reject(transaction.error||Error('Subtitle storage transaction aborted'));
     });}finally{db.close();}
   }
   function subtitleId(file,source){
@@ -1964,13 +1968,22 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!decoder)throw Error('Subtitle Decoder Not Loaded');
     return decoder.decode(raw,name,{fps:Number(fps)||0});
   }
-  let secondaryLoadSequence=0;
+  let secondaryLoadSequence=0,secondaryRecord=null;
+  const secondaryStorageKey=key=>'secondary\u0000'+key;
+  let secondaryWriteTail=Promise.resolve();
+  function writeSecondary(key,record){
+    if(!key)return Promise.resolve();
+    const snapshot=record?{...record}:null;
+    const operation=secondaryWriteTail.then(()=>subtitleHandleStore(snapshot?'put':'delete',secondaryStorageKey(key),snapshot));
+    secondaryWriteTail=operation.catch(()=>{});
+    return operation;
+  }
   function clearSecondarySubtitle(){
-    ++secondaryLoadSequence;state.secondarySubtitles=[];state.secondarySubtitleName='';
+    ++secondaryLoadSequence;secondaryRecord=null;state.secondarySubtitles=[];state.secondarySubtitleName='';
     state.secondarySubtitleOffset=0;state.secondarySubtitleRevision++;
     window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));
   }
-  async function loadSecondarySubtitle(file){
+  async function loadSecondarySubtitle(file,options={}){
     if(!file||file.size>20*1024*1024)throw Error('Choose a subtitle file under 20 MB');
     if(!el.stage.classList.contains('has-video'))throw Error('Load a video first');
     if(!state.subtitlesEnabled)throw Error('Load primary subtitles first');
@@ -1981,19 +1994,37 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       file=new File([match.bytes],match.name,{type:'text/plain'});
     }
     if(file.size>5*1024*1024)throw Error('Subtitle text exceeds 5 MB');
-    const decoded=parseSubtitles(await readSubtitleText(file),file.name);
+    const raw=await readSubtitleText(file);
+    const decoded=parseSubtitles(raw,file.name);
     if(!decoded.cues.length)throw Error(decoded.error||'No readable subtitle cues');
     if(seq!==secondaryLoadSequence||key!==subtitleMediaKey())throw Error('Video changed while loading captions');
     state.secondarySubtitles=decoded.cues;state.secondarySubtitleName=file.name;
-    state.secondarySubtitleOffset=0;state.secondarySubtitleRevision++;
+    const offset=Number(options.offset);
+    state.secondarySubtitleOffset=Number.isFinite(offset)?Math.round(Math.max(-3600,Math.min(3600,offset))*10)/10:0;
+    state.secondarySubtitleRevision++;
+    secondaryRecord={name:file.name,content:raw,offset:state.secondarySubtitleOffset};
     updateSubtitles();window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));
+    if(!options.restored)try{await writeSecondary(key,secondaryRecord);}catch{notify('Secondary subtitles loaded, but could not be saved on this device.');}
+  }
+  async function restoreSecondarySubtitle(){
+    const key=subtitleMediaKey(),seq=secondaryLoadSequence;
+    if(!key||!state.subtitlesEnabled||state.secondarySubtitles.length)return;
+    try{
+      await secondaryWriteTail;
+      const record=await subtitleHandleStore('get',secondaryStorageKey(key));
+      if(seq!==secondaryLoadSequence||key!==subtitleMediaKey()||!state.subtitlesEnabled||state.secondarySubtitles.length)return;
+      if(typeof record?.content!=='string'||!record.name)return;
+      await loadSecondarySubtitle(cachedSubtitleFile(record.content,record.name),{restored:true,offset:record.offset});
+    }catch{if(seq===secondaryLoadSequence&&key===subtitleMediaKey())notify('Previous secondary subtitles could not be restored.');}
   }
   window.MarmaladeSecondarySubtitle={
-    load:loadSecondarySubtitle,clear:()=>{clearSecondarySubtitle();updateSubtitles();},
+    load:loadSecondarySubtitle,clear:()=>{const key=subtitleMediaKey();clearSecondarySubtitle();updateSubtitles();return writeSecondary(key,null).catch(()=>notify('Secondary captions removed for this session; saved copy could not be deleted.'));},
+    restore:restoreSecondarySubtitle,
     setOffset:value=>{
       const seconds=Number(value);if(!Number.isFinite(seconds))return false;
       state.secondarySubtitleOffset=Math.round(Math.max(-3600,Math.min(3600,seconds))*10)/10;
       state.secondarySubtitleRevision++;updateSubtitles();
+      if(secondaryRecord){secondaryRecord.offset=state.secondarySubtitleOffset;void writeSecondary(subtitleMediaKey(),secondaryRecord).catch(()=>notify('Secondary timing could not be saved.'));}
       window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));return true;
     }
   };
@@ -5560,6 +5591,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     updateSubtitles();revealControls();
     window.dispatchEvent(new Event('marmalade:subtitles-loaded'));
     window.dispatchEvent(new Event('marmalade:subtitles-changed'));
+    void restoreSecondarySubtitle();
     if(key){
       const record={kind:source.kind==='search'?'search':'local',name:file.name,
         containerName:original.name,entryName:file.name,
@@ -6769,7 +6801,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261126-docked-local-resume-v1"></script>
 <script src="./rapid-controls.js?v=20261126-docked-local-resume-v1"></script>
-<script src="./subtitle-compact.js?v=20261126-audit-v2"></script>
+<script src="./subtitle-compact.js?v=20261126-audit-v3"></script>
 <script src="./seek-preview.js?v=20261118-full-duration-v1"></script>
 <script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>
 <script src="./standalone-pip.js?v=20261126-background-pip-v2"></script>
