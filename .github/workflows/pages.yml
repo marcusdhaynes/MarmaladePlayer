@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.retry1.outputs.page_url || steps.retry2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - name: Generate approved full-bleed web icons
@@ -79,10 +79,26 @@ jobs:
           done
           echo 'Pages artifact did not become visible' >&2
           exit 1
+      - name: Allow Pages artifact service to converge
+        run: sleep 15
       - id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Wait before retrying deployment
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 20
+      - id: retry1
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Wait before final deployment attempt
+        if: steps.retry1.outcome == 'failure'
+        run: sleep 40
+      - id: retry2
+        if: steps.retry1.outcome == 'failure'
         uses: actions/deploy-pages@v4
       - name: Verify deployed release identity
         env:
-          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url || steps.retry1.outputs.page_url || steps.retry2.outputs.page_url }}
         run: |
           node -e 'const u=new URL("build-info.json",process.env.PAGE_URL.endsWith("/")?process.env.PAGE_URL:process.env.PAGE_URL+"/");u.searchParams.set("verify",process.env.GITHUB_SHA);(async()=>{for(let i=0;i<8;i++){try{const r=await fetch(u,{cache:"no-store"});if(r.ok&&(await r.json()).commit===process.env.GITHUB_SHA)return;}catch{}await new Promise(r=>setTimeout(r,5000));}throw Error("Published commit could not be verified");})().catch(e=>{console.error(e);process.exitCode=1});'

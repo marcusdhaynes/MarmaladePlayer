@@ -35,6 +35,7 @@ try{
    step.value='5';step.dispatchEvent(new Event('change',{bubbles:true}));
    snap.checked=false;snap.dispatchEvent(new Event('change',{bubbles:true}));
    buffer.checked=false;buffer.dispatchEvent(new Event('change',{bubbles:true}));
+   const night=document.querySelector('#audioNightMode');night.checked=true;night.dispatchEvent(new Event('change',{bubbles:true}));
    return {max:document.querySelector('#volume').max,step:document.querySelector('#volume').step,allow:window.MarmaladeAddonBridge.state.allowOriginalBuffer};
   });
   assert.deepEqual(settings,{max:'400',step:'5',allow:false});
@@ -44,6 +45,10 @@ try{
   assert.equal(await page.locator('#volumeIncrement').inputValue(),'5');
   assert.equal(await page.locator('#volumeSnap').isChecked(),false);
   assert.equal(await page.locator('#allowOriginalBuffer').isChecked(),false);
+  assert.equal(await page.locator('#settingsPageControls #audioNightMode').count(),1);
+  assert.equal(await page.locator('#audioNightMode').isChecked(),true);
+  await page.evaluate(()=>{const n=document.querySelector('#audioNightMode');n.checked=false;n.dispatchEvent(new Event('change',{bubbles:true}));});
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-night-mode')),'false');
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary?.ready);
   const backup={format:'marmaladeum-library-backup',version:1,libraries:[{id:'audit-catalog',name:'Audit Recovery',kind:'mixed',hiddenIds:['audit-folder|Hidden.mp4'],folders:[{id:'audit-folder',name:'Films'}],items:[{folderId:'audit-folder',path:'Example.mp4',title:'Example',size:12345,favorite:true,watched:true,collections:['Test']}]}]};
   const file={name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))};
