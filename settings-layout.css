@@ -352,6 +352,11 @@ html[data-window-theme="glass"] #gamesPanel .game-score-card.delete-armed .game-
 .settings-popover .settings-search:focus-visible{outline:2px solid #ffbd87;outline-offset:1px}
 .settings-popover .settings-search-results{display:grid;gap:3px;max-height:230px;overflow-y:auto;min-width:0}
 .settings-popover .settings-search-results[hidden]{display:none!important}
+/* Keep floating palette children at intrinsic height and scroll the panel,
+   rather than crushing search results beneath the input and category tabs. */
+#settingsPanel.settings-floating:not(.player-docked)>*{flex-shrink:0}
+#settingsPanel .settings-search-results{grid-auto-rows:max-content;align-content:start;min-height:0}
+#settingsPanel .settings-search-result{box-sizing:border-box;width:100%}
 .settings-popover .settings-search-result{display:flex;align-items:center;justify-content:space-between;
  text-align:left;gap:8px;min-height:29px;padding:5px 8px;border:1px solid #ffffff18;
  background:#ffffff08;border-radius:6px;color:inherit;font-size:10.5px}

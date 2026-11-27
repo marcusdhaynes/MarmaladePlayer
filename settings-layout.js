@@ -254,6 +254,8 @@
      });
      results.append(button);
    }
+   results.scrollTop=0;
+   panel.scrollTop=0;
    reposition();
  }
  search.addEventListener('input',searchSettings);

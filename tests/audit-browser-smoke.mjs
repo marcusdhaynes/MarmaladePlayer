@@ -20,8 +20,18 @@ try{
   assert.equal(await page.locator('#settingsTabControls').getAttribute('aria-selected'),'true');
   assert.equal(await page.locator('#settingsSearch').inputValue(),'');
   await page.locator('#settingsSearch').fill('original-file buffering');
-  await page.locator('#settingsSearchResults button').filter({hasText:'Original-File Buffering'}).click();
+  // Verify the result is not collapsed or occluded after opening Controls.
+  const originalResult=page.locator('#settingsSearchResults button').filter({hasText:'Original-File Buffering'});
+  await originalResult.click({trial:true});
+  const hit=await originalResult.evaluate(button=>{
+    const rect=button.getBoundingClientRect();
+    return {height:rect.height,reachable:button.contains(document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2))};
+  });
+  assert.ok(hit.height>=29&&hit.reachable,JSON.stringify(hit));
+  await originalResult.click();
   assert.equal(await page.locator('#settingsTabParty').getAttribute('aria-selected'),'true');
+  assert.equal(await page.locator('#settingsSearchResults').isVisible(),false);
+  assert.equal(await page.locator('#settingsPanel').evaluate(panel=>panel.classList.contains('player-docked')),viewport.height>viewport.width);
   await page.locator('#settingsAdvanced > summary').click();
   await page.locator('#diagnosticsToggle').click();
   await page.waitForFunction(()=>document.querySelectorAll('#diagnosticGrid output').length===13);
