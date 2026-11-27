@@ -41,6 +41,7 @@ try{
    const night=document.querySelector('#audioNightMode');night.checked=true;night.dispatchEvent(new Event('change',{bubbles:true}));
    const dialogue=document.querySelector('#audioDialogue');dialogue.value='strong';dialogue.dispatchEvent(new Event('change',{bubbles:true}));
    const norm=document.querySelector('#audioNormalize');norm.checked=true;norm.dispatchEvent(new Event('change',{bubbles:true}));
+   const eq=document.querySelector('#audioEqPreset');eq.value='cinema';eq.dispatchEvent(new Event('change',{bubbles:true}));
    return {max:document.querySelector('#volume').max,step:document.querySelector('#volume').step,allow:window.MarmaladeAddonBridge.state.allowOriginalBuffer};
   });
   assert.deepEqual(settings,{max:'400',step:'5',allow:false});
@@ -54,6 +55,14 @@ try{
   assert.equal(await page.locator('#audioNightMode').isChecked(),true);
   assert.equal(await page.locator('#settingsPageControls #audioDialogue').inputValue(),'strong');
   assert.equal(await page.locator('#settingsPageControls #audioNormalize').isChecked(),true);
+  assert.equal(await page.locator('#settingsPageControls #audioEqPreset').inputValue(),'cinema');
+  assert.equal(await page.locator('#audioEq0').inputValue(),'4');
+  await page.evaluate(()=>{const s=document.querySelector('#audioEq0');s.value='7';s.dispatchEvent(new Event('input',{bubbles:true}));s.dispatchEvent(new Event('change',{bubbles:true}));});
+  assert.equal(await page.locator('#audioEqPreset').inputValue(),'custom');
+  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade:audio-eq-bands'))[0]),7);
+  await page.evaluate(()=>document.querySelector('#audioEqReset').click());
+  assert.equal(await page.locator('#audioEqPreset').inputValue(),'flat');
+  assert.equal(await page.locator('#audioEq0').inputValue(),'0');
   await page.evaluate(()=>{const n=document.querySelector('#audioNormalize');n.checked=false;n.dispatchEvent(new Event('change',{bubbles:true}));});
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-normalize')),'false');
   // Render actual Web Audio samples through the production routing function.
@@ -61,7 +70,8 @@ try{
   const response=await page.evaluate(async source=>{
     const Offline=window.OfflineAudioContext||window.webkitOfflineAudioContext;
     const settings={checked:false},dialogue={value:'off'};
-    const {routePersonalAudio:route,levelingGain}=new Function('audioProtection','audioNightMode','audioDialogue','audioNormalize',source+';return {routePersonalAudio,levelingGain};')(settings,{checked:false},dialogue,{checked:false});
+    const eqBands=[0,0,0,0,0,0,0],freq=[60,150,400,1000,2500,6000,12000];
+    const {routePersonalAudio:route,levelingGain}=new Function('audioProtection','audioNightMode','audioDialogue','audioNormalize','eqBands','EQ_FREQUENCIES',source+';return {routePersonalAudio,levelingGain};')(settings,{checked:false},dialogue,{checked:false},eqBands,freq);
     async function measure(level,frequency){
       const ctx=new Offline(1,24000,48000),osc=ctx.createOscillator(),gain=ctx.createGain();
       dialogue.value=level;osc.frequency.value=frequency;gain.gain.value=.2;osc.connect(gain);route(gain,ctx);
@@ -71,11 +81,18 @@ try{
     const offBass=await measure('off',120),offSpeech=await measure('off',2300);
     const mildBass=await measure('mild',120),mildSpeech=await measure('mild',2300);
     const strongBass=await measure('strong',120),strongSpeech=await measure('strong',2300);
+    eqBands[3]=6;
+    const eqCenter=await measure('off',1000),eqRemote=await measure('off',120);
+    eqBands[3]=0;
+    const eqFlat=await measure('off',1000);
     const tone=amplitude=>Float32Array.from({length:4096},(_,i)=>amplitude*Math.sin(i*2*Math.PI/48));
     return {off:offSpeech/offBass,mild:mildSpeech/mildBass,strong:strongSpeech/strongBass,speech:strongSpeech/offSpeech,
+      equalizer:{center:eqCenter/eqFlat,remote:eqRemote/offBass,relative:eqCenter/eqRemote},
       leveling:{silence:levelingGain(tone(.0001)),quiet:levelingGain(tone(.02)),loud:levelingGain(tone(.8)),normal:levelingGain(tone(.1123)),invalid:levelingGain([NaN])}};
   },routeSource);
   assert(response.off>.95&&response.off<1.05,'Off mode is transparent');
+  assert(response.equalizer.center>.9&&response.equalizer.center<1.1,'Equalizer headroom compensates center gain');
+  assert(response.equalizer.remote<.65&&response.equalizer.relative>1.6,'Real audio response emphasizes selected band');
   assert(response.mild>response.off*1.4&&response.strong>response.mild*1.4,'Dialogue levels progressively emphasize speech');
   assert(response.speech>.85&&response.speech<1.15,'Headroom keeps speech near original peak gain');
   assert.equal(response.leveling.silence,null,'Do not amplify silence');

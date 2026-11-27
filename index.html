@@ -712,6 +712,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label><span>Night Mode <small>Compress loud passages for quieter listening. Personal audio only.</small></span><input type="checkbox" id="audioNightMode"></label>
             <label><span>Dialogue Enhancement <small>Improve speech clarity with personal frequency shaping.</small></span><select id="audioDialogue" aria-label="Dialogue Enhancement"><option value="off">Off</option><option value="mild">Mild</option><option value="strong">Strong</option></select></label>
             <label><span>Automatic Loudness Leveling <small>Gently balance quiet and loud audio. Personal output only.</small></span><input type="checkbox" id="audioNormalize"></label>
+            <label><span>Equalizer <small>Personal audio · seven frequency bands</small></span><select id="audioEqPreset" aria-label="Equalizer preset"><option value="flat">Flat (Off)</option><option value="cinema">Cinema</option><option value="speech">Speech</option><option value="music">Music</option><option value="soft">Soft</option><option value="custom">Custom</option></select></label>
+            <details id="audioEqEditor" class="settings-advanced audio-eq-editor"><summary>Fine-Tune Equalizer</summary><div id="audioEqBands" class="audio-eq-bands"><label class="audio-eq-band"><span>60 Hz</span><input id="audioEq0" type="range" min="-12" max="12" step="1" value="0" aria-label="60 Hz gain in decibels"><output for="audioEq0">0 dB</output></label><label class="audio-eq-band"><span>150 Hz</span><input id="audioEq1" type="range" min="-12" max="12" step="1" value="0" aria-label="150 Hz gain in decibels"><output for="audioEq1">0 dB</output></label><label class="audio-eq-band"><span>400 Hz</span><input id="audioEq2" type="range" min="-12" max="12" step="1" value="0" aria-label="400 Hz gain in decibels"><output for="audioEq2">0 dB</output></label><label class="audio-eq-band"><span>1 kHz</span><input id="audioEq3" type="range" min="-12" max="12" step="1" value="0" aria-label="1000 Hz gain in decibels"><output for="audioEq3">0 dB</output></label><label class="audio-eq-band"><span>2.5 kHz</span><input id="audioEq4" type="range" min="-12" max="12" step="1" value="0" aria-label="2500 Hz gain in decibels"><output for="audioEq4">0 dB</output></label><label class="audio-eq-band"><span>6 kHz</span><input id="audioEq5" type="range" min="-12" max="12" step="1" value="0" aria-label="6000 Hz gain in decibels"><output for="audioEq5">0 dB</output></label><label class="audio-eq-band"><span>12 kHz</span><input id="audioEq6" type="range" min="-12" max="12" step="1" value="0" aria-label="12000 Hz gain in decibels"><output for="audioEq6">0 dB</output></label></div><button type="button" id="audioEqReset">Reset to Flat</button></details>
              <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
@@ -1075,7 +1077,28 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   audioDialogue.value=['off','mild','strong'].includes(savedDialogue)?savedDialogue:'off';
   const audioNormalize=$('audioNormalize');
   audioNormalize.checked=localPreference('audio-normalize','false')==='true';
-  const personalProcessingEnabled=()=>audioProtection.checked||audioNightMode.checked||audioDialogue.value!=='off'||audioNormalize.checked;
+  const EQ_FREQUENCIES=[60,150,400,1000,2500,6000,12000];
+  const EQ_PRESETS={"flat":[0,0,0,0,0,0,0],"cinema":[4,2,-1,0,2,2,1],"speech":[-4,-3,-1,2,4,1,-1],"music":[3,2,0,-1,0,2,3],"soft":[-1,0,0,1,0,-2,-4]};
+  const audioEqPreset=$('audioEqPreset');
+  const audioEqSliders=EQ_FREQUENCIES.map((_,i)=>$('audioEq'+i));
+  const clampEq=v=>Number.isFinite(Number(v))?Math.max(-12,Math.min(12,Math.round(Number(v)))):0;
+  let eqBands=EQ_PRESETS.flat.slice();
+  let eqMode=localPreference('audio-eq-preset','flat');
+  try{
+    const saved=JSON.parse(localPreference('audio-eq-bands','[]'));
+    if(eqMode==='custom'&&Array.isArray(saved)&&saved.length===EQ_FREQUENCIES.length)eqBands=saved.map(clampEq);
+    else if(Object.hasOwn(EQ_PRESETS,eqMode))eqBands=EQ_PRESETS[eqMode].slice();
+    else eqMode='flat';
+  }catch{eqMode='flat';}
+  function reflectEq(){
+    audioEqPreset.value=eqMode;
+    audioEqSliders.forEach((slider,i)=>{
+      slider.value=String(eqBands[i]);
+      slider.nextElementSibling.textContent=(eqBands[i]>0?'+':'')+eqBands[i]+' dB';
+    });
+  }
+  reflectEq();
+  const personalProcessingEnabled=()=>audioProtection.checked||audioNightMode.checked||audioDialogue.value!=='off'||audioNormalize.checked||eqBands.some(Boolean);
   const personalAudioRoutes=new WeakMap();
   // Short-window RMS leveling, not integrated LUFS normalization. Limit
   // boosts, ignore near-silence, and reserve peak headroom.
@@ -1129,7 +1152,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const mode=audioNightMode.checked?'night':audioProtection.checked?'peak':'off';
     const dialogue=['mild','strong'].includes(audioDialogue.value)?audioDialogue.value:'off';
     const normalize=audioNormalize.checked;
-    const signature=mode+'|'+dialogue+'|'+normalize;
+    const eq=eqBands.slice();
+    const signature=mode+'|'+dialogue+'|'+normalize+'|'+eq.join(',');
     const previous=personalAudioRoutes.get(gain);
     source=source||previous?.source;
     if(previous?.signature===signature&&previous.source===source)return;
@@ -1147,6 +1171,20 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         // Headroom prevents the presence boost from overloading loud passages.
         const headroom=ctx.createGain();nodes.push(headroom);
         headroom.gain.value=Math.pow(10,-(strong?6:3)/20);
+      }
+      if(eq.some(Boolean)&&typeof ctx.createBiquadFilter==='function'){
+        // Use the exact same filter bank for every personal output. Cap
+        // filter frequencies below Nyquist on unusual device sample rates.
+        eq.forEach((db,i)=>{
+          if(!db)return;
+          const node=ctx.createBiquadFilter();nodes.push(node);
+          node.type=i===0?'lowshelf':i===eq.length-1?'highshelf':'peaking';
+          node.frequency.value=Math.min(EQ_FREQUENCIES[i],ctx.sampleRate*.45);
+          node.Q.value=.9;node.gain.value=db;
+        });
+        // Conservative headroom for overlapping positive bands.
+        const trim=ctx.createGain();nodes.push(trim);
+        trim.gain.value=Math.pow(10,-eq.reduce((sum,db)=>sum+Math.max(0,db),0)/20);
       }
       if((mode!=='off'||normalize)&&typeof ctx.createDynamicsCompressor==='function'){
         const node=ctx.createDynamicsCompressor();nodes.push(node);
@@ -6558,6 +6596,28 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   audioNightMode.addEventListener('change',()=>{rememberPreference('audio-night-mode',audioNightMode.checked);refreshPersonalProcessing();});
   audioDialogue.addEventListener('change',()=>{rememberPreference('audio-dialogue',audioDialogue.value);refreshPersonalProcessing();});
   audioNormalize.addEventListener('change',()=>{rememberPreference('audio-normalize',audioNormalize.checked);refreshPersonalProcessing();});
+  let eqRefreshTimer=null;
+  function commitEq(){
+    reflectEq();
+    rememberPreference('audio-eq-preset',eqMode);
+    rememberPreference('audio-eq-bands',JSON.stringify(eqBands));
+    clearTimeout(eqRefreshTimer);
+    refreshPersonalProcessing();
+  }
+  audioEqPreset.addEventListener('change',()=>{
+    eqMode=audioEqPreset.value;
+    if(Object.hasOwn(EQ_PRESETS,eqMode))eqBands=EQ_PRESETS[eqMode].slice();
+    if(eqMode==='custom')$('audioEqEditor').open=true;
+    commitEq();
+  });
+  audioEqSliders.forEach((slider,i)=>{
+    slider.addEventListener('input',()=>{
+      eqBands[i]=clampEq(slider.value);eqMode='custom';reflectEq();
+      clearTimeout(eqRefreshTimer);eqRefreshTimer=setTimeout(commitEq,80);
+    });
+    slider.addEventListener('change',commitEq);
+  });
+  $('audioEqReset').addEventListener('click',()=>{eqMode='flat';eqBands=EQ_PRESETS.flat.slice();commitEq();});
   el.mute.addEventListener('click', () => {
     state.soundMuted = state.volumePercent>0&&!state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = Math.min(volumeMax,Math.round(state.lastVolume*100/volumeStep)*volumeStep||100);

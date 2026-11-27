@@ -358,3 +358,10 @@ html[data-window-theme="glass"] #gamesPanel .game-score-card.delete-armed .game-
 .settings-popover .settings-search-result:hover{background:#ffffff15;border-color:#e6ab7355}
 .settings-popover .settings-search-result small{color:#d0ad97;flex:none;font-size:9px}
 .settings-popover .settings-search-result span{min-width:0;overflow-wrap:anywhere}
+
+/* Compact frequency controls; existing glass theme supplies the panel surface. */
+.settings-popover .audio-eq-bands{display:grid;gap:4px;padding:8px;min-width:0}
+.settings-popover .audio-eq-band{display:grid!important;grid-template-columns:48px minmax(0,1fr) 44px;align-items:center;gap:6px;min-width:0;margin:0;padding:2px;font-size:11px;background:transparent;border:0}
+.settings-popover .audio-eq-band input[type=range]{width:100%;min-width:0;margin:0;accent-color:#e6b58a}
+.settings-popover .audio-eq-band output{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.settings-popover #audioEqReset{display:block;margin:0 8px 8px auto;padding:4px 8px;font-size:11px}

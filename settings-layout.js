@@ -122,6 +122,8 @@
  into('audioNightMode','controls','settings-toggle-row');
  into('audioDialogue','controls');
  into('audioNormalize','controls','settings-toggle-row');
+ into('audioEqPreset','controls');
+ pages.get('controls').querySelector('.settings-stack').appendChild($('audioEqEditor'));
  const tapRow=into('tapVideoPlayback','controls','settings-toggle-row');
  if(tapRow){const input=tapRow.querySelector('input');if(input)tapRow.append(input);}
  const fadeRow=into('controlFadeDelay','controls');
