@@ -707,6 +707,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
+             <label><span>Original-File Buffering <small>Host · Guests receive movie bytes; turn off for live-only streaming.</small></span><input type="checkbox" id="allowOriginalBuffer" checked></label>
             <label id="hostMatchRow"><input type="checkbox" id="hostMatchTiming"> Match My Playback To Guests (Host Only)</label>
             <small id="hostMatchStatus" aria-live="polite">Off · The host plays ahead of network viewers.</small>
             <label><input type="checkbox" id="peerAssist" checked> Peer Rescue</label>
@@ -2246,7 +2247,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function updateDiagnostics() {
     if (!state.diagnostics) return;
     const r = state.statsReport || {};
-    const label = state.localVerified ? 'Verified local file' : state.bufferedMode ? 'Buffered HTTP/HLS' : 'Live P2P';
+    const rolling=window.MarmaladeRollingBuffer?.getStatus();
+    const label = state.localVerified ? 'Verified local file' : state.source==='buffered-guest' ? 'Buffered original file' : state.bufferedMode ? 'Buffered HTTP/HLS' : 'Live P2P';
     el.stabilityInfo.textContent = `${label} | ${state.stabilityMode} | decoded FPS ${Math.round(r.fps || 0)} ` +
       `| loss ${((r.loss || 0) * 100).toFixed(1)}% | network jitter ${Math.round(r.packetJitterMs ?? r.jitter ?? 0)}ms ` +
       `| RTT ${Math.round(state.latencyStats?.rttMs || state.observedRtt || 0)}ms | ahead ${bufferAhead().toFixed(1)}s ` +
@@ -2255,6 +2257,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       (state.latencyStats ? ` | playout ${Math.round(state.latencyStats.playoutMs||0)}ms | receiver ${state.latencyStats.width||'?'}x${state.latencyStats.height||'?'} | decoder ${state.latencyStats.decoder||'unknown'}` : '') +
       (state.highEncoderStats ? ` | encoded ${Math.round(state.highEncoderStats.fps||0)}fps | encoder ${state.highEncoderStats.encoder||'unknown'} | limit ${state.highEncoderStats.limit||'unknown'} | headroom x${(state.highEncoderStats.headroomFactor||1).toFixed(2)}` : '') +
       ` | assessment ${performanceDiagnosis()}` +
+      (rolling ? ` | rolling ${rolling.seconds.toFixed(1)}/${rolling.target}s | capacity ${rolling.capacity.toFixed(1)}s${rolling.reconnecting?' | reconnecting':''}${rolling.quotaLimited?' | browser quota limited':''}` : '') +
       ((state.bufferedMode || state.localVerified) && media.duration ? ` | drift ${Math.round((expectedHostTime()-media.currentTime)*1000)}ms` : '');
   }
   function recomputeBufferTarget(report = {}) {
@@ -6005,6 +6008,22 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.stabilityMode=storedStability;
   }
   state.strictSync=el.strictSync.checked=localPreference('strict-sync','true')==='true';
+  const originalBuffer=$('allowOriginalBuffer');
+  state.allowOriginalBuffer=originalBuffer.checked=localPreference('original-file-buffer','true')==='true';
+  originalBuffer.addEventListener('change',()=>{
+    state.allowOriginalBuffer=originalBuffer.checked;
+    rememberPreference('original-file-buffer',state.allowOriginalBuffer);
+    if(state.role!=='host')return;
+    if(!state.allowOriginalBuffer){
+      window.MarmaladeRollingBuffer?.closeHost();
+      for(const [peerId,entry] of state.connections){
+        if(!entry.bufferedFile)continue;
+        entry.bufferedFile=false;entry.bufferReady=null;
+        if(state.outgoing&&!entry.localMirror)callGuest(peerId);
+      }
+    }
+    syncState();
+  });
   state.peerAssistance=el.peerAssist.checked=localPreference('peer-assist','true')==='true';
   el.stabilityMode.addEventListener('change',()=>{
     state.highPlayoutTarget=0;
@@ -6621,7 +6640,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 </script>
 <script src="./mkv-decoder-io.js?v=20261120-webview-range-audio-v2"></script>
 <script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
-<script src="./rolling-buffer.js?v=20261126-v2"></script>
+<script src="./rolling-buffer.js?v=20261126-audit-v3"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261121-extension-retention-v1" defer></script>
@@ -6629,7 +6648,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261126-subtitle-compact-v3"></script>
-<script src="./settings-layout.js?v=20261126-volume-controls-v1"></script>
+<script src="./settings-layout.js?v=20261126-audit-v2"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261126-docked-local-resume-v1"></script>
