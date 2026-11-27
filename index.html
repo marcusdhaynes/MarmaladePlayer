@@ -4793,31 +4793,25 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const manual=typeof v?.requestFrame==='function';
     if(!manual){v?.stop();stream=canvas.captureStream(STREAM_FPS);v=stream.getVideoTracks()[0];}
     state.canvasStream=stream;
-    let lastPaint=-Infinity,lastMediaTime=-Infinity;
-    const paintFrame=(now,mediaTime)=>{
-      if(state.canvasStream!==stream||media.readyState<2||v?.readyState!=='live')return;
-      // Allow source-rate 24fps and modest scheduling jitter; do not paint
-      // twice for one decoded frame or render 60fps into a 24fps sender.
-      if(now-lastPaint<29 || (Number.isFinite(mediaTime)&&mediaTime===lastMediaTime))return;
+    // Match the verified high-tier manual capture cadence. Avoid comparing
+    // media.currentTime to frame metadata: the two timestamps can describe
+    // different frames and their mixed-clock deduplication drops real frames.
+    let lastPaint=-Infinity;
+    const paint=(now=performance.now())=>{
+      if(state.canvasStream!==stream||media.readyState<2||v?.readyState!=='live'||now-lastPaint<1000/30-4)return;
+      lastPaint=now;
       try{
         context.drawImage(media,0,0,canvas.width,canvas.height);
         if(manual)v.requestFrame();
-        lastPaint=now;lastMediaTime=mediaTime;
       }catch{}
     };
-    const decodedCallbacks=manual&&typeof media.requestVideoFrameCallback==='function';
-    const paint=()=>{
-      const now=performance.now();
-      if(decodedCallbacks&&now-lastPaint<75)return;
-      paintFrame(now,media.currentTime);
-    };
     state.basePaint=paint;state.basePaintIdle=false;
-    paintFrame(performance.now(),media.currentTime);
-    state.interval=window.setInterval(paint,Math.round(1000/STREAM_FPS));
-    if(decodedCallbacks){
-      const onFrame=(now,metadata)=>{
+    paint(performance.now());
+    state.interval=window.setInterval(()=>{if(!media.paused)paint(performance.now());},Math.round(1000/STREAM_FPS));
+    if(manual&&typeof media.requestVideoFrameCallback==='function'){
+      const onFrame=now=>{
         if(state.canvasStream!==stream||v.readyState!=='live')return;
-        if(!state.basePaintIdle)paintFrame(now,metadata.mediaTime);
+        if(!state.basePaintIdle)paint(now);
         state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
       };
       state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
