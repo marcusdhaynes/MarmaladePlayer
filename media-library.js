@@ -50,6 +50,101 @@
   };
   const countLabel=n=>n.toLocaleString()+(n===1?' Video':' Videos');
 
+  const SMART_KEY='marmalade:media-library:smart-collections:v1';
+  function normalizeSmart(value){
+    if(!value||typeof value.id!=='string'||!/^[-a-z0-9]{1,80}$/i.test(value.id))return null;
+    const name=String(value.name||'').trim().slice(0,80);
+    if(!name)return null;
+    const bound=(v,min,max)=>v===''||v===null||v===undefined?null:
+      Number.isInteger(Number(v))&&Number(v)>=min&&Number(v)<=max?Number(v):null;
+    return {id:value.id,name,kind:['all','movie','tv'].includes(value.kind)?value.kind:'all',
+      status:['all','unwatched','watched','favorites','watchlist','continue'].includes(value.status)?value.status:'all',
+      yearFrom:bound(value.yearFrom,1880,2100),yearTo:bound(value.yearTo,1880,2100),
+      maxMinutes:bound(value.maxMinutes,1,1440),recentDays:bound(value.recentDays,1,3650),
+      text:String(value.text||'').trim().slice(0,160)};
+  }
+  function loadSmart(){
+    try{const records=JSON.parse(readLocal(SMART_KEY,'[]'));
+      if(!Array.isArray(records))return [];
+      const seen=new Set();return records.slice(0,100).map(normalizeSmart).filter(r=>r&&!seen.has(r.id)&&seen.add(r.id));
+    }catch{return [];}
+  }
+  let smartCollections=loadSmart();
+  const builtInSmart=[{id:'recent',name:'Recently Added (30 Days)',kind:'all',status:'all',recentDays:30},
+    {id:'short-unwatched',name:'Unwatched Movies Under 90 Minutes',kind:'movie',status:'unwatched',maxMinutes:90}].map(normalizeSmart);
+  function smartRule(key){
+    if(!key.startsWith('smart:'))return null;
+    return [...builtInSmart,...smartCollections].find(r=>r.id===key.slice(6))||null;
+  }
+  function smartMatches(item,rule,records,at){
+    if(rule.kind!=='all'&&item.type!==rule.kind)return false;
+    if(rule.status==='watched'&&!item.watched||rule.status==='unwatched'&&item.watched||
+       rule.status==='favorites'&&!item.favorite||rule.status==='watchlist'&&!item.watchlist||
+       rule.status==='continue'&&!progressFor(item,records))return false;
+    const year=Number(item.year),runtime=Number(item.runtimeSec),added=Number(item.addedAt);
+    if(rule.yearFrom!==null&&(!year||year<rule.yearFrom)||rule.yearTo!==null&&(!year||year>rule.yearTo))return false;
+    if(rule.maxMinutes!==null&&(!runtime||runtime>rule.maxMinutes*60))return false;
+    if(rule.recentDays!==null&&(!added||added>at||at-added>rule.recentDays*86400000))return false;
+    const text=rule.text.toLocaleLowerCase();
+    return !text||[item.title,item.show,item.name].some(v=>String(v||'').toLocaleLowerCase().includes(text));
+  }
+  function saveSmart(next){
+    try{localStorage.setItem(SMART_KEY,JSON.stringify(next));smartCollections=next;return true;}
+    catch{notify('Smart collection could not be saved on this device.');return false;}
+  }
+  function addSmartEditor(parent){
+    const details=append(parent,'details','ml-smart-editor');details.id='mlSmartEditor';
+    append(details,'summary','','Smart Collections');
+    append(details,'p','','Automatically include matching videos. All specified rules must match.');
+    const form=append(details,'div','ml-smart-form');
+    const field=(label,key,type,options)=>{
+      const wrap=append(form,'label','',label);
+      const input=append(wrap,type==='select'?'select':'input');input.id='mlSmart'+key;input.setAttribute('aria-label',label);
+      if(type==='select')for(const [value,text] of options){const o=append(input,'option','',text);o.value=value;}
+      else input.type=type;
+      return input;
+    };
+    const select=field('Edit Collection','Select','select',[]);
+    const name=field('Name','Name','text');name.maxLength=80;
+    const kind=field('Media Type','Kind','select',[['all','Any'],['movie','Movies'],['tv','TV Shows']]);
+    const status=field('Watch Status','Status','select',[['all','Any'],['unwatched','Unwatched'],['watched','Watched'],['favorites','Favorites'],['watchlist','Watchlist'],['continue','In Progress']]);
+    const yearFrom=field('From Year','YearFrom','number'),yearTo=field('Through Year','YearTo','number');
+    const runtime=field('Maximum Minutes','Runtime','number'),recent=field('Added Within Days','Recent','number');
+    const text=field('Title Contains','Text','text');text.maxLength=160;
+    for(const [input,min,max] of [[yearFrom,1880,2100],[yearTo,1880,2100],[runtime,1,1440],[recent,1,3650]]){input.min=String(min);input.max=String(max);input.step='1';input.placeholder='Any';}
+    const actions=append(details,'div','ml-backup-actions');
+    const save=append(actions,'button','ml-primary','Save Collection');save.type='button';save.id='mlSmartSave';
+    const remove=append(actions,'button','','Delete Collection');remove.type='button';remove.id='mlSmartDelete';
+    const reset=(key='')=>{
+      select.replaceChildren();const first=append(select,'option','','New Collection');first.value='';
+      for(const rule of smartCollections){const o=append(select,'option','',rule.name);o.value=rule.id;}
+      select.value=key;const r=smartCollections.find(x=>x.id===key);
+      name.value=r?.name||'';kind.value=r?.kind||'all';status.value=r?.status||'all';
+      yearFrom.value=r?.yearFrom??'';yearTo.value=r?.yearTo??'';runtime.value=r?.maxMinutes??'';
+      recent.value=r?.recentDays??'';text.value=r?.text||'';remove.disabled=!r;
+    };
+    select.addEventListener('change',()=>reset(select.value));
+    save.addEventListener('click',()=>{
+      if(!name.value.trim()){notify('Enter a collection name.');name.focus();return;}
+      if([yearFrom,yearTo,runtime,recent].some(input=>!input.checkValidity())||
+        (yearFrom.value&&yearTo.value&&Number(yearFrom.value)>Number(yearTo.value))){notify('Check the year range and numeric rules.');return;}
+      if(!select.value&&smartCollections.length>=100){notify('Up to 100 smart collections are supported.');return;}
+      const r=normalizeSmart({id:select.value||id(),name:name.value,kind:kind.value,status:status.value,
+        yearFrom:yearFrom.value,yearTo:yearTo.value,maxMinutes:runtime.value,recentDays:recent.value,text:text.value});
+      if(!r)return;
+      if(!saveSmart([...smartCollections.filter(x=>x.id!==r.id),r]))return;
+      reset(r.id);state.page=0;renderCollectionFilter();ui.collections.value='smart:'+r.id;state.collection=ui.collections.value;
+      renderCards();notify('Smart collection saved.');
+    });
+    remove.addEventListener('click',()=>{
+      if(!select.value)return;const key=select.value;
+      if(!saveSmart(smartCollections.filter(r=>r.id!==key)))return;
+      if(state.collection==='smart:'+key){state.collection='all';ui.collections.value='all';state.page=0;}
+      reset();render();notify('Smart collection deleted. Videos were not removed.');
+    });
+    reset();
+  }
+
   const AUTO_POSTERS_KEY='marmalade:media-library:auto-posters';
   const MAX_POSTER_QUEUE=120;
   const POSTER_MISSES_KEY='marmalade:media-library:poster-misses';
@@ -316,6 +411,7 @@
     importButton.addEventListener('click',()=>backupInput.click());
     backupInput.addEventListener('change',()=>{const file=backupInput.files?.[0];backupInput.value='';void importLibraryBackup(file);});
     append(settingsPanel,'p','','Portable backups preserve local catalog metadata. Reconnect media folders after importing.');
+    addSmartEditor(settingsPanel);
     document.addEventListener('pointerdown',event=>{
       if(!settingsPanel.hidden&&!settingsPanel.contains(event.target)&&
          !setting.contains(event.target))close();
@@ -1221,6 +1317,7 @@
     }
     ui.collections.replaceChildren();
     for(const [value,label] of [['all','All Collections'],
+      ...[...builtInSmart,...smartCollections].map(r=>['smart:'+r.id,'Smart: '+r.name]),
       ...[...tags].sort().map(key=>[key,key.startsWith('playlist:')?
         'Playlist: '+key.slice(9):'Collection: '+key.slice(11)])]){
       const option=create('option');option.value=value;option.textContent=label;
@@ -1253,7 +1350,9 @@
       const records=libraryProgress();
       items=items.map(item=>({...item,progress:progressFor(item,records)})).filter(item=>item.progress);
     }
-    if(state.collection!=='all'){
+    const smart=smartRule(state.collection);
+    if(smart){const records=smart.status==='continue'?libraryProgress():{},at=now();items=items.filter(item=>smartMatches(item,smart,records,at));}
+    else if(state.collection!=='all'){
       const key=state.collection.startsWith('playlist:')?'playlists':'collections';
       const name=state.collection.slice(state.collection.indexOf(':')+1);
       items=items.filter(i=>(i[key]||[]).includes(name));
@@ -1356,7 +1455,7 @@
     const lib=selectedLibrary();
     const items=filteredItems();
     ui.count.textContent=countLabel(items.length);
-    ui.title.textContent=state.kind==='continue'?'Continue Watching':lib?.name||'All Videos';
+    ui.title.textContent=smartRule(state.collection)?.name||(state.kind==='continue'?'Continue Watching':lib?.name||'All Videos');
     ui.manage.disabled=!lib||state.scanning;
     ui.quickAdd.disabled=!lib||state.scanning;
     ui.art.disabled=state.scanning||state.artworkBusy||!items.length;
@@ -1425,8 +1524,7 @@
         ui.filter.value=state.kind;state.page=0;render();
       });
     }
-    const grouped=state.kind==='all'&&!state.collection.startsWith('playlist:')&&
-      !state.collection.startsWith('collection:');
+    const grouped=state.kind==='all'&&state.collection==='all';
     if(grouped){
       const current=pageItems([...movies,...tvEntries]);
       for(const [name,entries,isMovie] of [['MOVIES',movies,true],['TV SHOWS',tvEntries,false]]){
@@ -1441,7 +1539,7 @@
       for(const entity of pageItems(visible))renderEntity(entity);
     }
     if(!visible.length){
-      if(state.query)empty('No Matches','Try another title, show, or folder name.');
+      if(state.query||smartRule(state.collection))empty('No Matches','Try changing the search or smart collection rules.');
       else if(!state.libraries.length)empty('Your Library Starts Here',
         'Create a library, select a folder, and your movies and series appear automatically.',
         '+ Create Your First Library',()=>openEditor(null));
@@ -2437,8 +2535,9 @@
     ui.filter.addEventListener('change',()=>{state.kind=ui.filter.value;state.page=0;render();});
     let progressRefresh=0;
     const refreshProgress=()=>{
-      if(state.kind!=='continue'||!state.ready||panel.hidden)return;
-      clearTimeout(progressRefresh);progressRefresh=setTimeout(()=>{if(state.kind==='continue'&&!panel.hidden)renderCards();},250);
+      const tracking=()=>state.kind==='continue'||smartRule(state.collection)?.status==='continue';
+      if(!tracking()||!state.ready||panel.hidden)return;
+      clearTimeout(progressRefresh);progressRefresh=setTimeout(()=>{if(tracking()&&!panel.hidden)renderCards();},250);
     };
     window.addEventListener('marmalade:watch-progress',refreshProgress);
     window.addEventListener('storage',event=>{if(event.key==='marmalade:watch-progress:v1')refreshProgress();});

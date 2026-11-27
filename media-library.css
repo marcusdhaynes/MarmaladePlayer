@@ -474,3 +474,10 @@
 .ml-panel .ml-page-label{display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap}
 .ml-panel .ml-page-label input{width:58px;min-width:0;text-align:center;color:inherit;background:rgba(130,130,145,.12);border:1px solid rgba(170,170,190,.3);border-radius:5px;padding:4px}
 .ml-panel .ml-page-range{flex-basis:100%;text-align:center;opacity:.75}
+
+.ml-panel .ml-smart-editor{margin-top:8px;padding:8px 0;border-top:1px solid rgba(170,150,170,.22)}
+.ml-panel .ml-smart-editor summary{cursor:pointer;font-weight:600}
+.ml-panel .ml-smart-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.ml-panel .ml-smart-form label{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:11px}
+.ml-panel .ml-smart-form input,.ml-panel .ml-smart-form select{width:100%;min-width:0;box-sizing:border-box;color:inherit;background:#19151e;border:1px solid #56414b;border-radius:6px;padding:6px}
+.ml-panel .ml-smart-form label:first-child,.ml-panel .ml-smart-form label:nth-child(2),.ml-panel .ml-smart-form label:last-child{grid-column:1/-1}
