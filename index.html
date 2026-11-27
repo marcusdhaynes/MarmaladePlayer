@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png?v=20261104-fullbleed-v1">
   <link rel="manifest" href="manifest.webmanifest?v=20261104-fullbleed-v1">
   <link rel="stylesheet" href="./movie-info.css?v=20261119-metacritic-card-v1">
-  <link rel="stylesheet" href="./media-library.css?v=20261126-audit-v1">
+  <link rel="stylesheet" href="./media-library.css?v=20261126-audit-v2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <style>
@@ -763,7 +763,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
                 </div>
                 <div class="ml-filters">
                   <input type="search" id="mlSearch" placeholder="Search your collection" aria-label="Search videos in your libraries">
-                  <select id="mlKindFilter" aria-label="Filter by content type"><option value="all">All Videos</option><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="favorites">Favorites</option><option value="watchlist">Watchlist</option><option value="unwatched">Unwatched</option><option value="watched">Watched</option></select>
+                  <select id="mlKindFilter" aria-label="Filter by content type"><option value="all">All Videos</option><option value="continue">Continue Watching</option><option value="movie">Movies</option><option value="tv">TV Shows</option><option value="favorites">Favorites</option><option value="watchlist">Watchlist</option><option value="unwatched">Unwatched</option><option value="watched">Watched</option></select>
                   <select id="mlCollectionFilter" aria-label="Filter by collection or playlist"><option value="all">All Collections</option></select>
                   <select id="mlSort" aria-label="Sort library"><option value="title">Title A–Z</option><option value="recent">Recently Added</option><option value="year">Year</option></select>
 
@@ -1588,6 +1588,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     watchProgress=Object.fromEntries(entries);
     try{localStorage.setItem(WATCH_PROGRESS_KEY,JSON.stringify(watchProgress));}catch{}
     state.lastProgressSaveAt=now;
+    window.dispatchEvent(new Event('marmalade:watch-progress'));
   }
   function restoreWatchPosition(){
     if(state.gameFrameMode)return;
@@ -6662,12 +6663,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./rolling-buffer.js?v=20261126-audit-v4"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
-<script src="./media-library.js?v=20261126-audit-v1" defer></script>
+<script src="./media-library.js?v=20261126-audit-v2" defer></script>
 <script src="./games.js?v=20261121-browser-independent-v3" defer></script>
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261126-subtitle-compact-v3"></script>
-<script src="./settings-layout.js?v=20261126-audit-v3"></script>
+<script src="./settings-layout.js?v=20261126-audit-v4"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261126-docked-local-resume-v1"></script>
