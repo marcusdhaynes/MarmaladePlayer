@@ -1,6 +1,7 @@
 /* Regression smoke test for MarmaladePlayer's video-only system PiP.
    Run: node tests/standalone-pip.test.mjs — no browser or camera required. */
 import assert from 'node:assert/strict';
+import {runInNewContext} from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 const root=resolve(import.meta.dirname,'..');
@@ -126,5 +127,8 @@ check('16: PiP exit ends external sampling',external===false&&frameCallback===nu
 check('17: Web app imports the module',html.includes('standalone-pip.js?v='));
 check('18: Mobile packages the module',mobile.includes("'standalone-pip.js'"));
 check('19: Desktop packages the module',desktop.includes("'standalone-pip.js'"));
-check('20: Offline app caches the module',serviceWorker.includes("'./standalone-pip.js'"));
+const cacheScope='https://example.test/MarmaladePlayer/';
+const pipAsset=html.match(/<script\b[^>]*\bsrc=["']([^"']*standalone-pip\.js\?v=[^"']+)["']/i)?.[1];
+const offlineAssets=runInNewContext(serviceWorker+'\n;discover(html)',{self:{registration:{scope:cacheScope},addEventListener(){}},URL,html});
+check('20: Offline app caches the exact versioned module',Boolean(pipAsset)&&offlineAssets.includes(new URL(pipAsset,cacheScope).href));
 console.log('PASS: '+tests.length+' MarmaladePlayer standalone PiP regression checks');

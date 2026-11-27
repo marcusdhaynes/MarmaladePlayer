@@ -1,7 +1,7 @@
 // Install the pinned, on-demand decoder in every native and web package.
 // Only copies the published package's built files; no media is ever uploaded.
 import { existsSync, mkdirSync, rmSync, cpSync, readdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '..');
@@ -19,10 +19,15 @@ if (existsSync(join(destination, 'index.js')) &&
 rmSync(installDir, { recursive: true, force: true });
 mkdirSync(installDir, { recursive: true });
 try {
-  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm',
-    ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-save',
-      '--prefix', installDir, 'libav-wasm@' + version],
-    { stdio: 'inherit', timeout: 180000 });
+  const args=['install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-save',
+      '--prefix', installDir, 'libav-wasm@' + version];
+  // Node's execFile cannot launch Windows .cmd shims without a shell.
+  const npmCli=process.platform==='win32' ?
+    [process.env.npm_execpath,join(dirname(process.execPath),'node_modules','npm','bin','npm-cli.js')]
+      .find(p=>typeof p==='string'&&p.endsWith('.js')&&existsSync(p)) : null;
+  if(process.platform==='win32'&&!npmCli)throw new Error('Cannot locate npm-cli.js in the Node installation');
+  execFileSync(npmCli?process.execPath:'npm',npmCli?[npmCli,...args]:args,
+    {stdio:'inherit',timeout:180000});
   const source = join(installDir, 'node_modules', 'libav-wasm', 'build');
   for (const asset of ['index.js', 'worker.js', 'libav.wasm', 'libav-jspi.wasm']) {
     if (!existsSync(join(source, asset)))

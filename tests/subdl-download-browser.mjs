@@ -11,8 +11,7 @@ const server=createServer((req,res)=>{
   const name=new URL(req.url,'http://localhost').pathname.slice(1)||'index.html';
   const path=resolve(root,name);
   if(path!==root&&!path.startsWith(root+sep)){res.writeHead(403);res.end();return;}
-  try{res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream'});
-    res.end(readFileSync(path));}catch{res.writeHead(404);res.end();}
+  try{const data=readFileSync(path);res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream'});res.end(data);}catch{res.writeHead(404);res.end();}
 });
 function makeZip(name,subtitle){
   const file=Buffer.from(name),body=Buffer.from(subtitle);
