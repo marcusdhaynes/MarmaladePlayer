@@ -1650,7 +1650,26 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // Chapter sources are read-only browser chapter tracks or an explicitly
   // selected local WebVTT chapter file. Never infer chapters from subtitles.
   let importedChapters=[],chapterSignature='',chapterImportSequence=0;
-  let chapterIdentity=null,chapterRows=[],chapterActive=-1;
+  let chapterIdentity=null,chapterRows=[],chapterActive=-1,chapterSavedKey='';
+  const CHAPTER_STORE='marmalade:chapter-imports:v1';
+  let savedChapterImports=Object.create(null);
+  try{
+    const data=JSON.parse(localStorage.getItem(CHAPTER_STORE)||'{}');
+    if(data&&typeof data==='object'&&!Array.isArray(data))for(const [key,rows] of Object.entries(data).slice(0,200)){
+      if(!/^(hash:|library:)/.test(key)||key.length>512||!Array.isArray(rows))continue;
+      const valid=rows.slice(0,1000).filter(c=>c&&Number.isFinite(c.start)&&c.start>=0&&Number.isFinite(c.end)&&c.end>c.start&&typeof c.name==='string'&&c.name.length<=120);
+      if(valid.length)savedChapterImports[key]=valid;
+    }
+  }catch{}
+  function storeChapterImport(key,rows){
+    if(!key)return false;
+    const next=Object.assign(Object.create(null),savedChapterImports);
+    if(rows.length)next[key]=rows;else delete next[key];
+    if(Object.keys(next).length>200)return false;
+    try{const serialized=JSON.stringify(next);if(serialized.length>1000000)return false;
+      localStorage.setItem(CHAPTER_STORE,serialized);savedChapterImports=next;return true;
+    }catch{return false;}
+  }
   const chapterTracks=new WeakSet();
   function chapterSource(){
     if(state.role!=='host'||state.gameFrameMode||!state.fileReady||!['file','native','hosted'].includes(state.source))return null;
@@ -1701,18 +1720,26 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   function renderChapters(){
     const identity=chapterSource();
-    if(identity!==chapterIdentity){chapterIdentity=identity;importedChapters=[];chapterImportSequence++;chapterSignature='';}
+    if(identity!==chapterIdentity){chapterIdentity=identity;importedChapters=[];chapterSavedKey='';chapterImportSequence++;chapterSignature='';}
+    const key=identity?bookmarkIdentity():'';
+    if(key&&key!==chapterSavedKey){
+      chapterSavedKey=key;
+      if(importedChapters.length)storeChapterImport(key,importedChapters);
+      else importedChapters=savedChapterImports[key]||[];
+      chapterSignature='';
+    }
     const duration=identity?stableMovieDuration():0;
     const ready=!!identity&&Number.isFinite(duration)&&duration>0;
     const panel=$('chapterList'),markers=$('timelineChapterMarkers');
     if(!panel||!markers)return;
     const chapters=ready?cleanChapters(importedChapters.length?importedChapters:browserChapters(),duration):[];
-    const signature=JSON.stringify([ready?duration:0,!!importedChapters.length,chapters]);
+    const persisted=!!chapterSavedKey&&savedChapterImports[chapterSavedKey]===importedChapters;
+    const signature=JSON.stringify([ready?duration:0,!!importedChapters.length,persisted,chapters]);
     if(signature!==chapterSignature){
       chapterSignature=signature;chapterRows=chapters;chapterActive=-1;
       panel.replaceChildren();markers.replaceChildren();
       $('chapterImport').disabled=!ready;$('chapterClear').disabled=!importedChapters.length;
-      $('chapterStatus').textContent=ready?(chapters.length?chapters.length+' chapters · '+(importedChapters.length?'Imported WebVTT':'Media Chapter Track'):'No chapter metadata exposed. Import a WebVTT chapter file.'):'Open a seekable host video.';
+      $('chapterStatus').textContent=ready?(chapters.length?chapters.length+' chapters · '+(importedChapters.length?(persisted?'Saved WebVTT':'Session WebVTT'):'Media Chapter Track'):'No chapter metadata exposed. Import a WebVTT chapter file.'):'Open a seekable host video.';
       chapters.forEach((chapter,i)=>{
         const button=document.createElement('button');button.type='button';button.className='chapter-jump';
         button.textContent=bookmarkTime(chapter.start)+' · '+chapter.name;button.title=chapter.name;
@@ -1733,7 +1760,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     $('chapterNext').disabled=!ready||active>=chapterRows.length-1||!chapterRows.length;
   }
   function clearChapterSource(){
-    chapterImportSequence++;importedChapters=[];chapterIdentity=null;chapterSignature='';
+    chapterImportSequence++;importedChapters=[];chapterIdentity=null;chapterSavedKey='';chapterSignature='';
     chapterRows=[];chapterActive=-1;
     $('chapterList').replaceChildren();$('timelineChapterMarkers').replaceChildren();
     for(const id of ['chapterPrevious','chapterNext','chapterImport','chapterClear'])$(id).disabled=true;
@@ -3613,7 +3640,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     void fileFingerprint(file).then(hash=>{
       if(state.file===file){
         state.localFingerprint=hash;
-        renderBookmarks();
+        renderBookmarks();renderChapters();
         restoreWatchPosition();
         syncState();
       }
@@ -6786,11 +6813,20 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(file.size>1024*1024)throw Error('Chapter files must be under 1 MB.');
       const parsed=parseChapterVtt(await file.text());
       if(sequence!==chapterImportSequence||identity!==chapterSource())return;
-      if(!cleanChapters(parsed,stableMovieDuration()).length)throw Error('No chapters within this movie duration.');
-      importedChapters=parsed;chapterSignature='';renderChapters();
+      const cleaned=cleanChapters(parsed,stableMovieDuration());
+      if(!cleaned.length)throw Error('No chapters within this movie duration.');
+      const key=bookmarkIdentity();
+      importedChapters=cleaned;
+      if(key){chapterSavedKey=key;if(!storeChapterImport(key,cleaned))notify('Chapters loaded for this session; persistent storage is unavailable or full.');}
+      chapterSignature='';renderChapters();
     }catch(error){if(sequence===chapterImportSequence)$('chapterStatus').textContent=String(error.message||error);}
   });
-  $('chapterClear').addEventListener('click',()=>{chapterImportSequence++;importedChapters=[];chapterSignature='';renderChapters();});
+  $('chapterClear').addEventListener('click',()=>{
+    chapterImportSequence++;
+    const key=bookmarkIdentity();
+    if(key&&savedChapterImports[key]&&!storeChapterImport(key,[])){notify('Could not remove the saved chapter list. Try again.');return;}
+    importedChapters=[];chapterSignature='';renderChapters();
+  });
   $('chapterPrevious').addEventListener('click',()=>{
     if(!chapterSource()||!chapterRows.length)return;
     const current=media.currentTime,active=chapterActive;

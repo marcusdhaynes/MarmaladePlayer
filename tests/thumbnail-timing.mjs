@@ -148,8 +148,17 @@ try{
  await page.locator('#chapterFile').setInputFiles({name:'invalid.vtt',mimeType:'text/vtt',buffer:Buffer.from('WEBVTT\n\n00:00:60.000 --> 00:00:61.000\nInvalid')});
  await page.waitForFunction(()=>document.querySelector('#chapterStatus').textContent.includes('Invalid'));
  assert.equal(await page.locator('#chapterList button').count(),2);
+ await page.waitForFunction(()=>document.querySelector('#chapterStatus').textContent.includes('Invalid'));
+ assert.equal(await page.evaluate(()=>Object.values(JSON.parse(localStorage.getItem('marmalade:chapter-imports:v1')||'{}')).some(rows=>rows.length===2&&rows[1].name==='Blue Scene')),true,'Imported chapters persisted under exact movie identity');
+ await page.reload({waitUntil:'domcontentloaded'});
+ await page.waitForFunction(()=>!!window.MarmaladeSeekPreview&&!!window.MarmaladeSubtitleCompact);
+ await page.locator('#fileInput').setInputFiles({name:'Scene.2026.webm',mimeType:'video/webm',buffer:readFileSync(fixture)});
+ await page.waitForFunction(()=>document.querySelector('#chapterStatus').textContent.includes('Saved WebVTT'),null,{timeout:12000});
+ assert.equal(await page.locator('#timelineChapterMarkers .timeline-chapter-marker').count(),2);
  await page.evaluate(()=>document.querySelector('#chapterClear').click());
  assert.equal(await page.locator('#timelineChapterMarkers .timeline-chapter-marker').count(),0);
+ assert.equal(await page.evaluate(()=>Object.keys(JSON.parse(localStorage.getItem('marmalade:chapter-imports:v1')||'{}')).length),0);
+ console.log('PASS imported chapters restore on reload and clear durably');
  console.log('PASS WebVTT chapters, timeline markers, next/previous and invalid import protection');
 
  await page.locator('#subtitlesBtn').click({force:true});
