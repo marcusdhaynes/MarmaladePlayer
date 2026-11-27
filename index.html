@@ -3266,7 +3266,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         if (data.type === 'hello' || data.type === 'requeststate') send(conn, hostStatus());
         if (data.type === 'local-verified' && typeof data.verified === 'boolean') {
           entry.localMirror=data.verified;
-          if(data.verified){
+          if(data.verified){entry.bufferedFile=false;entry.bufferReady=null;
             try{entry.call?.close();}catch{} entry.call=null;
             void tuneAllGuests();
           }else{
@@ -4322,7 +4322,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         sendQualityPreference();
       });
       conn.on('data', (data) => {
-        if (!data || typeof data !== 'object') return;
+        if(state.guestConn!==conn||state.peer!==peer||!data||typeof data!=='object')return;
         if(data.type==='playback-stopped'){
           // The host deliberately stopped, not merely paused: clear the guest
           // source and leave the old room rather than attempting auto-rejoin.
@@ -6621,7 +6621,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 </script>
 <script src="./mkv-decoder-io.js?v=20261120-webview-range-audio-v2"></script>
 <script src="./auto-mkv-audio.js?v=20261120-hevc-mse-compat-v1"></script>
-<script src="./rolling-buffer.js?v=20261126-v1"></script>
+<script src="./rolling-buffer.js?v=20261126-v2"></script>
 <script src="./public-movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./movie-info.js?v=20261120-metascore-lookup-v1" defer></script>
 <script src="./media-library.js?v=20261121-extension-retention-v1" defer></script>
