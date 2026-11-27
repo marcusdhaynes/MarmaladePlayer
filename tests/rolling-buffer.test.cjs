@@ -4,7 +4,7 @@ const vm=require('node:vm');
 const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../rolling-buffer.js'),'utf8');
-const {ahead,goal,validRange,TARGET}=require('../rolling-buffer.js');
+const {ahead,goal,playable,validRange,TARGET}=require('../rolling-buffer.js');
 function ranges(pairs){return {length:pairs.length,start:i=>pairs[i][0],end:i=>pairs[i][1]};}
 test('rolling target is three minutes with five seconds of refill headroom',()=>{
  assert.equal(TARGET,180);
@@ -60,4 +60,32 @@ test('unauthorized, stale, out-of-bounds, and post-stop requests are rejected',a
 test('bulk connections never replace the room control connection',()=>{
  const {api,channel}=hostFixture(),c=channel('guest','anything','ordinary');
  assert.equal(api.hostChannel(c),false);assert.equal(c.open,true);
+});
+
+test('buffered stream readiness requires three contiguous seconds except at end of media',()=>{
+ const r=ranges([[0,.2],[1,10],[90,100]]);
+ assert.equal(playable(r,0,100),false);
+ assert.equal(playable(r,1,100),true);
+ assert.equal(playable(r,8,100),false);
+ assert.equal(playable(r,98,100),true);
+ assert.equal(playable(r,99,100),true);
+ assert.equal(playable(r,10.5,100),false);
+});
+test('host can revoke original-file transfer without ending room',async()=>{
+ const {api,state,channel}=hostFixture(),offer=api.offer();
+ const c=channel('guest',offer.id);api.hostChannel(c);
+ state.allowOriginalBuffer=false;
+ assert.equal(api.offer(),null);
+ await c.data({type:'read',id:1,offset:0,length:8});
+ assert.equal(c.open,false);assert.equal(c.sent.length,0);
+ state.allowOriginalBuffer=true;assert.ok(api.offer());
+});
+test('repeated invalid or replayed read requests close only the bulk channel',async()=>{
+ const {api,state,channel}=hostFixture(),offer=api.offer();
+ const c=channel('guest',offer.id);api.hostChannel(c);
+ await c.data({type:'read',id:1,offset:0,length:8});
+ const count=c.sent.length;
+ for(let n=0;n<8;n++)await c.data({type:'read',id:1,offset:0,length:8});
+ assert.equal(c.open,false);assert.equal(c.sent.length,count);
+ assert.equal(state.connections.get('guest').conn.open,true);
 });
