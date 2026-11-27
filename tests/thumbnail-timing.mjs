@@ -178,6 +178,15 @@ try{
  }
  assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
  console.log('PASS previous and next sampled scene cuts with paused playback preserved');
+ // A cut within the first quarter-second must not be skipped.
+ await page.evaluate(async()=>{const v=document.querySelector('#player');v.currentTime=3.875;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
+ await page.locator('#sceneNext').click();
+ await page.waitForFunction(()=>document.querySelector('#sceneStatus').textContent.includes('estimated')&&Math.abs(document.querySelector('#player').currentTime-4)<.01&&!document.querySelector('#player').seeking,null,{timeout:18000});
+ // Repeated Previous at the sole cut must not jump to that cut again.
+ await page.locator('#scenePrevious').click();
+ await page.waitForFunction(()=>document.querySelector('#sceneStatus').textContent.includes('No clear scene change'),null,{timeout:18000});
+ assert(Math.abs(await page.locator('#player').evaluate(v=>v.currentTime)-4)<.01);
+ console.log('PASS near-cut navigation and repeated previous at first scene boundary');
  await page.locator('#timelineFrames > summary').click();
  await page.locator('#frameStepRate').selectOption('24');
  await page.evaluate(async()=>{const v=document.querySelector('#player');v.currentTime=2;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
@@ -187,6 +196,25 @@ try{
   assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
  }
  assert.match(await page.locator('#frameStepStatus').textContent(),/Estimated frame positions/);
+ // Verify the decoded picture on either side of a real 24 FPS cut, not
+ // merely currentTime. A seek one frame backward must restore red.
+ await page.evaluate(async()=>{const v=document.querySelector('#player');v.currentTime=95/24;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
+ const assertColor=async blue=>{
+  await page.waitForFunction(blue=>{
+   const v=document.querySelector('#player');if(v.seeking||v.readyState<2)return false;
+   const c=document.createElement('canvas');c.width=c.height=1;const x=c.getContext('2d');x.drawImage(v,0,0,1,1);
+   const p=x.getImageData(0,0,1,1).data;return blue?p[2]>95&&p[0]<85:p[0]>95&&p[2]<85;
+  },blue,{timeout:8000});
+ };
+ await assertColor(false);
+ await page.locator('#frameNext').click();
+ await page.waitForFunction(()=>Math.abs(document.querySelector('#player').currentTime-4)<.008&&!document.querySelector('#player').seeking);
+ await assertColor(true);
+ await page.locator('#framePrevious').click();
+ await page.waitForFunction(()=>Math.abs(document.querySelector('#player').currentTime-95/24)<.008&&!document.querySelector('#player').seeking);
+ await assertColor(false);
+ assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
+ console.log('PASS decoded video picture changes at adjacent frames across the known cut');
  await page.locator('#closeSettingsPanel').click();
  console.log('PASS repeated forward and backward constant-rate frame timestamp steps without resuming playback');
 

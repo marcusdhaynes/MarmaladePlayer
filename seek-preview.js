@@ -327,7 +327,7 @@
  scenePanel.innerHTML='<summary>Scene Navigation</summary><div class="bookmark-editor"><p id="sceneStatus" role="status">Pause a local video to find a nearby scene change.</p><div class="chapter-actions"><button type="button" id="scenePrevious" disabled>Previous Scene</button><button type="button" id="sceneNext" disabled>Next Scene</button><button type="button" id="sceneCancel" hidden>Cancel</button></div></div>';
  document.querySelector('#timelineChapters')?.after(scenePanel);
  const sceneStatus=scenePanel.querySelector('#sceneStatus'),scenePrevious=scenePanel.querySelector('#scenePrevious'),sceneNext=scenePanel.querySelector('#sceneNext'),sceneCancel=scenePanel.querySelector('#sceneCancel');
- let sceneGeneration=0,sceneBusy=false;
+ let sceneGeneration=0,sceneBusy=false,lastSceneCut=null;
  const sceneCanvas=document.createElement('canvas');sceneCanvas.width=32;sceneCanvas.height=18;
  const sceneContext=sceneCanvas.getContext('2d',{willReadFrequently:true,alpha:false});
  const sceneEligible=()=>state.role==='host'&&state.source==='file'&&state.fileReady&&!state.gameFrameMode&&!state.broadcasting&&media.paused&&!media.seeking&&duration()>.25&&!!availableUrl();
@@ -364,7 +364,11 @@
   const max=Math.max(0,Math.floor((duration()-.125)*8)/8);
   const round=t=>limit(Math.round(t*8)/8,0,max);
   try{
-   let last=round(origin+direction*.25);check();
+   // Include the frame at the current position rather than skipping the
+   // first quarter second. When repeating Previous from a detected cut,
+   // start just before that cut so the command can progress backwards.
+   const repeatedPrevious=direction<0&&lastSceneCut?.source===source&&Math.abs(origin-lastSceneCut.time)<.063;
+   let last=round(origin-(repeatedPrevious ? .125 : 0));check();
    let lastPixels=await scenePixels(last);
    for(let n=1;n<=60;n++){
     check();
@@ -383,6 +387,7 @@
       else{low=middle;lowPixels=midPixels;}
      }
      check();sceneBusy=false;sceneControls();
+     lastSceneCut={source,time:high};
      sceneStatus.textContent='Scene change near '+format(high)+' (estimated).';
      bridge.seekToTime(high);return;
     }
@@ -399,7 +404,7 @@
  sceneCancel.addEventListener('click',()=>cancelScene());
  for(const event of ['play','seeking','emptied','loadstart'])media.addEventListener(event,()=>cancelScene());
  for(const event of ['pause','seeked','loadedmetadata','durationchange'])media.addEventListener(event,sceneControls);
- for(const event of ['marmalade:video-selected','marmalade:media-cleared'])window.addEventListener(event,()=>{cancelScene();sceneStatus.textContent='Pause a local video to find a nearby scene change.';sceneControls();});
+ for(const event of ['marmalade:video-selected','marmalade:media-cleared'])window.addEventListener(event,()=>{cancelScene();lastSceneCut=null;sceneStatus.textContent='Pause a local video to find a nearby scene change.';sceneControls();});
  scenePanel.addEventListener('toggle',()=>{if(!scenePanel.open)cancelScene();else sceneControls();});
  new MutationObserver(()=>{if(el.settingsPanel.hidden)cancelScene();else sceneControls();}).observe(el.settingsPanel,{attributes:true,attributeFilter:['hidden']});
  // Paused frame stepping is intentionally separate from scrubber debounce.
@@ -409,7 +414,7 @@
  framePanel.innerHTML='<summary>Frame Navigation</summary><div class="bookmark-editor"><p id="frameStepStatus" role="status">Play briefly to measure frame cadence, or select a known constant frame rate.</p><label>Frame Rate <select id="frameStepRate" aria-label="Frame rate for stepping"><option value="auto">Auto (Measured)</option><option value="23.976">23.976</option><option value="24">24</option><option value="25">25</option><option value="29.97">29.97</option><option value="30">30</option><option value="48">48</option><option value="50">50</option><option value="59.94">59.94</option><option value="60">60</option><option value="120">120</option></select></label><div class="chapter-actions"><button type="button" id="framePrevious" disabled>Previous Frame</button><button type="button" id="frameNext" disabled>Next Frame</button></div></div>';
  scenePanel.after(framePanel);
  const frameRate=framePanel.querySelector('#frameStepRate'),frameStatus=framePanel.querySelector('#frameStepStatus'),framePrevious=framePanel.querySelector('#framePrevious'),frameNext=framePanel.querySelector('#frameNext');
- let cadenceSamples=[],cadencePrevious=null,cadence=null,frameSource='',frameHandle=0;
+ let cadenceSamples=[],cadencePrevious=null,cadence=null,frameSource='',frameHandle=0,lastCadenceUi=0;
  function resetCadence(){
   cadenceSamples=[];cadencePrevious=null;cadence=null;frameSource=sourceSignature();
   frameRate.value='auto';frameControls();
@@ -425,7 +430,8 @@
   const eligible=sceneEligible()&&!sceneBusy&&!!rate;
   framePrevious.disabled=!eligible||media.currentTime<.0001;
   frameNext.disabled=!eligible||media.currentTime+rate.step>=duration();
-  frameStatus.textContent=rate?(frameRate.value==='auto'?'Measured '+(1/rate.step).toFixed(2)+' FPS':'Selected '+frameRate.value+' FPS')+' · Estimated frame positions; variable-rate media may differ.':'Play briefly to measure frame cadence, or select a known constant frame rate.';
+  const message=rate?(frameRate.value==='auto'?'Measured '+(1/rate.step).toFixed(2)+' FPS':'Selected '+frameRate.value+' FPS')+' · Estimated frame positions; variable-rate media may differ.':'Play briefly to measure frame cadence, or select a known constant frame rate.';
+  if(frameStatus.textContent!==message)frameStatus.textContent=message;
  }
  function observeCadence(_now,meta){
   frameHandle=0;
@@ -442,9 +448,14 @@
       cadence=sorted.every(x=>Math.abs(x-median)<=Math.max(.0006,median*.03))?{step:median,anchor:meta.mediaTime}:null;
      }
     }else{cadenceSamples=[];cadence=null;}
+   }else if(old){
+    // Do not reuse timing samples across dropped callbacks or discontinuities.
+    cadenceSamples=[];cadence=null;
    }
   }else cadencePrevious=null;
-  if(framePanel.open&&!el.settingsPanel.hidden)frameControls();
+  if(framePanel.open&&!el.settingsPanel.hidden&&_now-lastCadenceUi>=250){
+   lastCadenceUi=_now;frameControls();
+  }
   if(!media.paused&&framePanel.open&&!el.settingsPanel.hidden)startCadence();
  }
  function startCadence(){
@@ -470,7 +481,9 @@
  frameRate.addEventListener('change',frameControls);
  framePanel.addEventListener('toggle',()=>{frameControls();if(framePanel.open)startCadence();else stopCadence();});
  for(const event of ['play','playing'])media.addEventListener(event,()=>{frameControls();startCadence();});
- for(const event of ['pause','seeking','seeked','durationchange'])media.addEventListener(event,()=>{if(media.paused||media.seeking)stopCadence();else startCadence();frameControls();});
+ for(const event of ['pause','seeking','seeked','durationchange'])media.addEventListener(event,()=>{
+  if(media.paused||media.seeking)stopCadence();else startCadence();frameControls();
+ });
  for(const event of ['marmalade:video-selected','marmalade:media-cleared'])window.addEventListener(event,()=>{stopCadence();resetCadence();});
  new MutationObserver(()=>{if(el.settingsPanel.hidden)stopCadence();else{frameControls();startCadence();}}).observe(el.settingsPanel,{attributes:true,attributeFilter:['hidden']});
  frameControls();
