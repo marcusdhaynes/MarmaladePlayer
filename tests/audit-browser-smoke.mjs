@@ -64,6 +64,25 @@ try{
   await page.evaluate(()=>{const checkbox=document.querySelector('#audioProtection');checkbox.checked=true;checkbox.dispatchEvent(new Event('change',{bubbles:true}));});
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-peak-protection')),'true');
   assert.equal(await page.locator('#settingsPageControls #audioProtection').count(),1);
+  await page.waitForFunction(()=>window.MarmaladeSecondarySubtitle&&document.querySelector('#secondarySubtitleFile'));
+  await page.evaluate(()=>{
+    const {state,el}=window.MarmaladeAddonBridge;
+    el.stage.classList.add('has-video');
+    state.subtitles=[{start:0,end:4,text:'Primary captions'}];state.subtitlesEnabled=true;
+    window.MarmaladeSubtitleTiming.set(0);window.MarmaladeSubtitleRefresh();
+  });
+  await page.locator('#secondarySubtitleFile').setInputFiles({name:'secondary.srt',mimeType:'text/plain',buffer:Buffer.from('1\n00:00:00,000 --> 00:00:04,000\nمرحبا بالعالم\n')});
+  await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('مرحبا بالعالم'));
+  assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions\nمرحبا بالعالم');
+  await page.evaluate(()=>window.MarmaladeSecondarySubtitle.setOffset(5));
+  assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions');
+  await page.evaluate(()=>{window.MarmaladeSecondarySubtitle.setOffset(0);window.MarmaladeSubtitleTiming.set(5);});
+  assert.equal(await page.locator('#subtitleOverlay').textContent(),'مرحبا بالعالم');
+  await page.evaluate(()=>{
+    window.MarmaladeSecondarySubtitle.clear();window.MarmaladeSubtitleTiming.set(0);
+    window.MarmaladeAddonBridge.el.stage.classList.remove('has-video');
+  });
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.secondarySubtitles.length),0);
   const stage=await page.locator('#dropZone').boundingBox();
   assert.ok(stage&&stage.x>=-1&&stage.x+stage.width<=viewport.width+1,'Video stage exceeds viewport');
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
