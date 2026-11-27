@@ -1901,6 +1901,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       : null;
     const seconds = forward ? Math.max(0,forward[3]-media.currentTime) : null;
     el.bufferReadout.textContent= seconds === null ? '—s' : `${seconds.toFixed(1)}s`;
+    if(state.source==='buffered-guest'&&seconds!==null)el.bufferReadout.dataset.target='180';else delete el.bufferReadout.dataset.target;
     el.bufferReadout.title=seconds===null
       ? (state.source==='remote'
           ? 'Live WebRTC has no seekable future video buffer'
@@ -2087,7 +2088,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       return;
     }
     if (state.role !== 'host' || !['file','native','hosted'].includes(state.source) || !state.fileReady) return;
-    if (action === 'toggle') action = media.paused ? 'play' : 'pause';
+    if (action === 'toggle') action = media.paused && !state.heldForBuffer ? 'play' : 'pause';
+    if(action==='pause'||action==='play')state.heldForBuffer=false;
     if (action === 'play') void media.play().catch(() => notify('Playback blocked. Tap play again.'));
     if (action === 'pause') media.pause();
     if (action === 'seek' && Number.isFinite(Number(value))) {
@@ -2517,7 +2519,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       // Do not repeatedly seek an unfilled range while the transfer is working.
       const ranges=media.buffered;
       let available=0;for(let i=0;i<ranges.length;i++)if(ranges.start(i)<=expected+.08&&ranges.end(i)>expected){available=ranges.end(i)-expected;break;}
-      if(available<.15){
+      if(available<.15&&expected<media.duration-.1){
+        if(!state.waitingForBuffer){state.waitingForBuffer=true;notifyWaiting(false);}
         if(!media.paused)media.pause();
         if(state.hostSyncVersion!==state.localLastSync||Math.abs(drift)>5){try{media.currentTime=expected;}catch{}state.localLastSync=state.hostSyncVersion;}
         window.MarmaladeRollingBuffer?.kick();return;
@@ -2719,7 +2722,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const now = performance.now();
     if (state.localVerified || state.bufferedMode) {
       const ahead=bufferAhead();
-      const blocked=state.hostPlaying&&(media.readyState<3||ahead<.15||media.paused&&!el.stage.classList.contains('needs-gesture'));
+      const blocked=state.hostPlaying&&(media.readyState<3||ahead<.15);
       if(blocked && !state.waitingForBuffer){state.waitingForBuffer=true;send(state.guestConn,{type:'buffer-status',ready:false});}
       const remaining=Math.max(0,(Number(media.duration)||state.sharedDuration||0)-media.currentTime);
       const resumeFloor=Math.min(state.localVerified?2:3,remaining);
@@ -2810,7 +2813,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     updateRoomPanel();
   }
   function stopBroadcast(keepScreen = false) {
-    state.broadcasting = false;
+    state.broadcasting = false;state.heldForBuffer=false;
     window.MarmaladeRollingBuffer?.closeHost();
     for(const entry of state.connections.values())entry.bufferedFile=false;
     releaseWakeLock();
@@ -3265,17 +3268,18 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         if(data.type==='buffered-file-active'&&typeof data.active==='boolean'){
           if(data.active&&window.MarmaladeRollingBuffer?.offer()?.id!==data.id)return;
           entry.bufferedFile=data.active;
+          entry.bufferReady=null;
           if(data.active){const call=entry.call;entry.call=null;try{call?.close();}catch{}void tuneAllGuests();}
           else if(state.outgoing&&!entry.localMirror)callGuest(conn.peer);
         }
         if (data.type === 'buffer-status' && typeof data.ready==='boolean') {
           entry.bufferReady=data.ready;entry.lastBufferReport=performance.now();
           // Optional coordinated pause, only for seekable buffered sources.
-          if(state.source==='hosted'&&state.strictSync){
-            const active=[...state.connections.values()].filter(e=>e.conn.open&&!e.localMirror);
+          if((state.source==='hosted'||state.source==='file')&&state.strictSync){
+            const active=[...state.connections.values()].filter(e=>e.conn.open&&!e.localMirror&&(state.source==='hosted'||e.bufferedFile));
             const wait=active.some(e=>e.bufferReady===false && performance.now()-(e.lastBufferReport||0)<15000);
             if(wait&&!state.heldForBuffer&&!media.paused){state.heldForBuffer=true;media.pause();syncState();}
-            if(!wait&&state.heldForBuffer){state.heldForBuffer=false;void media.play();syncState();}
+            if(!wait&&state.heldForBuffer){state.heldForBuffer=false;void media.play().catch(()=>{});syncState();}
           }
         }
         if(data.type==='black-video' && state.source==='file' &&
@@ -6478,7 +6482,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
   }, 5000);
   window.setInterval(()=>{
-    if(state.role==='host'&&state.peer?.open && state.source && state.fileReady)syncState();
+    if(state.role==='host'&&state.peer?.open && state.source && state.fileReady){
+      if(state.heldForBuffer&&(!state.strictSync||![...state.connections.values()].some(e=>e.conn.open&&!e.localMirror&&(state.source==='hosted'||e.bufferedFile)&&e.bufferReady===false&&performance.now()-(e.lastBufferReport||0)<15000))){state.heldForBuffer=false;void media.play().catch(()=>{});}
+      syncState();
+    }
     if(state.role==='guest'&&state.guestConn?.open){
       recoveryCheck();
       if(state.bufferedMode || state.localVerified)void syncSeekablePlayback();
