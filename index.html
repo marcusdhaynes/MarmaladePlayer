@@ -723,6 +723,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label><span>Equalizer <small>Personal audio · bass, midrange and treble</small></span><select id="audioEqPreset" aria-label="Equalizer preset"><option value="flat">Flat (Off)</option><option value="cinema">Cinema</option><option value="speech">Speech</option><option value="music">Music</option><option value="soft">Soft</option><option value="custom">Custom</option></select></label>
             <details id="audioEqEditor" class="settings-advanced audio-eq-editor"><summary>Fine-Tune Equalizer</summary><div id="audioEqBands" class="audio-eq-bands"><label class="audio-eq-band"><span title="Bass">60 Hz</span><input id="audioEq0" type="range" min="-12" max="12" step="1" value="0" aria-label="60 Hz gain in decibels"><output for="audioEq0">0 dB</output></label><label class="audio-eq-band"><span>150 Hz</span><input id="audioEq1" type="range" min="-12" max="12" step="1" value="0" aria-label="150 Hz gain in decibels"><output for="audioEq1">0 dB</output></label><label class="audio-eq-band"><span>400 Hz</span><input id="audioEq2" type="range" min="-12" max="12" step="1" value="0" aria-label="400 Hz gain in decibels"><output for="audioEq2">0 dB</output></label><label class="audio-eq-band"><span>1 kHz</span><input id="audioEq3" type="range" min="-12" max="12" step="1" value="0" aria-label="1000 Hz gain in decibels"><output for="audioEq3">0 dB</output></label><label class="audio-eq-band"><span>2.5 kHz</span><input id="audioEq4" type="range" min="-12" max="12" step="1" value="0" aria-label="2500 Hz gain in decibels"><output for="audioEq4">0 dB</output></label><label class="audio-eq-band"><span>6 kHz</span><input id="audioEq5" type="range" min="-12" max="12" step="1" value="0" aria-label="6000 Hz gain in decibels"><output for="audioEq5">0 dB</output></label><label class="audio-eq-band"><span title="Treble">12 kHz</span><input id="audioEq6" type="range" min="-12" max="12" step="1" value="0" aria-label="12000 Hz gain in decibels"><output for="audioEq6">0 dB</output></label></div><button type="button" id="audioEqReset">Reset to Flat</button></details>
              <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
+            <label>Mini-Player Fade Delay <select id="miniPlayerFadeDelay" aria-label="Mini-Player Fade Delay"><option value="follow">Match Main Controls</option><option value="2">2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
             <label><input type="checkbox" id="strictSync" checked> Keep Everyone Together</label>
@@ -1065,6 +1066,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   };
   const media = el.player;
   const fadeDelayControl=document.getElementById('controlFadeDelay');
+  const miniFadeControl=document.getElementById('miniPlayerFadeDelay');
   const localPreference=(key,fallback)=>{try{return localStorage.getItem('marmalade:'+key)||fallback;}catch{return fallback;}};
   const rememberPreference=(key,value)=>{try{localStorage.setItem('marmalade:'+key,String(value));}catch{}};
   const volumeIncrement=$('volumeIncrement'),volumeSnap=$('volumeSnap'),volumeMaximum=$('volumeMaximum');
@@ -1264,6 +1266,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   const savedFadeDelay=localPreference('control-fade-seconds','2');
   fadeDelayControl.value=[...fadeDelayControl.options].some(o=>o.value===savedFadeDelay)?savedFadeDelay:'2';
   fadeDelayControl.addEventListener('change',()=>{rememberPreference('control-fade-seconds',fadeDelayControl.value);revealControls();});
+  const savedMiniFade=localPreference('mini-player-fade','follow');
+  if([...miniFadeControl.options].some(o=>o.value===savedMiniFade))miniFadeControl.value=savedMiniFade;
+  function miniFadeMilliseconds(){return (Number(miniFadeControl.value)||Number(fadeDelayControl.value))*1000;}
+  miniFadeControl.addEventListener('change',()=>{
+    rememberPreference('mini-player-fade',miniFadeControl.value);
+    revealControls();if(el.stage.classList.contains('mini-pip-visible'))showMiniControls();
+  });
 
   // Keep cosmetic preferences device-local and restore without a layout flash.
   const backgroundTheme=document.getElementById('backgroundTheme');
@@ -1469,7 +1478,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     recommendation: DEFAULT_LEVEL, stableReports: 0, unhealthyReports: 0,
     highStream: null, highTrack: null, highTimer: null, highCanvas: null,
     bitrateEstimate: 0, videoFrameHandle: null, fpsFrames: 0, fpsAt: 0,
-    stabilityMode: 'fast', strictSync: true, diagnostics: false, jitterTarget: 140,
+    stabilityMode: 'fast', strictSync: true, diagnostics: localPreference('playback-diagnostics','false')==='true', jitterTarget: 140,
     highPlayoutTarget: 0, highPlayoutLastSampleAt: 0, latencyStats: null, highEncoderStats: null,
     bufferTarget: 180, mediaStallAt: 0, mediaRetryCount: 0, lastRecoverAt: 0,
     remoteVideoConnectedAt: 0, remoteLastFrameAt: 0, remoteVideoFrameCount: 0,
@@ -2215,7 +2224,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return true;
   }
   function scheduleControlsFade(delay){
-    delay=Number.isFinite(delay)?delay:Number(fadeDelayControl.value)*1000;
+    delay=Number.isFinite(delay)?delay:el.stage.classList.contains('pip-interactive')?miniFadeMilliseconds():Number(fadeDelayControl.value)*1000;
     clearTimeout(state.controlHideTimer);
     if(!canHideControls())return;
     state.controlHideTimer=setTimeout(()=>{
@@ -6167,7 +6176,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!el.stage.classList.contains('mini-pip-visible'))return;
     el.stage.classList.add('mini-controls-awake');
     clearTimeout(miniFadeTimer);
-    miniFadeTimer=setTimeout(()=>el.stage.classList.remove('mini-controls-awake'),Number(fadeDelayControl.value)*1000);
+    miniFadeTimer=setTimeout(()=>el.stage.classList.remove('mini-controls-awake'),miniFadeMilliseconds());
   };
   const setMiniOverlay=visible=>{
     clearTimeout(miniFadeTimer);
@@ -6643,8 +6652,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   });
   el.strictSync.addEventListener('change',()=>{state.strictSync=el.strictSync.checked;rememberPreference('strict-sync',state.strictSync);syncState();});
   el.peerAssist.addEventListener('change',()=>{state.peerAssistance=el.peerAssist.checked;rememberPreference('peer-assist',state.peerAssistance);});
+  el.stabilityInfo.hidden=!state.diagnostics;
+  el.diagnosticsToggle.setAttribute('aria-expanded',String(state.diagnostics));
   el.diagnosticsToggle.addEventListener('click',()=>{
     state.diagnostics=!state.diagnostics;
+    rememberPreference('playback-diagnostics',state.diagnostics);
     el.stabilityInfo.hidden=!state.diagnostics;
     el.diagnosticsToggle.setAttribute('aria-expanded',String(state.diagnostics));
     refreshDiagnosticTimer();
@@ -7577,7 +7589,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261127-stable-timing-press-v4"></script>
-<script src="./settings-layout.js?v=20261127-subtitle-preference-v3"></script>
+<script src="./settings-layout.js?v=20261127-mini-diagnostics-v4"></script>
 <script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261127-language-preference-v3"></script>

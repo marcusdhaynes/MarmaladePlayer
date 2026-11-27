@@ -144,6 +144,7 @@
  pages.get('controls').querySelector('.settings-stack').appendChild($('audioEqEditor'));
  const tapRow=into('tapVideoPlayback','controls','settings-toggle-row');
  if(tapRow){const input=tapRow.querySelector('input');if(input)tapRow.append(input);}
+ into('miniPlayerFadeDelay','controls');
  const fadeRow=into('controlFadeDelay','controls');
  if(fadeRow?.firstChild?.nodeType===Node.TEXT_NODE)
    fadeRow.firstChild.textContent='Fade Controls ';
@@ -192,7 +193,7 @@
  // Portable preferences only: never export room invitations, credentials,
  // file handles, viewing history, or cached movie/subtitle content.
  const backup=document.createElement('details');backup.id='settingsBackup';backup.className='settings-advanced';
- backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="subtitles">Subtitles</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="appearance">Appearance</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
+ backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="subtitles">Subtitles</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="miniPlayer">Mini-Player</option><option value="appearance">Appearance</option><option value="performance">Performance</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
  panel.appendChild(backup);
  const backupStatus=$('settingsBackupStatus'),applyBackup=$('settingsApplyBackup');
  const bool=v=>v==='true'||v==='false';
@@ -221,7 +222,9 @@
   party:{'stability-mode':choices('fast','balanced','smooth'),'strict-sync':bool},
   buffering:{'original-file-buffer':bool,'peer-assist':bool},
   library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':numeric(1,20)},
-  games:{'games:visible:v1':bool}
+  games:{'games:visible:v1':bool},
+  miniPlayer:{'mini-player-fade':choices('follow','2','3','5','8','10','15')},
+  performance:{'playback-diagnostics':bool}
  };
  const validators=new Map(Object.values(schema).flatMap(group=>Object.entries(group)).map(([key,validate])=>['marmalade:'+key,validate]));
  let pending=null,backupRevision=0;
