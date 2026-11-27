@@ -70,6 +70,7 @@
     }catch{return [];}
   }
   let smartCollections=loadSmart();
+  let refreshSmartEditor=()=>{};
   const builtInSmart=[{id:'recent',name:'Recently Added (30 Days)',kind:'all',status:'all',recentDays:30},
     {id:'short-unwatched',name:'Unwatched Movies Under 90 Minutes',kind:'movie',status:'unwatched',maxMinutes:90}].map(normalizeSmart);
   function smartRule(key){
@@ -142,6 +143,7 @@
       if(state.collection==='smart:'+key){state.collection='all';ui.collections.value='all';state.page=0;}
       reset();render();notify('Smart collection deleted. Videos were not removed.');
     });
+    refreshSmartEditor=()=>reset(select.value);
     reset();
   }
 
@@ -1612,9 +1614,31 @@
         folders,items,hiddenIds:Array.isArray(lib.hiddenIds)?[...new Set(lib.hiddenIds.filter(x=>typeof x==='string'&&folderIds.has(x.split('|')[0])&&relative(x.slice(x.indexOf('|')+1))))]:[],createdAt:number(lib.createdAt),lastScan:number(lib.lastScan)};
     });
   }
+  // Version 1 backups remain readable; smartCollections is an optional
+  // additive field. Reject malformed rules instead of silently broadening them.
+  function validateSmartBackup(data){
+    if(data.smartCollections===undefined)return [];
+    if(!Array.isArray(data.smartCollections)||data.smartCollections.length>100)
+      throw Error('Invalid smart collection list');
+    const seen=new Set(builtInSmart.map(r=>r.id));
+    return data.smartCollections.map(raw=>{
+      const rule=normalizeSmart(raw);
+      if(!rule||seen.has(rule.id)||typeof raw.name!=='string'||raw.name.trim().length>80||
+         !['all','movie','tv'].includes(raw.kind)||
+         !['all','unwatched','watched','favorites','watchlist','continue'].includes(raw.status)||
+         typeof raw.text!=='string'||raw.text.length>160||
+         (rule.yearFrom!==null&&rule.yearTo!==null&&rule.yearFrom>rule.yearTo))
+        throw Error('Invalid or duplicate smart collection');
+      for(const key of ['yearFrom','yearTo','maxMinutes','recentDays']){
+        if(raw[key]!==null&&(!Number.isInteger(raw[key])||raw[key]!==rule[key]))
+          throw Error('Invalid smart collection numeric rule');
+      }
+      seen.add(rule.id);return rule;
+    });
+  }
   function downloadLibraryBackup(){
     const libraries=portableCatalog();
-    const blob=new Blob([JSON.stringify({format:'marmaladeum-library-backup',version:1,createdAt:new Date().toISOString(),libraries})],{type:'application/json'});
+    const blob=new Blob([JSON.stringify({format:'marmaladeum-library-backup',version:1,createdAt:new Date().toISOString(),libraries,smartCollections})],{type:'application/json'});
     if(blob.size>64*1024*1024){notify('Catalog exceeds the 64 MiB portable backup limit. Use the library extension backup for this catalog.');return;}
     const url=URL.createObjectURL(blob),a=create('a');a.href=url;a.download='Marmaladeum-Library-Backup-'+new Date().toISOString().slice(0,10)+'.json';
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
@@ -1624,11 +1648,21 @@
     if(!file)return;
     try{
       if(file.size>64*1024*1024)throw Error('Backup is larger than 64 MiB');
-      const records=validatePortableCatalog(JSON.parse(await file.text()));
+      const data=JSON.parse(await file.text());
+      const records=validatePortableCatalog(data),rules=validateSmartBackup(data);
+      const newRules=rules.filter(rule=>!smartCollections.some(existing=>existing.id===rule.id));
+      if(smartCollections.length+newRules.length>100)throw Error('Import would exceed 100 smart collections');
       if(!state.ready||state.scanning)throw Error('Wait for the current library scan to finish');
       if(!state.db)throw Error('Persistent library storage is unavailable on this device');
       const result=await restoreSiteCatalog(records,{durable:true});
-      notify(result.restored?result.items+' titles restored. Reconnect folders to play them. Existing libraries were kept.':'No new libraries to restore; existing libraries were kept.');
+      const baseMessage=result.restored?result.items+' titles restored. Reconnect folders to play them. Existing libraries were kept.':'No new libraries to restore; existing libraries were kept.';
+      if(newRules.length){
+        if(!saveSmart([...smartCollections,...newRules])){
+          notify(baseMessage+' Smart collection rules could not be saved; retry the import.');return;
+        }
+        refreshSmartEditor();render();
+        notify(baseMessage+' '+newRules.length+' smart collections restored; existing rules were kept.');
+      }else notify(baseMessage);
     }catch(e){notify('Backup not imported: '+(e.message||'Invalid backup'));}
   }
   let libraryBackupTimer=null;

@@ -150,7 +150,23 @@ try{
   assert.equal(await page.locator('#mlCollectionFilter').inputValue(),'all');
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade:media-library:smart-collections:v1')).length),0);
   assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().find(l=>l.id==='audit-large').count),501);
+  // Importing a rule-only backup must work without altering the catalog.
+  const rule={id:'audit-smart-rule',name:'Imported Movies',kind:'movie',status:'all',yearFrom:null,yearTo:null,maxMinutes:null,recentDays:null,text:'Movie 001'};
+  const smartBackup={format:'marmaladeum-library-backup',version:1,libraries:[],smartCollections:[rule]};
+  const importRules=async(data)=>page.locator('#mlCatalogBackupInput').setInputFiles({name:'rules.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(data))});
+  await importRules(smartBackup);
+  await page.waitForFunction(()=>document.querySelector('#mlStatus').textContent.includes('1 smart collections restored'));
+  await page.locator('#mlSmartSelect').selectOption(rule.id);
+  assert.equal(await page.locator('#mlSmartName').inputValue(),rule.name);
+  await importRules({...smartBackup,smartCollections:[{...rule,name:'Do Not Overwrite'}]});
+  await page.waitForFunction(()=>document.querySelector('#mlStatus').textContent.includes('No new libraries'));
+  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade:media-library:smart-collections:v1'))[0].name),rule.name);
+  await importRules({...smartBackup,smartCollections:[{...rule,id:'bad-rule',maxMinutes:-5}]});
+  await page.waitForFunction(()=>document.querySelector('#mlStatus').textContent.includes('Invalid smart collection numeric rule'));
+  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('marmalade:media-library:smart-collections:v1')).length),1);
   await page.locator('#mlSettingsClose').click();
+  await page.locator('#mlCollectionFilter').selectOption('smart:'+rule.id);
+  assert.equal(await page.locator('#mlCards .ml-card').count(),10);
   const stage=await page.locator('#dropZone').boundingBox();
   assert.ok(stage&&stage.x>=-1&&stage.x+stage.width<=viewport.width+1,'Video stage exceeds viewport');
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
