@@ -335,8 +335,13 @@ try{
    await writer.close();
    const file=await handle.getFile();
    const db=await new Promise((resolve,reject)=>{
-     const req=indexedDB.open('marmalade-recent-video',1);
-     req.onupgradeneeded=()=>req.result.createObjectStore('recents');
+     // Open the schema already initialized by the current application.
+     // Do not force an older database version after a storage migration.
+     const req=indexedDB.open('marmalade-recent-video');
+     req.onupgradeneeded=()=>{
+       for(const name of ['recents','videoChunks'])
+         if(!req.result.objectStoreNames.contains(name))req.result.createObjectStore(name);
+     };
      req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
    });
    await new Promise((resolve,reject)=>{
