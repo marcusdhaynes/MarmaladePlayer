@@ -83,6 +83,31 @@ try{
     window.MarmaladeAddonBridge.el.stage.classList.remove('has-video');
   });
   assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.secondarySubtitles.length),0);
+  const savedSubtitle=await page.evaluate(async()=>{
+    const {state,el}=window.MarmaladeAddonBridge;
+    const api=window.MarmaladeSecondarySubtitle;
+    state.role='host';state.source='native';state.nativeMediaKey='audit-secondary-fixture';
+    el.stage.classList.add('has-video');state.subtitlesEnabled=true;
+    await api.load(new File(['1\n00:00:00,000 --> 00:00:04,000\nSaved secondary\n'],'saved.srt',{type:'text/plain'}));
+    api.setOffset(1.5);
+    const readSaved=async()=>{
+      const db=await new Promise((resolve,reject)=>{
+        const req=indexedDB.open('marmalade-local-subtitles',1);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+      });
+      try{return await new Promise((resolve,reject)=>{
+        const req=db.transaction('handles','readonly').objectStore('handles').get('secondary\u0000library:audit-secondary-fixture');
+        req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+      });}finally{db.close();}
+    };
+    state.secondarySubtitles=[];state.secondarySubtitleOffset=0;
+    await api.restore();
+    const result={text:state.secondarySubtitles[0]?.text,offset:state.secondarySubtitleOffset,saved:(await readSaved())?.offset};
+    await api.clear();
+    result.deleted=(await readSaved())===undefined;
+    state.source=null;state.nativeMediaKey='';state.subtitlesEnabled=false;el.stage.classList.remove('has-video');
+    return result;
+  });
+  assert.deepEqual(savedSubtitle,{text:'Saved secondary',offset:1.5,saved:1.5,deleted:true});
   const stage=await page.locator('#dropZone').boundingBox();
   assert.ok(stage&&stage.x>=-1&&stage.x+stage.width<=viewport.width+1,'Video stage exceeds viewport');
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
