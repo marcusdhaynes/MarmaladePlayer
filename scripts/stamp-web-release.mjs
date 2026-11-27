@@ -35,12 +35,35 @@ async function stamp(commit){
   await writeFile('build-info.json',JSON.stringify(info,null,2)+'\n');
   console.log('Stamped '+commit+' with '+Object.keys(files).length+' hashed assets');
 }
+// Validate a restored archive before allowing it to be used for recovery.
+async function verifyLocal(expected){
+  const manifest=JSON.parse(await readFile('build-info.json','utf8'));
+  if(!/^[a-f0-9]{40}$/.test(manifest.commit)||expected&&manifest.commit!==expected)
+    throw Error('Restored commit identity mismatch');
+  const entries=Object.entries(manifest.files||{});
+  if(!entries.length||!manifest.files['index.html']||!manifest.files['sw.js'])throw Error('Incomplete release manifest');
+  for(const [path,digest] of entries){
+    const absolute=resolve(root,path),rel=relative(root,absolute);
+    if(!rel||rel.startsWith('..')||isAbsolute(rel)||! /^[a-f0-9]{64}$/.test(digest))throw Error('Invalid manifest entry: '+path);
+    if(hash(await readFile(absolute))!==digest)throw Error('Restored asset mismatch: '+path);
+  }
+  const html=await readFile('index.html','utf8');
+  for(const match of html.matchAll(/\b(?:src|href)\s*=\s*(['"])([^'"]+)\1/gi)){
+    const path=assetPath(match[2]);if(!path)continue;
+    if(!manifest.files[path]||new URL(match[2],'https://release.invalid/').searchParams.get('v')!==manifest.files[path].slice(0,16))
+      throw Error('Incorrect versioned reference: '+path);
+  }
+  const sw=await readFile('sw.js','utf8');
+  if(!sw.includes("const CACHE = 'marmalade-shell-"+manifest.commit+"';"))throw Error('Incorrect restored cache identity');
+  console.log('Verified local release '+manifest.commit+' and '+entries.length+' asset hashes');
+  return manifest;
+}
 async function verify(raw){
   const base=new URL(raw.endsWith('/')?raw:raw+'/');
   if(base.protocol!=='https:')throw Error('HTTPS deployment required');
-  const local=JSON.parse(await readFile('build-info.json','utf8'));
+  const local=await verifyLocal();
   const fetchBytes=async path=>{
-    const url=new URL(path,base);url.searchParams.set('v',local.commit);
+    const url=new URL(path,base);url.searchParams.set('v',path==='index.html'||path==='sw.js'||path==='build-info.json'?local.commit:local.files[path].slice(0,16));
     const r=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(15000)});
     if(!r.ok)throw Error(path+' HTTP '+r.status);
     return Buffer.from(await r.arrayBuffer());
@@ -64,4 +87,5 @@ async function verify(raw){
 const [mode,value]=process.argv.slice(2);
 if(mode==='stamp')await stamp(value||'');
 else if(mode==='verify')await verify(value||'');
-else throw Error('Usage: stamp-web-release.mjs stamp COMMIT | verify HTTPS_URL');
+else if(mode==='verify-local')await verifyLocal(value||'');
+else throw Error('Usage: stamp-web-release.mjs stamp COMMIT | verify-local [COMMIT] | verify HTTPS_URL');

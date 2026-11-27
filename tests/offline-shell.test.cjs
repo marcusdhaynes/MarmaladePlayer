@@ -36,3 +36,32 @@ test('media, range, untrusted queries and decoder requests bypass service worker
    assert.equal(handled,false,url);
  }
 });
+
+test('upgrade and rollback isolate caches without touching other applications',async()=>{
+ const old='a'.repeat(40),next='b'.repeat(40);
+ const entries=new Set(['unrelated-app','marmalade-shell-'+old]);
+ const cacheStore=new Map();
+ const scope='https://example.test/MarmaladePlayer/';
+ const worker=version=>{
+  const listeners=new Map();
+  const self={registration:{scope},addEventListener:(type,fn)=>listeners.set(type,fn),clients:{claim:async()=>{}},skipWaiting:async()=>{}};
+  const caches={keys:async()=>[...entries],delete:async key=>{entries.delete(key);cacheStore.delete(key);},open:async key=>{
+   entries.add(key);if(!cacheStore.has(key))cacheStore.set(key,new Map());
+   const map=cacheStore.get(key);return {put:async(url,response)=>map.set(url,await response.text())};
+  }};
+  const context={self,caches,URL,Response,Set,Promise,fetch:async url=>new Response(url.includes('index.html')?'<script src="./runtime.js?v='+version+'"></script>':'runtime '+version)};
+  vm.createContext(context);
+  vm.runInContext(source.replace(/const CACHE = '[^']+';/,"const CACHE = 'marmalade-shell-"+version+"';"),context);
+  return async event=>{let pending;listeners.get(event)({waitUntil:p=>pending=p});await pending;};
+ };
+ const upgrade=worker(next);
+ await upgrade('install');
+ assert(entries.has('marmalade-shell-'+old),'Old cache survives until activation');
+ await upgrade('activate');
+ assert.deepEqual([...entries].sort(),['marmalade-shell-'+next,'unrelated-app'].sort());
+ assert.equal(cacheStore.get('marmalade-shell-'+next).get(scope+'runtime.js?v='+next),'runtime '+next);
+ const rollback=worker(old);
+ await rollback('install');await rollback('activate');
+ assert.deepEqual([...entries].sort(),['marmalade-shell-'+old,'unrelated-app'].sort());
+ assert.equal(cacheStore.get('marmalade-shell-'+old).get(scope+'runtime.js?v='+old),'runtime '+old);
+});

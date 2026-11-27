@@ -84,3 +84,13 @@ For rollback, DreamHost stamps the selected historical commit, not the workflow
 trigger SHA. Old commits without compatible build steps still require manual
 archive recovery. External CDN dependencies and lazy-loaded decoder binaries are
 not covered by this shell manifest; native packaging is verified separately.
+
+## Restore verification and reproducibility checks
+
+The permanent backup job extracts the newly generated web archive into a fresh
+temporary directory and verifies the archived checksums, commit identity,
+content-versioned HTML references and service-worker cache identity before
+publishing. The contract suite also tests deterministic stamping, tamper
+detection, and simulated forward/backward service-worker cache migrations.
+These are non-destructive rehearsals; they do not roll back the production site
+or prove bit-for-bit reproducibility of every native installer.

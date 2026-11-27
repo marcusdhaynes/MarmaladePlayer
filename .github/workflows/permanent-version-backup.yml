@@ -52,6 +52,12 @@ jobs:
             --exclude='./.marmalade-decoder-install' \
             .
           (cd "$OUT" && sha256sum Marmaladeum-Web-*.tar.gz Marmaladeum-Git-History-*.bundle > "SHA256SUMS-${SHORT}.txt")
+          # Rehearse restoring the exact archive before uploading it.
+          (cd "$OUT" && sha256sum -c "SHA256SUMS-${SHORT}.txt")
+          RESTORE="$RUNNER_TEMP/marmaladeum-restore-${SHORT}"
+          mkdir -p "$RESTORE"
+          tar -xzf "$OUT/Marmaladeum-Web-${SHORT}.tar.gz" -C "$RESTORE"
+          (cd "$RESTORE" && node "$GITHUB_WORKSPACE/scripts/stamp-web-release.mjs" verify-local "$GITHUB_SHA")
           echo "tag=marmalade-backup-${SHORT}" >> "$GITHUB_OUTPUT"
           echo "out=$OUT" >> "$GITHUB_OUTPUT"
       - name: Store recoverable, non-expiring release assets on GitHub
