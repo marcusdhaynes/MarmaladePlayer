@@ -144,6 +144,7 @@ try{
   });
   assert(localId&&localId!=='extlib:test',
     'Migrating extension-only metadata must create an independent local library');
+  await page.waitForFunction(id=>document.querySelector('#onlyFramesLibrary').value===id,localId);
   assert.equal(await page.locator('#onlyFramesLibrary').inputValue(),localId);
   assert.equal(await page.evaluate(()=>window.__nativePickerCalls),0,
     'The browser-independent file flow must never invoke a blocked directory picker');
