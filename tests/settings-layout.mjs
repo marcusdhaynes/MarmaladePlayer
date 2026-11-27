@@ -91,6 +91,28 @@ try{
     return boxes;
   }
   await layout('video');
+  // Every original audit category can be reached directly without changing
+  // the compact three-tab architecture or duplicating actual inputs.
+  const jumpTargets={video:'qualitySelect',audio:'volumeIncrement',subtitles:'preferredSubtitleLanguage',party:'stabilityMode',buffering:'allowOriginalBuffer',library:'mlVisibilityToggle',games:'gamesVisibilityToggle',controls:'skipInterval',miniPlayer:'miniPlayerFadeDelay',appearance:'backgroundTheme',privacy:'rememberLastRoom',performance:'diagnosticsToggle',updates:'automaticUpdateChecks'};
+  await page.waitForFunction(()=>document.querySelector('#mlVisibilityToggle')&&document.querySelector('#gamesVisibilityToggle'));
+  assert.deepEqual(await page.locator('#settingsCategoryJump option').evaluateAll(options=>options.slice(1).map(o=>o.value)),Object.keys(jumpTargets));
+  for(const [category,id] of Object.entries(jumpTargets)){
+    await page.locator('#settingsCategoryJump').selectOption(category);
+    await page.waitForFunction(id=>document.activeElement?.id===id,id);
+    assert.equal(await page.locator('#'+id).isVisible(),true,category+' target is visible');
+    assert.equal(await page.locator('#'+id).count(),1,category+' target remains unique');
+  }
+  await page.locator('#settingsSearch').fill('automatic update checks');
+  await page.locator('#settingsSearchResults button').filter({hasText:'Automatic Update Checks'}).click();
+  assert.equal(await page.locator('#automaticUpdateChecks').isVisible(),true);
+  await page.locator('#settingsSearch').fill('export settings');
+  await page.locator('#settingsSearchResults button').filter({hasText:'Export Settings'}).click();
+  assert.equal(await page.locator('#settingsBackup').getAttribute('open'),'');
+  await page.locator('#settingsBackup > summary').click();
+  // Restore the baseline state for the original layout assertions.
+  await page.locator('#settingsTabParty').click();
+  await page.locator('#settingsAdvanced > summary').click();
+  await layout('video');
   assert.equal(await page.locator('#settingsTabVideo').getAttribute('aria-selected'),'true');
   await page.locator('#settingsTabVideo').focus();
   await page.keyboard.press('ArrowRight');

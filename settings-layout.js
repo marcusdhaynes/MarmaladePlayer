@@ -363,6 +363,45 @@
  results.setAttribute('role','region');results.setAttribute('aria-label','Matching settings');
  const status=document.createElement('div');status.className='settings-hint';status.setAttribute('role','status');
  nav.before(search,results);
+ // The three compact top-level tabs remain intact. This single dropdown
+ // routes directly to every audit category without adding a crowded tab bar.
+ const categoryRow=document.createElement('label');categoryRow.className='settings-row settings-category-jump';
+ categoryRow.innerHTML='<span>Category</span><select id="settingsCategoryJump" aria-label="Go to Settings Category"></select>';
+ const categoryJump=categoryRow.querySelector('select');
+ const categories=[
+  ['video','Video','video','qualitySelect'],['audio','Audio','controls','volumeIncrement'],
+  ['subtitles','Subtitles','video','preferredSubtitleLanguage'],['party','Party','party','stabilityMode'],
+  ['buffering','Buffering','party','allowOriginalBuffer'],['library','Library','video','mlVisibilityToggle'],
+  ['games','Games','video','gamesVisibilityToggle'],['controls','Controls','controls','skipInterval'],
+  ['miniPlayer','Mini-Player','controls','miniPlayerFadeDelay'],['appearance','Appearance','video','backgroundTheme'],
+  ['privacy','Privacy','party','rememberLastRoom'],['performance','Performance','party','diagnosticsToggle'],
+  ['updates','Updates',null,'automaticUpdateChecks']
+ ];
+ categoryJump.add(new Option('Go to Category…',''));
+ for(const [key,label] of categories)categoryJump.add(new Option(label,key));
+ nav.after(categoryRow);
+ function jumpCategory(key){
+   const entry=categories.find(item=>item[0]===key);if(!entry)return false;
+   const [, ,tab,id]=entry;
+   clearSearch();
+   if(tab)activate(tab);
+   const control=$(id);
+   if(!control){categoryJump.value='';return false;}
+   const row=control.closest('.settings-row,.settings-action-row')||control;
+   for(let parent=row.parentElement;parent&&parent!==panel;parent=parent.parentElement)
+     if(parent.tagName==='DETAILS')parent.open=true;
+   categoryJump.value=key;
+   // Wait for the layout to settle before positioning the actual control.
+   requestAnimationFrame(()=>requestAnimationFrame(()=>{
+     if(panel.hidden||categoryJump.value!==key)return;
+     row.scrollIntoView({block:'nearest',inline:'nearest'});
+     control.focus({preventScroll:true});
+   }));
+   return true;
+ }
+ categoryJump.addEventListener('change',()=>jumpCategory(categoryJump.value));
+ for(const button of buttons.values())button.addEventListener('click',()=>{categoryJump.value='';});
+
  function clearSearch(){search.value='';results.hidden=true;results.replaceChildren();reposition();}
  function searchSettings(){
    const query=search.value.trim().toLocaleLowerCase();
@@ -384,16 +423,25 @@
        if(title&&terms.every(term=>haystack.includes(term)))matches.push({key,row,control,title});
      }
    }
+   // Global sections are not children of the three tab panels.
+   for(const id of ['automaticUpdateChecks','settingsExport','settingsImport','settingsReset']){
+     const control=$(id);if(!control)continue;
+     const row=control.closest('.settings-row')||control;
+     const copy=row.cloneNode(true);copy.querySelectorAll('input,select,svg').forEach(n=>n.remove());
+     const title=copy.textContent.trim();
+     if(title&&terms.every(term=>(title+' '+(control.getAttribute('aria-label')||'')+' updates backup').toLocaleLowerCase().includes(term)))
+       matches.push({key:null,row,control,title});
+   }
    status.textContent=matches.length?matches.length+' matching settings':'No matching settings';
    results.append(status);
    for(const match of matches.slice(0,12)){
      const button=document.createElement('button');button.type='button';
      button.className='settings-search-result';
      const title=document.createElement('span');title.textContent=match.title;
-     const category=document.createElement('small');category.textContent=buttons.get(match.key).textContent;
+     const category=document.createElement('small');category.textContent=match.key?buttons.get(match.key).textContent:'General';
      button.append(title,category);
      button.addEventListener('click',()=>{
-       clearSearch();activate(match.key);
+       clearSearch();if(match.key)activate(match.key);
        const details=match.row.closest('details');if(details)details.open=true;
        if(match.row.isConnected){
          match.row.scrollIntoView({block:'nearest',inline:'nearest'});
@@ -414,5 +462,5 @@
  for(const button of buttons.values())button.addEventListener('click',clearSearch);
  close?.addEventListener('click',clearSearch);
  activate(restore(),{persist:false});
- window.MarmaladeSettingsLayout={activate,active:()=>active,panes:tabs.slice()};
+ window.MarmaladeSettingsLayout={activate,active:()=>active,panes:tabs.slice(),categories:categories.map(([key])=>key),jumpCategory};
 })();
