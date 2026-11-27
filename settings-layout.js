@@ -199,6 +199,59 @@
  },true);
  advanced.addEventListener('toggle',reposition);
  if(typeof ResizeObserver==='function')new ResizeObserver(reposition).observe(panel);
+ // Search across every category, including dynamically inserted settings.
+ const search=document.createElement('input');search.type='search';search.id='settingsSearch';
+ search.className='settings-search';search.placeholder='Search Settings';search.setAttribute('aria-label','Search Settings');
+ const results=document.createElement('div');results.className='settings-search-results';results.hidden=true;results.id='settingsSearchResults';
+ results.setAttribute('role','region');results.setAttribute('aria-label','Matching settings');
+ const status=document.createElement('div');status.className='settings-hint';status.setAttribute('role','status');
+ nav.before(search,results);
+ function clearSearch(){search.value='';results.hidden=true;results.replaceChildren();reposition();}
+ function searchSettings(){
+   const query=search.value.trim().toLocaleLowerCase();
+   results.replaceChildren();results.hidden=!query;
+   if(!query){reposition();return;}
+   const terms=query.split(/\s+/),matches=[];
+   for(const [key,page] of pages){
+     const candidates=page.querySelectorAll('.settings-row,.settings-action-row,.settings-tools button,.settings-monitor label');
+     for(const row of candidates){
+       if(row.hidden||row.closest('[hidden]:not(.settings-page)'))continue;
+       const label=row.cloneNode(true);
+       label.querySelectorAll('select,input,svg').forEach(node=>node.remove());
+       const title=label.textContent.replace(/\s+/g,' ').trim();
+       const control=row.querySelector('input,select,button')||row;
+       const haystack=(title+' '+(control.getAttribute('aria-label')||'')+' '+key).toLocaleLowerCase();
+       if(title&&terms.every(term=>haystack.includes(term)))matches.push({key,row,control,title});
+     }
+   }
+   status.textContent=matches.length?matches.length+' matching settings':'No matching settings';
+   results.append(status);
+   for(const match of matches.slice(0,12)){
+     const button=document.createElement('button');button.type='button';
+     button.className='settings-search-result';
+     const title=document.createElement('span');title.textContent=match.title;
+     const category=document.createElement('small');category.textContent=buttons.get(match.key).textContent;
+     button.append(title,category);
+     button.addEventListener('click',()=>{
+       clearSearch();activate(match.key);
+       const details=match.row.closest('details');if(details)details.open=true;
+       requestAnimationFrame(()=>{
+         if(!match.row.isConnected)return;
+         match.row.scrollIntoView({block:'nearest',inline:'nearest'});
+         match.control.focus({preventScroll:true});
+       });
+     });
+     results.append(button);
+   }
+   reposition();
+ }
+ search.addEventListener('input',searchSettings);
+ search.addEventListener('keydown',event=>{
+   if(event.key==='Escape'&&search.value){event.preventDefault();event.stopPropagation();clearSearch();}
+   if(event.key==='Enter'){event.preventDefault();results.querySelector('button')?.click();}
+ });
+ for(const button of buttons.values())button.addEventListener('click',clearSearch);
+ close?.addEventListener('click',clearSearch);
  activate(restore(),{persist:false});
  window.MarmaladeSettingsLayout={activate,active:()=>active,panes:tabs.slice()};
 })();
