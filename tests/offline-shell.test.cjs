@@ -7,7 +7,7 @@ const source=fs.readFileSync(path.join(__dirname,'../sw.js'),'utf8');
 function fixture(){
  const listeners=new Map(),deleted=[],scope='https://example.test/MarmaladePlayer/';
  const self={registration:{scope},addEventListener:(type,fn)=>listeners.set(type,fn),clients:{claim:async()=>{}},skipWaiting:async()=>{}};
- const caches={keys:async()=>['unrelated-app','marmalade-shell-v1','marmalade-shell-v75-audit','marmalade-shell-v76-search'],delete:async key=>deleted.push(key)};
+ const caches={keys:async()=>['unrelated-app','marmalade-shell-v1','marmalade-shell-v75-audit','marmalade-shell-v76-search','marmalade-shell-v77-scenes'],delete:async key=>deleted.push(key)};
  const context={self,caches,URL,Response,Set,Promise};
  vm.createContext(context);vm.runInContext(source,context);
  return {scope,deleted,listeners,run:code=>vm.runInContext(code,context)};
@@ -15,7 +15,7 @@ function fixture(){
 test('activation removes only previous Marmaladeum caches',async()=>{
  const {listeners,deleted}=fixture();
  let completion;listeners.get('activate')({waitUntil:p=>completion=p});await completion;
- assert.deepEqual(deleted,['marmalade-shell-v1','marmalade-shell-v75-audit']);
+ assert.deepEqual(deleted,['marmalade-shell-v1','marmalade-shell-v75-audit','marmalade-shell-v76-search']);
 });
 test('HTML discovery uses exact asset versions and excludes other origins and video',()=>{
  const {run,scope}=fixture();

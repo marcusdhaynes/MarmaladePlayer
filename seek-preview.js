@@ -320,6 +320,87 @@
   }else if(!remoteWanted)remoteWanted={time:desired,epoch:hoverEpoch};
   if(remoteWanted)sendGuestRequest();
  }
+ // On-demand local scene navigation shares the bounded thumbnail decoder.
+ // Never scan an active movie, a remote stream, or a game frame.
+ const scenePanel=document.createElement('details');
+ scenePanel.id='timelineScenes';scenePanel.className='settings-advanced';
+ scenePanel.innerHTML='<summary>Scene Navigation</summary><div class="bookmark-editor"><p id="sceneStatus" role="status">Pause a local video to find a nearby scene change.</p><div class="chapter-actions"><button type="button" id="scenePrevious" disabled>Previous Scene</button><button type="button" id="sceneNext" disabled>Next Scene</button><button type="button" id="sceneCancel" hidden>Cancel</button></div></div>';
+ document.querySelector('#timelineChapters')?.after(scenePanel);
+ const sceneStatus=scenePanel.querySelector('#sceneStatus'),scenePrevious=scenePanel.querySelector('#scenePrevious'),sceneNext=scenePanel.querySelector('#sceneNext'),sceneCancel=scenePanel.querySelector('#sceneCancel');
+ let sceneGeneration=0,sceneBusy=false;
+ const sceneCanvas=document.createElement('canvas');sceneCanvas.width=32;sceneCanvas.height=18;
+ const sceneContext=sceneCanvas.getContext('2d',{willReadFrequently:true,alpha:false});
+ const sceneEligible=()=>state.role==='host'&&state.source==='file'&&state.fileReady&&!state.gameFrameMode&&!state.broadcasting&&media.paused&&!media.seeking&&duration()>.25&&!!availableUrl();
+ function sceneControls(){
+  const eligible=sceneEligible();
+  scenePrevious.disabled=sceneNext.disabled=!eligible||sceneBusy;
+  sceneCancel.hidden=!sceneBusy;
+ }
+ function cancelScene(message='Scene search cancelled.'){
+  if(!sceneBusy){sceneControls();return;}
+  sceneGeneration++;sceneBusy=false;sceneStatus.textContent=message;sceneControls();
+ }
+ async function scenePixels(time){
+  const frame=await getFrame(time);
+  const image=new Image();image.src=frame;await image.decode();
+  sceneContext.drawImage(image,0,0,32,18);
+  return sceneContext.getImageData(0,0,32,18).data;
+ }
+ function sceneDifference(a,b){
+  let total=0,changed=0;
+  for(let i=0;i<a.length;i+=4){
+   const d=(Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2]))/3;
+   total+=d;if(d>35)changed++;
+  }
+  return total/(a.length/4)>=25&&changed/(a.length/4)>=.35;
+ }
+ async function scanScene(direction){
+  if(!sceneEligible()||sceneBusy)return;
+  const generation=++sceneGeneration,source=sourceSignature(),origin=media.currentTime,started=performance.now();
+  sceneBusy=true;sceneControls();sceneStatus.textContent='Finding scene change…';
+  const valid=()=>generation===sceneGeneration&&source===sourceSignature()&&sceneEligible()&&Math.abs(media.currentTime-origin)<.05;
+  const check=()=>{if(!valid())throw Error('Cancelled');if(performance.now()-started>15000)throw Error('Search time limit reached.');};
+  const max=Math.max(0,Math.floor((duration()-.125)*8)/8);
+  const round=t=>limit(Math.round(t*8)/8,0,max);
+  try{
+   let last=round(origin+direction*.25);check();
+   let lastPixels=await scenePixels(last);
+   for(let n=1;n<=60;n++){
+    check();
+    const point=round(last+direction*.5);
+    if(point===last)break;
+    const pixels=await scenePixels(point);check();
+    if(sceneDifference(lastPixels,pixels)){
+     let low=Math.min(last,point),high=Math.max(last,point);
+     let lowPixels=direction>0?lastPixels:pixels;
+     // Refine the sampled visual cut to the preview cache resolution.
+     while(high-low>.125){
+      check();const middle=round((low+high)/2);
+      if(middle<=low||middle>=high)break;
+      const midPixels=await scenePixels(middle);check();
+      if(sceneDifference(lowPixels,midPixels))high=middle;
+      else{low=middle;lowPixels=midPixels;}
+     }
+     check();sceneBusy=false;sceneControls();
+     sceneStatus.textContent='Scene change near '+format(high)+' (estimated).';
+     bridge.seekToTime(high);return;
+    }
+    last=point;lastPixels=pixels;
+    if(Math.abs(point-origin)>=30)break;
+   }
+   if(valid())sceneStatus.textContent='No clear scene change found within 30 seconds.';
+  }catch(error){
+   if(generation===sceneGeneration)sceneStatus.textContent=String(error.message||error)==='Cancelled'?'Scene search cancelled.':String(error.message||'Scene search unavailable.');
+  }finally{if(generation===sceneGeneration){sceneBusy=false;sceneControls();}}
+ }
+ scenePrevious.addEventListener('click',()=>void scanScene(-1));
+ sceneNext.addEventListener('click',()=>void scanScene(1));
+ sceneCancel.addEventListener('click',()=>cancelScene());
+ for(const event of ['play','seeking','emptied','loadstart'])media.addEventListener(event,()=>cancelScene());
+ for(const event of ['pause','seeked','loadedmetadata','durationchange'])media.addEventListener(event,sceneControls);
+ for(const event of ['marmalade:video-selected','marmalade:media-cleared'])window.addEventListener(event,()=>{cancelScene();sceneStatus.textContent='Pause a local video to find a nearby scene change.';sceneControls();});
+ scenePanel.addEventListener('toggle',()=>{if(!scenePanel.open)cancelScene();else sceneControls();});
+ new MutationObserver(()=>{if(el.settingsPanel.hidden)cancelScene();else sceneControls();}).observe(el.settingsPanel,{attributes:true,attributeFilter:['hidden']});
  window.MarmaladeSeekPreview={
   handleRequest,handleResponse,refresh:()=>{if(active&&!card.hidden)position(seek.getBoundingClientRect().left+
     Number(card.dataset.time||0)/Math.max(1,duration())*seek.getBoundingClientRect().width);},

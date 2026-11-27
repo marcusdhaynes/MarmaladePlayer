@@ -160,6 +160,21 @@ try{
  assert.equal(await page.evaluate(()=>Object.keys(JSON.parse(localStorage.getItem('marmalade:chapter-imports:v1')||'{}')).length),0);
  console.log('PASS imported chapters restore on reload and clear durably');
  console.log('PASS WebVTT chapters, timeline markers, next/previous and invalid import protection');
+ // Real red-to-blue hard cut, detected using the same bounded preview
+ // decoder without playing the primary video or requiring chapter data.
+ await page.evaluate(async()=>{const v=document.querySelector('#player');v.pause();v.currentTime=1;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
+ await page.locator('#settingsBtn').click({force:true});
+ await page.locator('#settingsTabControls').click();
+ await page.locator('#timelineScenes > summary').click();
+ await page.locator('#sceneNext').click();
+ await page.waitForFunction(()=>document.querySelector('#sceneStatus').textContent.includes('estimated')&&Math.abs(document.querySelector('#player').currentTime-4)<.3&&!document.querySelector('#player').seeking,null,{timeout:18000});
+ assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
+ await page.evaluate(async()=>{const v=document.querySelector('#player');v.currentTime=6;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
+ await page.locator('#scenePrevious').click();
+ await page.waitForFunction(()=>document.querySelector('#sceneStatus').textContent.includes('estimated')&&Math.abs(document.querySelector('#player').currentTime-4)<.3&&!document.querySelector('#player').seeking,null,{timeout:18000});
+ assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
+ await page.locator('#closeSettingsPanel').click();
+ console.log('PASS previous and next sampled scene cuts with paused playback preserved');
 
  await page.locator('#subtitlesBtn').click({force:true});
  await page.locator('#subSyncTab').click({force:true});
