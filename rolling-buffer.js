@@ -224,11 +224,15 @@
    s.reconnecting=true;
    // Keep already appended A/V available while the bulk channel reconnects.
    // A data interruption does not discard the guest's downloaded window.
-   for(let attempt=0;attempt<5&&current(s)&&s.control.open;attempt++){
+   for(let attempt=0;attempt<5&&current(s);attempt++){
      try{
        const old=s.conn;s.conn=null;try{old?.close();}catch{}
        await delay(attempt?Math.min(3000,400*2**attempt):0);
        if(!current(s))return;
+       const deadline=Date.now()+12000;
+       while(current(s)&&!s.control.open&&Date.now()<deadline)await delay(150);
+       if(!current(s))return;
+       if(!s.control.open)continue;
        await openChannel(s);
        if(!current(s))return;
        s.cursor=null;s.reconnecting=false;kick(s);return;
@@ -278,6 +282,16 @@
      kick(s);
    }catch(e){if(current(s))stop(true,e.message);}
  }
+ function rebind(control){
+   const s=session;if(!s?.ready||s.closed)return false;
+   s.control=control;
+   if(s.conn?.open&&!s.reconnecting){try{s.conn.close();}catch{}void reconnect(s);}
+   else void reconnect(s);
+   return true;
+ }
+ function announce(){
+   const s=session;if(s?.ready&&current(s)){send(s,{type:'buffered-file-active',id:s.offer.id,active:true});kick(s);}
+ }
  function observe(o){
    const a=bridge(),s=a?.state;
    if(!s||s.role!=='guest'||s.localVerified){stop();return;}
@@ -289,7 +303,7 @@
  }
  if(typeof module!=='undefined'&&module.exports)module.exports={ahead,goal,validRange,TARGET};
  if(!root)return;
- root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,kick:()=>{if(session)kick(session);},getStatus:()=>session?{target:TARGET,capacity:session.capacity,ready:session.ready}:null};
+ root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?{target:TARGET,capacity:session.capacity,ready:session.ready}:null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});
  const media=bridge()?.media;
  for(const event of ['play','pause','seeking','seeked','waiting','stalled','loadeddata','canplay','progress','timeupdate','suspend','ended'])media?.addEventListener(event,()=>{if(session)kick(session);});
