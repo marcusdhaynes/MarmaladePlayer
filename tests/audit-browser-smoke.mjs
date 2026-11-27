@@ -19,6 +19,15 @@ try{
   await page.locator('#settingsSearch').fill('original-file buffering');
   await page.locator('#settingsSearchResults button').filter({hasText:'Original-File Buffering'}).click();
   assert.equal(await page.locator('#settingsTabParty').getAttribute('aria-selected'),'true');
+  await page.locator('#settingsAdvanced summary').click();
+  await page.locator('#diagnosticsToggle').click();
+  await page.waitForFunction(()=>document.querySelectorAll('#diagnosticGrid output').length===13);
+  assert.equal(await page.locator('[data-metric=fps]').textContent(),'—');
+  assert.equal(await page.locator('[data-metric=mode]').textContent(),'No Movie');
+  assert.equal(await page.locator('[data-metric=decoder]').textContent(),'Not Reported');
+  assert.match(await page.locator('#diagnosticAssessment').textContent(),/Load a movie/);
+  await page.locator('#diagnosticsToggle').click();
+  assert.equal(await page.locator('#stabilityInfo').isVisible(),false);
   await page.locator('#closeSettingsPanel').click();
   const settings=await page.evaluate(()=>{
    const maximum=document.querySelector('#volumeMaximum'),step=document.querySelector('#volumeIncrement'),snap=document.querySelector('#volumeSnap'),buffer=document.querySelector('#allowOriginalBuffer');

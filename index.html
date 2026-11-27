@@ -75,7 +75,12 @@ body.theater-open{overflow:hidden}
 .stability-strip label{display:flex;align-items:center;gap:5px}
 .stability-strip select{background:#252329;color:#ffe2b9;border:1px solid #51464b;border-radius:6px;padding:5px;font-size:11px}
 .stability-strip button{background:#29242a;color:#efbe81;border:1px solid #53433b;border-radius:7px;font-size:11px;padding:6px 9px}
-.stability-info{margin:6px 0 0;color:#92949f;font:10px/1.5 ui-monospace,Consolas,monospace}
+.stability-info{margin:6px 0 0;color:inherit;font:11px/1.4 system-ui,sans-serif;min-width:0}
+.diagnostic-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+.diagnostic-metric{min-width:0;padding:5px 7px;border:1px solid rgba(155,155,175,.22);border-radius:7px;background:rgba(128,128,150,.08)}
+.diagnostic-metric small{display:block;opacity:.75;font-size:10px}
+.diagnostic-metric output{display:block;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.diagnostic-assessment{margin:6px 0 0;overflow-wrap:anywhere}
 .local-copy,.hosted-link{display:flex;flex-direction:column;gap:7px;border:1px solid #50443e;border-radius:9px;padding:11px;margin:10px 0;background:#211d21}
 .local-copy[hidden],.hosted-link[hidden],.stability-info[hidden]{display:none!important}
 .local-copy button,.hosted-link button{background:#30282c;color:#ffca90;border:1px solid #7c6046;border-radius:7px;padding:8px;font-size:11px;cursor:pointer}
@@ -713,7 +718,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <small id="hostMatchStatus" aria-live="polite">Off · The host plays ahead of network viewers.</small>
             <label><input type="checkbox" id="peerAssist" checked> Peer Rescue</label>
             <button type="button" id="diagnosticsToggle" aria-expanded="false">Diagnostics</button>
-            <div class="stability-info" id="stabilityInfo" hidden role="status" aria-live="off">Waiting for playback statistics.</div>
+            <div class="stability-info" id="stabilityInfo" hidden role="group" aria-label="Playback Diagnostics"><div class="diagnostic-grid" id="diagnosticGrid"></div><p class="diagnostic-assessment" id="diagnosticAssessment"></p></div>
             <div class="settings-tools">
               <button type="button" id="screenShareBtn" class="settings-utility">Share a Video-Player Window</button>
             </div>
@@ -2339,22 +2344,78 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       return 'possible guest decoding/rendering limit';
     return 'no detected bottleneck';
   }
-  function updateDiagnostics() {
-    if (!state.diagnostics) return;
-    const r = state.statsReport || {};
-    const rolling=window.MarmaladeRollingBuffer?.getStatus();
-    const label = state.localVerified ? 'Verified local file' : state.source==='buffered-guest' ? 'Buffered original file' : state.bufferedMode ? 'Buffered HTTP/HLS' : 'Live P2P';
-    el.stabilityInfo.textContent = `${label} | ${state.stabilityMode} | decoded FPS ${Math.round(r.fps || 0)} ` +
-      `| loss ${((r.loss || 0) * 100).toFixed(1)}% | network jitter ${Math.round(r.packetJitterMs ?? r.jitter ?? 0)}ms ` +
-      `| RTT ${Math.round(state.latencyStats?.rttMs || state.observedRtt || 0)}ms | ahead ${bufferAhead().toFixed(1)}s ` +
-      `| target ${state.bufferedMode || state.localVerified ? state.bufferTarget + 's' :
-        Number(state.requestedQuality)>STREAM_HEIGHT ? (state.highPlayoutTarget||0)+'ms' : state.jitterTarget+'ms'}` +
-      (state.latencyStats ? ` | playout ${Math.round(state.latencyStats.playoutMs||0)}ms | receiver ${state.latencyStats.width||'?'}x${state.latencyStats.height||'?'} | decoder ${state.latencyStats.decoder||'unknown'}` : '') +
-      (state.highEncoderStats ? ` | encoded ${Math.round(state.highEncoderStats.fps||0)}fps | encoder ${state.highEncoderStats.encoder||'unknown'} | limit ${state.highEncoderStats.limit||'unknown'} | headroom x${(state.highEncoderStats.headroomFactor||1).toFixed(2)}` : '') +
-      ` | assessment ${performanceDiagnosis()}` +
-      (rolling ? ` | rolling ${rolling.seconds.toFixed(1)}/${rolling.target}s | capacity ${rolling.capacity.toFixed(1)}s${rolling.reconnecting?' | reconnecting':''}${rolling.quotaLimited?' | browser quota limited':''} | temporary range cache ${rolling.diskAvailable?(rolling.diskBytes/1048576).toFixed(1)+' MiB':'unavailable'}` : '') +
-      ((state.bufferedMode || state.localVerified) && media.duration ? ` | drift ${Math.round((expectedHostTime()-media.currentTime)*1000)}ms` : '');
+  let diagnosticPrevious=null, diagnosticTimer=0, diagnosticFps=null;
+  const diagnosticFields=[['resolution','Resolution'],['fps','Presented FPS'],['dropped','Dropped Frames'],
+    ['buffer','Forward Buffer'],['drift','Sync Drift'],['bandwidth','Received Video'],['loss','Packet Loss'],
+    ['jitter','Network Jitter'],['rtt','Round Trip'],['decoder','Decoder'],['route','Connection'],
+    ['mode','Playback Mode'],['cache','Temporary Cache']];
+  function diagnosticsVisible(){
+    return state.diagnostics&&!document.hidden&&!el.settingsPanel.hidden&&el.stabilityInfo.getClientRects().length>0;
   }
+  function updateDiagnostics(){
+    if(!diagnosticsVisible()){diagnosticPrevious=null;diagnosticFps=null;return;}
+    const now=performance.now(),active=!!state.source&&media.readyState>=2;
+    const key=state.source+'|'+(media.currentSrc||media.src||'')+'|'+state.role;
+    const q=active&&typeof media.getVideoPlaybackQuality==='function'?media.getVideoPlaybackQuality():null;
+    const total=Number.isFinite(q?.totalVideoFrames)?q.totalVideoFrames:null;
+    const dropped=Number.isFinite(q?.droppedVideoFrames)?q.droppedVideoFrames:null;
+    const previous=diagnosticPrevious;
+    if(!previous||previous.key!==key||!active||media.paused||media.seeking||total===null||
+        previous.total===null||total<previous.total||(dropped!==null&&previous.dropped!==null&&dropped<previous.dropped)){
+      diagnosticPrevious={key,now,total,dropped};diagnosticFps=null;
+    }else if(now-previous.now>=750){
+      diagnosticFps=dropped===null||previous.dropped===null?null:
+        Math.max(0,total-previous.total-(dropped-previous.dropped))*1000/(now-previous.now);
+      diagnosticPrevious={key,now,total,dropped};
+    }
+    const fresh=state.role==='guest'&&state.source==='remote'&&Number.isFinite(state.statsReport?.at)&&now-state.statsReport.at<6000;
+    const r=fresh?state.statsReport:null,l=fresh?state.latencyStats:null;
+    const rolling=window.MarmaladeRollingBuffer?.getStatus();
+    const seekable=state.source!=='remote'&&state.source!=='screen';
+    const sync=active&&state.role==='guest'&&(state.localVerified||state.bufferedMode)&&state.sharedDuration>0&&state.sharedAt>0;
+    const num=(v,d=0,suffix='')=>Number.isFinite(v)?v.toFixed(d)+suffix:'—';
+    const mode=!state.source?'No Movie':state.localVerified?'Verified Local File':state.source==='buffered-guest'?'Buffered Original File':
+      state.source==='remote'?'Live WebRTC':state.bufferedMode?'Buffered HTTP/HLS':state.source==='file'||state.source==='native'?'Local File':String(state.source);
+    let assessment='Load a movie to begin measurements.';
+    if(state.source&&media.error)assessment='Playback error. Try reopening the movie or using a compatible format.';
+    else if(active){
+      if(media.paused)assessment='Paused. Frame-rate sampling resumes with playback.';
+      else if(rolling?.quotaLimited)assessment='Browser buffer quota reached. Free device storage or use a verified local copy.';
+      else if(rolling?.reconnecting)assessment='Reconnecting. Previously downloaded data is retained where available.';
+      else if(r&&(r.loss>.015||r.packetJitterMs>65))assessment='Network congestion detected. Try a wired connection or lower streaming quality.';
+      else if(r&&r.fps>0&&r.fps<22)assessment='Low decoded frame rate. Try reducing stream quality or closing resource-heavy apps.';
+      else if(media.readyState<3&&seekable)assessment='Waiting for media data. Check source access or throughput.';
+      else assessment='No bottleneck detected in available measurements.';
+    }else if(state.source)assessment='Waiting for decoded media.';
+    const values={resolution:active&&media.videoWidth&&media.videoHeight?media.videoWidth+' × '+media.videoHeight:'—',
+      fps:active&&media.paused?'Paused':num(diagnosticFps,1,' fps'),dropped:num(dropped),
+      buffer:active&&seekable?num(bufferAhead(),1,' s')+(rolling?' / '+rolling.target+' s':''):'—',
+      drift:sync?num((expectedHostTime()-media.currentTime)*1000,0,' ms'):'—',
+      bandwidth:r?num(r.incomingBitrate/1e6,2,' Mbps'):'—',loss:r?num(r.loss*100,1,'%'):'—',
+      jitter:r?num(r.packetJitterMs,0,' ms'):'—',rtt:l?num(l.rttMs,0,' ms'):'—',
+      decoder:l?.decoder&&l.decoder!=='unknown'?l.decoder:'Not Reported',route:state.source==='remote'?l?.route||'Not Reported':'—',mode,
+      cache:rolling?.diskAvailable?num(rolling.diskBytes/1048576,1,' MiB'):'—'};
+    const grid=document.getElementById('diagnosticGrid'),note=document.getElementById('diagnosticAssessment');
+    if(!grid||!note)return;
+    if(!grid.childElementCount)for(const [key,label] of diagnosticFields){
+      const cell=document.createElement('div');cell.className='diagnostic-metric';
+      const title=document.createElement('small');title.textContent=label;
+      const value=document.createElement('output');value.dataset.metric=key;
+      cell.append(title,value);grid.append(cell);
+    }
+    for(const out of grid.querySelectorAll('output'))if(out.textContent!==values[out.dataset.metric])out.textContent=values[out.dataset.metric];
+    if(note.textContent!==assessment)note.textContent=assessment;
+  }
+  function stopDiagnosticTimer(){clearInterval(diagnosticTimer);diagnosticTimer=0;diagnosticPrevious=null;diagnosticFps=null;}
+  function refreshDiagnosticTimer(){
+    if(!diagnosticsVisible()){stopDiagnosticTimer();return;}
+    if(!diagnosticTimer){updateDiagnostics();diagnosticTimer=setInterval(()=>{if(diagnosticsVisible())updateDiagnostics();else stopDiagnosticTimer();},1000);}
+  }
+  document.addEventListener('visibilitychange',refreshDiagnosticTimer);
+  if(typeof MutationObserver==='function')new MutationObserver(refreshDiagnosticTimer).observe(el.settingsPanel,{subtree:true,attributes:true,attributeFilter:['hidden','open']});
+  media.addEventListener('emptied',()=>{diagnosticPrevious=null;diagnosticFps=null;updateDiagnostics();});
+  window.addEventListener('pagehide',stopDiagnosticTimer);
+  window.addEventListener('pageshow',refreshDiagnosticTimer);
   function recomputeBufferTarget(report = {}) {
     const quality = Number.isFinite(report.loss) ? report.loss : 0;
     const freezes = Number(report.freezes || 0) + Number(report.stalls || 0);
@@ -4662,11 +4723,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
        if (before !== state.recommendation) buildQualitySelect();
        updateQualityHint();
       const high = Number(state.requestedQuality)>STREAM_HEIGHT;
-      state.statsReport={fps:decodeFps,loss:lost/Math.max(1,lost+received),
+      state.statsReport={at:performance.now(),incomingBitrate,fps:decodeFps,loss:lost/Math.max(1,lost+received),
         jitter:high?packetJitterMs:playoutMs,packetJitterMs,
         playoutMs,freezes:frozen,stalls:stall};
+      const transport=[...stats.values()].find(x=>x.type==='transport'&&x.selectedCandidatePairId);
+      const pair=transport?stats.get(transport.selectedCandidatePairId):[...stats.values()].find(x=>x.type==='candidate-pair'&&x.state==='succeeded'&&x.nominated);
+      const candidates=pair?[stats.get(pair.localCandidateId)?.candidateType,stats.get(pair.remoteCandidateId)?.candidateType]:[];
+      const route=candidates.includes('relay')?'TURN Relay':candidates.length===2&&candidates.every(Boolean)?'Direct P2P':'Not Reported';
       state.latencyStats={
-        playoutMs,packetJitterMs,rttMs,
+        route,playoutMs,packetJitterMs,rttMs,
         width:v.frameWidth || media.videoWidth || 0,
         height:v.frameHeight || media.videoHeight || 0,
         decoder:String(v.decoderImplementation||codec||'unknown').slice(0,72),
@@ -6201,7 +6266,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.diagnostics=!state.diagnostics;
     el.stabilityInfo.hidden=!state.diagnostics;
     el.diagnosticsToggle.setAttribute('aria-expanded',String(state.diagnostics));
-    updateDiagnostics();
+    refreshDiagnosticTimer();
   });
   for(const event of ['waiting','stalled'])media.addEventListener(event,()=>{
     state.mediaStallAt=performance.now();
