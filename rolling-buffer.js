@@ -319,9 +319,8 @@
    const s={offer:o,control,conn:null,requests:new Map(),sequence:0,cache:new Map(),cacheBytes:0,readTail:Promise.resolve(),closed:false,attached:false,ready:false,running:false,cursor:null,capacity:TARGET+5,emptyReads:0};
    session=s;
    try{
-     const disk=await openDiskCache(root);
-     if(!current(s)){void disk?.close();return;}
-     s.disk=disk;
+     // Optional storage must never delay room playback or connection setup.
+     void openDiskCache(root).then(disk=>{if(current(s))s.disk=disk;else void disk?.close();}).catch(()=>{});
      await openChannel(s);
      if(!current(s))return;
      const module=await import('./vendor/libav-wasm/index.js');
