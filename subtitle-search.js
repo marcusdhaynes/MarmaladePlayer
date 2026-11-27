@@ -123,6 +123,15 @@
     progress=$('subSearchStatus'),results=$('subSearchResults'),
     catalogs=$('subSearchCatalogs'),submit=$('subSearchSubmit'),
     proxyUrl='https://marmalade-subdl-proxy-somnielsynchreaua-4637.vercel.app/api/subtitles';
+  const preferredLanguageKey='marmalade:preferred-subtitle-language';
+  try{
+    const saved=localStorage.getItem(preferredLanguageKey);
+    if(saved!==null&&Array.from(lang.options).some(option=>option.value===saved))lang.value=saved;
+  }catch{}
+  lang.addEventListener('change',()=>{
+    try{localStorage.setItem(preferredLanguageKey,lang.value);}catch{}
+    const setting=document.getElementById('preferredSubtitleLanguage');if(setting)setting.value=lang.value;
+  });
   const matcher=window.MarmaladeSubtitleMatch;
   function videoFilename(){
     if(state.role==='host'&&state.file?.name)return state.file.name;

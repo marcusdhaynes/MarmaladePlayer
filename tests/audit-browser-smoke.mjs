@@ -17,6 +17,9 @@ try{
   // Verify real file import, explicit apply, reload persistence and scoped reset.
   await page.evaluate(()=>{localStorage.setItem('marmalade:last-joined-room-code','PRIVATE-ROOM');localStorage.setItem('marmalade:window-theme','glass');});
   await page.locator('#settingsBtn').click({force:true});
+  await page.locator('#settingsTabVideo').click();
+  await page.locator('#preferredSubtitleLanguage').selectOption('ar');
+  assert.equal(await page.locator('#subSearchLanguage').inputValue(),'ar');
   await page.locator('#settingsBackup > summary').click();
   await page.evaluate(()=>{localStorage.setItem('marmalade:volume-maximum','400');localStorage.setItem('marmalade:skip-interval-seconds','30');});
   const [download]=await Promise.all([page.waitForEvent('download'),page.locator('#settingsExport').click()]);
@@ -25,6 +28,7 @@ try{
   assert.equal(exported.format,'marmaladeum-settings');
   assert.equal(exported.version,1);
   assert.equal(exported.preferences['marmalade:window-theme'],'glass');
+  assert.equal(exported.preferences['marmalade:preferred-subtitle-language'],'ar');
   assert.equal(exported.preferences['marmalade:volume-maximum'],'400');
   assert.equal(exported.preferences['marmalade:skip-interval-seconds'],'30');
   assert(!Object.hasOwn(exported.preferences,'marmalade:last-joined-room-code'));
@@ -43,6 +47,8 @@ try{
   await Promise.all([page.waitForEvent('load'),page.locator('#settingsApplyBackup').click()]);
   await page.waitForFunction(()=>window.MarmaladeSettingsLayout);
   assert.equal(await page.locator('#skipInterval').inputValue(),'20');
+  assert.equal(await page.locator('#preferredSubtitleLanguage').inputValue(),'ar');
+  assert.equal(await page.locator('#subSearchLanguage').inputValue(),'ar');
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:window-theme')),'glass');
   await page.locator('#settingsBtn').click({force:true});
   await page.locator('#settingsBackup > summary').click();
@@ -52,9 +58,10 @@ try{
   await page.waitForFunction(()=>window.MarmaladeSettingsLayout);
   assert.equal(await page.locator('#skipInterval').inputValue(),'10');
   assert.equal(await page.locator('#volumeMaximum').inputValue(),'400','Controls reset must preserve independent audio settings');
+  assert.equal(await page.locator('#preferredSubtitleLanguage').inputValue(),'ar','Controls reset must preserve subtitle settings');
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:window-theme')),'glass');
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:last-joined-room-code')),'PRIVATE-ROOM');
-  await page.evaluate(()=>{localStorage.removeItem('marmalade:last-joined-room-code');localStorage.removeItem('marmalade:window-theme');localStorage.removeItem('marmalade:volume-maximum');});
+  await page.evaluate(()=>{localStorage.removeItem('marmalade:last-joined-room-code');localStorage.removeItem('marmalade:window-theme');localStorage.removeItem('marmalade:volume-maximum');localStorage.removeItem('marmalade:preferred-subtitle-language');});
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.MarmaladeSettingsLayout&&window.MarmaladeRollingBuffer);
   await page.locator('#settingsBtn').click({force:true});

@@ -108,6 +108,18 @@
    theme.addEventListener('change',reflect);reflect();
  }
  into('windowTheme','video','settings-window-theme-row');
+ const subtitleLanguageRow=document.createElement('label');
+ subtitleLanguageRow.className='settings-row';
+ subtitleLanguageRow.innerHTML='<span>Preferred Subtitle Language <small>Default language for subtitle searches</small></span><select id="preferredSubtitleLanguage" aria-label="Preferred Subtitle Language"></select>';
+ const subtitleLanguage=subtitleLanguageRow.querySelector('select');
+ const subtitleLanguages=[['en','English'],['ar','Arabic'],['id','Indonesian'],['es','Spanish'],['fr','French'],['de','German'],['pt','Portuguese'],['it','Italian'],['ru','Russian'],['tr','Turkish'],['fa','Persian'],['hi','Hindi'],['ja','Japanese'],['ko','Korean'],['zh','Chinese'],['','All languages']];
+ for(const [value,label] of subtitleLanguages)subtitleLanguage.add(new Option(label,value));
+ try{const saved=localStorage.getItem('marmalade:preferred-subtitle-language');if(saved!==null&&subtitleLanguages.some(([value])=>value===saved))subtitleLanguage.value=saved;}catch{}
+ subtitleLanguage.addEventListener('change',()=>{
+   try{localStorage.setItem('marmalade:preferred-subtitle-language',subtitleLanguage.value);}catch{}
+   const searchLanguage=$('subSearchLanguage');if(searchLanguage)searchLanguage.value=subtitleLanguage.value;
+ });
+ pages.get('video').querySelector('.settings-stack').append(subtitleLanguageRow);
  const subtitleLink=document.createElement('button');
  subtitleLink.type='button';subtitleLink.id='settingsSubtitleShortcut';
  subtitleLink.className='settings-action-row';
@@ -180,7 +192,7 @@
  // Portable preferences only: never export room invitations, credentials,
  // file handles, viewing history, or cached movie/subtitle content.
  const backup=document.createElement('details');backup.id='settingsBackup';backup.className='settings-advanced';
- backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="appearance">Appearance</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
+ backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="subtitles">Subtitles</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="appearance">Appearance</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
  panel.appendChild(backup);
  const backupStatus=$('settingsBackupStatus'),applyBackup=$('settingsApplyBackup');
  const bool=v=>v==='true'||v==='false';
@@ -205,6 +217,7 @@
    'audio-eq-preset':choices('flat','cinema','speech','music','soft','custom'),
    'audio-eq-bands':v=>{try{const a=JSON.parse(v);return Array.isArray(a)&&a.length===7&&a.every(n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=12);}catch{return false;}}
   },
+  subtitles:{'preferred-subtitle-language':choices(...subtitleLanguages.map(([value])=>value))},
   party:{'stability-mode':choices('fast','balanced','smooth'),'strict-sync':bool},
   buffering:{'original-file-buffer':bool,'peer-assist':bool},
   library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':numeric(1,20)},

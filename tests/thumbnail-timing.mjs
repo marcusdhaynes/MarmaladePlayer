@@ -119,23 +119,29 @@ try{
  assert.equal(ranges.remoteHidden,true);
  console.log('PASS real media buffer and disjoint-range visualization; live stream has no fake forward buffer');
  // Stress cached and uncached hovers while the main video is playing.
+ // Use the supported 15s control fade setting for the measurement window;
+ // measure real pointer interaction rather than a fading control's geometry.
+ await page.evaluate(()=>{const fade=document.querySelector('#controlFadeDelay');fade.value='15';fade.dispatchEvent(new Event('change',{bubbles:true}));});
  await page.evaluate(async()=>{
   const v=document.querySelector('#player');v.currentTime=.5;
   await new Promise(r=>v.addEventListener('seeked',r,{once:true}));
   v.muted=true;await v.play();
  });
  await page.waitForFunction(()=>document.querySelector('#player').currentTime>.65);
- const geometry=await page.locator('#seek').boundingBox();
- assert(geometry&&geometry.width>0);
- const move=frac=>page.mouse.move(geometry.x+geometry.width*frac,geometry.y+geometry.height/2);
+ const move=async frac=>{
+  const seek=page.locator('#seek');
+  await seek.scrollIntoViewIfNeeded();
+  const geometry=await seek.boundingBox();assert(geometry&&geometry.width>0);
+  await seek.hover({position:{x:Math.floor(geometry.width*frac),y:Math.floor(geometry.height/2)}});
+ };
  const rendered=async frac=>{
-  await page.waitForFunction(frac=>{
+  try{await page.waitForFunction(frac=>{
    const card=document.querySelector('#seekPreview'),c=document.querySelector('#seekPreviewCanvas');
    const t=Number(card.dataset.renderedTime),d=document.querySelector('#player').duration;
    if(card.hidden||c.hidden||!Number.isFinite(t)||Math.abs(t-frac*d)>.15)return false;
    const p=c.getContext('2d').getImageData(96,54,1,1).data;
    return frac<.5?p[0]>95&&p[2]<85:p[2]>95&&p[0]<85;
-  },frac,{timeout:5000});
+  },frac,{timeout:5000});}catch(error){console.log('Active preview diagnostics',await page.evaluate(()=>{const card=document.querySelector('#seekPreview'),v=document.querySelector('#player'),seek=document.querySelector('#seek'),p=document.querySelector('#seekPreviewDecoder');return {request:card.dataset.time,rendered:card.dataset.renderedTime,status:document.querySelector('#seekPreviewStatus').textContent,hidden:card.hidden,controls:document.querySelector('#dropZone').className,geometry:seek.getBoundingClientRect().toJSON(),time:v.currentTime,decoderTime:p.currentTime,decoderReady:p.readyState};}));throw error;}
  };
  const start=await page.evaluate(()=>{
   const v=document.querySelector('#player');
@@ -168,7 +174,7 @@ try{
  assert(continuity.advanced>=continuity.elapsed*.7&&continuity.advanced<=continuity.elapsed*1.3,JSON.stringify(continuity));
  assert(continuity.frames>0&&continuity.dropped<=Math.max(2,continuity.frames*.15),JSON.stringify(continuity));
  console.log('PASS active-playback preview latency, latest-pointer cancellation and playback continuity',JSON.stringify({warmMs,coldMs,start,...continuity}));
- await page.evaluate(()=>document.querySelector('#player').pause());
+ await page.evaluate(()=>{document.querySelector('#player').pause();const fade=document.querySelector('#controlFadeDelay');fade.value='2';fade.dispatchEvent(new Event('change',{bubbles:true}));});
  // Bookmarks use exact movie identity, real seeks and durable local storage.
  await page.waitForFunction(()=>!document.querySelector('#bookmarkAdd').disabled,null,{timeout:12000});
  await page.evaluate(async()=>{const v=document.querySelector('#player');v.pause();v.currentTime=2;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
