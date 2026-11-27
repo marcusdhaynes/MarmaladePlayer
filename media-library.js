@@ -21,13 +21,14 @@
     menu:$('mlContextMenu'),itemDialog:$('mlItemDialog'),itemBody:$('mlItemDialogBody'),
     itemTitle:$('mlItemDialogTitle'),itemSave:$('mlItemDialogSave')
   };
+  const PAGE_SIZE=120,MAX_POSTER_QUEUE=120;
   const KEY='marmalade:media-library:visible';
   const DB='marmalade:local-library:v1';
   const VIDEO=/\.(3g2|3gp|amv|asf|avi|divx|drc|f4v|flv|gifv|m1v|m2p|m2t|m2ts|m2v|m4v|mjpeg|mjpg|mk3d|mkv|mov|mp4|mpe|mpeg|mpg|mpv|mts|mxf|nsv|ogv|qt|rm|rmvb|roq|rv|ts|vob|webm|wmv|xvid|y4m|yuv)$/i;
   const IGNORE=new Set(['.git','node_modules','$recycle.bin','system volume information','__macosx']);
   const state={
     db:null,libraries:[],selected:'all',query:'',kind:'all',collection:'all',sort:'title',
-    list:false,posterColumns:4,folderMode:false,folder:null,series:null,showCount:120,
+    list:false,posterColumns:4,folderMode:false,folder:null,series:null,page:0,
     editing:null,pending:null,relink:null,autoAttachDraft:null,scanning:false,scanSeq:0,
     sessionFiles:new Map(),sessionFolderLoaded:new Set(),status:'',ready:false,
     pendingScans:new Set(),scanProblems:new Map(),artworkBusy:false,storageAvailable:true,
@@ -85,6 +86,7 @@
     const key=kind+'|'+posterNormalize(title)+'|'+(year||'');
     if(posterQueued.has(key)||posterSeen.has(key))return;
     if(Number(posterMisses[key])>now()-24*60*60*1000)return;
+    if(posterQueue.length>=MAX_POSTER_QUEUE)return;
     posterQueued.add(key);posterQueue.push({key,title,kind,year});
     if(!posterWorker)void processAutoPosters();
   }
@@ -92,7 +94,7 @@
     if(posterWorker)return;
     posterWorker=true;
     try{
-      while(posterQueue.length&&autoPostersEnabled()){
+      while(posterQueue.length&&autoPostersEnabled()&&!panel.hidden){
         const job=posterQueue.shift();posterQueued.delete(job.key);posterSeen.add(job.key);
         const source=window.MarmaladePublicMovieInfo;
         if(typeof source?.lookup!=='function')continue;
@@ -143,7 +145,7 @@
       }
     }finally{
       posterWorker=false;
-      if(!autoPostersEnabled()){posterQueue.length=0;posterQueued.clear();}
+      if(!autoPostersEnabled()||panel.hidden){posterQueue.length=0;posterQueued.clear();}
     }
   }
 
@@ -251,7 +253,7 @@
     // filter and appear empty after a successful folder scan.
     state.query='';state.kind='all';state.collection='all';
     ui.search.value='';ui.filter.value='all';ui.collections.value='all';
-    state.showCount=120;setLocal('marmalade:media-library:selected',next);render();
+    state.page=0;setLocal('marmalade:media-library:selected',next);render();
   }
   function setVisibility(enabled){
     const value=!!enabled;
@@ -260,7 +262,7 @@
     const control=$('mlVisibilityToggle');
     if(control)control.checked=value;
     setLocal(KEY,value?'true':'false');
-    if(value)render();
+    if(value)render();else{posterQueue.length=0;posterQueued.clear();}
   }
   function setPosterColumns(value,persist=true){
     const numeric=Number(value);
@@ -1157,7 +1159,7 @@
     ui.crumbs.replaceChildren();
     const home=append(ui.crumbs,'button','','‹ All Videos');
     home.type='button';home.addEventListener('click',()=>{
-      state.series=null;state.folder=null;state.folderMode=false;render();
+      state.series=null;state.folder=null;state.folderMode=false;state.page=0;render();
     });
     if(state.series){
       append(ui.crumbs,'span','',' / ');
@@ -1165,7 +1167,7 @@
     }else if(state.folderMode){
       append(ui.crumbs,'span','',' / ');
       const toggle=append(ui.crumbs,'button','','Folders');
-      toggle.addEventListener('click',()=>{state.folder=null;render();});
+      toggle.addEventListener('click',()=>{state.folder=null;state.page=0;render();});
       if(state.folder){
         append(ui.crumbs,'span','',' / ');
         append(ui.crumbs,'span','',state.folder.label);
@@ -1173,7 +1175,7 @@
     }else if(selectedLibrary()){
       append(ui.crumbs,'span','',' · ');
       const folders=append(ui.crumbs,'button','','Browse Folders');
-      folders.addEventListener('click',()=>{state.folderMode=true;state.folder=null;render();});
+      folders.addEventListener('click',()=>{state.folderMode=true;state.folder=null;state.page=0;render();});
     }
   }
   function renderShelves(){
@@ -1296,12 +1298,12 @@
       }
       roots.push(...children.values());
     }
-    for(const value of roots.slice(0,state.showCount)){
+    for(const value of pageItems(roots)){
       if(value.item)ui.cards.append(card({...value.item,detail:formatItemDetail(value.item)},
         ()=>void play(value.item),false,{kind:'item',item:value.item}));
       else ui.cards.append(card(value,()=>{
         state.folder={folderId:value.folderId,path:value.path,label:value.name};
-        state.showCount=120;render();
+        state.page=0;render();
       },true,{kind:'folder',libId:lib.id,folderId:value.folderId,path:value.path}));
     }
     if(!roots.length)empty('No Videos Here','This folder has no indexed videos. Try scanning again.','Rescan Library',
@@ -1317,11 +1319,33 @@
     }
     return (item.year||'')+(item.year?' · ':'')+item.libraryName;
   }
+  function pageItems(items){
+    state.page=Math.max(0,Math.min(state.page,Math.ceil(items.length/PAGE_SIZE)-1));
+    return items.slice(state.page*PAGE_SIZE,(state.page+1)*PAGE_SIZE);
+  }
   function more(total){
-    if(total<=state.showCount)return;
-    const box=append(ui.cards,'div','ml-more');
-    const button=append(box,'button','','Show More ('+(total-state.showCount).toLocaleString()+')');
-    button.addEventListener('click',()=>{state.showCount+=120;render();});
+    const pages=Math.ceil(total/PAGE_SIZE);
+    if(pages<=1)return;
+    const box=append(ui.cards,'nav','ml-more ml-page-nav');
+    box.setAttribute('aria-label','Library pages');
+    const move=(page)=>{
+      state.page=Math.max(0,Math.min(pages-1,page));
+      posterQueue.length=0;posterQueued.clear();
+      renderCards();
+      ui.cards.querySelector('.ml-card')?.focus({preventScroll:true});
+      ui.cards.scrollIntoView({block:'nearest'});
+    };
+    const previous=append(box,'button','','‹ Previous');previous.type='button';
+    previous.disabled=state.page===0;previous.addEventListener('click',()=>move(state.page-1));
+    const label=append(box,'label','ml-page-label','Page ');
+    const input=append(label,'input');input.type='number';input.min='1';input.max=String(pages);
+    input.value=String(state.page+1);input.setAttribute('aria-label','Library page number');
+    input.addEventListener('change',()=>{const n=Number(input.value);if(Number.isInteger(n))move(n-1);else input.value=String(state.page+1);});
+    append(label,'span','',' / '+pages.toLocaleString());
+    const next=append(box,'button','','Next ›');next.type='button';
+    next.disabled=state.page>=pages-1;next.addEventListener('click',()=>move(state.page+1));
+    const range=append(box,'small','ml-page-range',(state.page*PAGE_SIZE+1).toLocaleString()+'–'+Math.min(total,(state.page+1)*PAGE_SIZE).toLocaleString()+' of '+total.toLocaleString());
+    range.setAttribute('aria-live','polite');
   }
   function renderCards(){
     ui.cards.replaceChildren();
@@ -1338,14 +1362,14 @@
     ui.rescan.disabled=!state.libraries.length||state.scanning;
     breadcrumbs();
     if(state.kind==='continue'){
-      for(const item of items.slice(0,state.showCount))ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item),false,{kind:'item',item}));
+      for(const item of pageItems(items))ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item),false,{kind:'item',item}));
       if(!items.length)empty('Nothing to Resume','Partially watched videos in this library will appear here.');
       more(items.length);return;
     }
     if(state.folderMode){renderFolders(items);return;}
     if(state.series){
       const episodes=items.filter(i=>i.libraryId===state.series.libId&&i.show===state.series.show);
-      for(const item of episodes.slice(0,state.showCount))
+      for(const item of pageItems(episodes))
         ui.cards.append(card({...item,detail:formatItemDetail(item)},()=>void play(item),false,
           {kind:'item',item}));
       if(!episodes.length)empty('No Episodes Found','Try changing the filters or rescanning this folder.');
@@ -1378,7 +1402,7 @@
           favorite:entity.items.every(item=>item.favorite),
           watched:entity.items.every(item=>item.watched)};
         ui.cards.append(card(entry,()=>{
-          state.series={libId:entity.libId,show:entity.show};state.showCount=120;render();
+          state.series={libId:entity.libId,show:entity.show};state.page=0;render();
         },true,{kind:'show',libId:entity.libId,show:entity.show}));
       }else{
         ui.cards.append(card({...entity.item,detail:formatItemDetail(entity.item)},
@@ -1397,20 +1421,23 @@
       b.type='button';b.setAttribute('aria-pressed',String(state.kind===kind));
       b.addEventListener('click',()=>{
         state.kind=state.kind===kind?'all':kind;
-        ui.filter.value=state.kind;state.showCount=120;render();
+        ui.filter.value=state.kind;state.page=0;render();
       });
     }
     const grouped=state.kind==='all'&&!state.collection.startsWith('playlist:')&&
       !state.collection.startsWith('collection:');
     if(grouped){
-      for(const [name,entries] of [['MOVIES',movies],['TV SHOWS',tvEntries]]){
+      const current=pageItems([...movies,...tvEntries]);
+      for(const [name,entries,isMovie] of [['MOVIES',movies,true],['TV SHOWS',tvEntries,false]]){
+        const pageEntries=current.filter(entity=>(entity.kind==='file'&&entity.item.type!=='tv')===isMovie);
+        if(!pageEntries.length)continue;
         const heading=append(ui.cards,'div','ml-media-divider');
         append(heading,'strong','',name);
         append(heading,'small','',countLabel(entries.length));
-        for(const entity of entries.slice(0,state.showCount))renderEntity(entity);
+        for(const entity of pageEntries)renderEntity(entity);
       }
     }else{
-      for(const entity of visible.slice(0,state.showCount))renderEntity(entity);
+      for(const entity of pageItems(visible))renderEntity(entity);
     }
     if(!visible.length){
       if(state.query)empty('No Matches','Try another title, show, or folder name.');
@@ -1830,7 +1857,7 @@
     state.selected=lib.id;
     setLocal('marmalade:media-library:selected',lib.id);
     state.query='';state.kind='all';state.collection='all';state.folder=null;
-    state.folderMode=false;state.series=null;state.showCount=120;
+    state.folderMode=false;state.series=null;state.page=0;
     ui.search.value='';ui.filter.value='all';ui.collections.value='all';
     render();
     notify(countLabel(entries.length)+' ready in '+lib.name+
@@ -2404,9 +2431,9 @@
     let searchTimer;
     ui.search.addEventListener('input',()=>{
       clearTimeout(searchTimer);
-      searchTimer=setTimeout(()=>{state.query=ui.search.value;state.showCount=120;render();},110);
+      searchTimer=setTimeout(()=>{state.query=ui.search.value;state.page=0;render();},110);
     });
-    ui.filter.addEventListener('change',()=>{state.kind=ui.filter.value;state.showCount=120;render();});
+    ui.filter.addEventListener('change',()=>{state.kind=ui.filter.value;state.page=0;render();});
     let progressRefresh=0;
     const refreshProgress=()=>{
       if(state.kind!=='continue'||!state.ready||panel.hidden)return;
@@ -2414,8 +2441,8 @@
     };
     window.addEventListener('marmalade:watch-progress',refreshProgress);
     window.addEventListener('storage',event=>{if(event.key==='marmalade:watch-progress:v1')refreshProgress();});
-    ui.collections.addEventListener('change',()=>{state.collection=ui.collections.value;state.showCount=120;renderCards();});
-    ui.sort.addEventListener('change',()=>{state.sort=ui.sort.value;render();});
+    ui.collections.addEventListener('change',()=>{state.collection=ui.collections.value;state.page=0;renderCards();});
+    ui.sort.addEventListener('change',()=>{state.sort=ui.sort.value;state.page=0;render();});
     ui.view.addEventListener('click',()=>{
       state.list=!state.list;ui.view.setAttribute('aria-pressed',String(state.list));
       setLocal('marmalade:media-library:list',String(state.list));

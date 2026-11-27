@@ -19,7 +19,7 @@ try{
   await page.locator('#settingsSearch').fill('original-file buffering');
   await page.locator('#settingsSearchResults button').filter({hasText:'Original-File Buffering'}).click();
   assert.equal(await page.locator('#settingsTabParty').getAttribute('aria-selected'),'true');
-  await page.locator('#settingsAdvanced summary').click();
+  await page.locator('#settingsAdvanced > summary').click();
   await page.locator('#diagnosticsToggle').click();
   await page.waitForFunction(()=>document.querySelectorAll('#diagnosticGrid output').length===13);
   assert.equal(await page.locator('[data-metric=fps]').textContent(),'—');
@@ -119,6 +119,21 @@ try{
     return result;
   });
   assert.deepEqual(savedSubtitle,{text:'Saved secondary',offset:1.5,saved:1.5,deleted:true});
+  // A large catalog never accumulates thousands of card elements.
+  await page.evaluate(()=>localStorage.setItem('marmalade:media-library:auto-posters','false'));
+  const large={format:'marmaladeum-library-backup',version:1,libraries:[{id:'audit-large',name:'Large Catalog',kind:'mixed',folders:[{id:'large-folder',name:'Movies'}],items:Array.from({length:501},(_,i)=>({folderId:'large-folder',path:'Movie '+String(i).padStart(4,'0')+'.mp4',title:'Movie '+String(i).padStart(4,'0'),size:i+100}))}]};
+  await page.locator('#mlCatalogBackupInput').setInputFiles({name:'large.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(large))});
+  await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.id==='audit-large'&&l.count===501));
+  await page.evaluate(()=>window.MarmaladeMediaLibrary.select('audit-large'));
+  assert.equal(await page.locator('#mlCards .ml-card').count(),120);
+  await page.locator('.ml-page-nav button').filter({hasText:'Next'}).click();
+  assert.equal(await page.locator('#mlCards .ml-card').count(),120);
+  assert.match(await page.locator('.ml-page-range').textContent(),/121–240 of 501/);
+  const pageNumber=page.locator('.ml-page-nav input');await pageNumber.fill('5');await pageNumber.press('Tab');
+  assert.equal(await page.locator('#mlCards .ml-card').count(),21);
+  await page.locator('#mlSearch').fill('Movie 0001');
+  await page.waitForFunction(()=>document.querySelectorAll('#mlCards .ml-card').length===1);
+  assert.equal(await page.locator('.ml-page-nav').count(),0);
   const stage=await page.locator('#dropZone').boundingBox();
   assert.ok(stage&&stage.x>=-1&&stage.x+stage.width<=viewport.width+1,'Video stage exceeds viewport');
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');

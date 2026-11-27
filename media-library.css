@@ -468,3 +468,9 @@
 
 .ml-card-art .ml-card-progress{position:absolute;inset:auto 5px 5px;height:3px;overflow:hidden;border-radius:3px;background:#0b0918c9;z-index:2;pointer-events:none}
 .ml-card-art .ml-card-progress-fill{height:100%;display:block;border-radius:inherit;background:linear-gradient(90deg,#bf7ed5,#f5bb7a)}
+
+/* Bounded catalog pages: at most 120 card elements per view. */
+.ml-panel .ml-page-nav{grid-column:1/-1;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;padding:6px 0}
+.ml-panel .ml-page-label{display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap}
+.ml-panel .ml-page-label input{width:58px;min-width:0;text-align:center;color:inherit;background:rgba(130,130,145,.12);border:1px solid rgba(170,170,190,.3);border-radius:5px;padding:4px}
+.ml-panel .ml-page-range{flex-basis:100%;text-align:center;opacity:.75}
