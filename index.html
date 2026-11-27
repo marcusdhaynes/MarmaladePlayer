@@ -1667,6 +1667,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       el.qualityHint.textContent = 'Local: original quality · Guests independently choose their stream quality.';
       return;
     }
+    if(state.source==='buffered-guest'){
+      el.qualityHint.textContent='Buffered original movie · '+(media.videoHeight?media.videoHeight+'p · ':'')+'180-second forward target · live quality setting applies to fallback only.';
+      return;
+    }
     const rec = recommendedLevel(state.recommendation);
     const selected = el.qualitySelect.value || rec;
     const bps = state.bitrateEstimate > 0 ? ` · received ${((state.bitrateEstimate / 1000000)).toFixed(2)} Mbps` : '';
@@ -2891,6 +2895,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     retireHosted();state.hostedUrl='';state.backupUrl='';
     state.source = null;
     state.nativeStreamUrl = '';
+    state.nativeBufferSource=null;
     state.nativeMediaKey = '';
     state.nativeMediaName = '';
     state.file = null;
@@ -2994,7 +2999,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     removeMedia();
     state.source='native';
+    state.autoBufferSuppressed=false;
     state.nativeStreamUrl=url;
+    state.nativeBufferSource=null;
+    try{state.nativeBufferSource=window.MarmaladeMkvIO?.fromNativeStream({url,name,size});}catch{}
     state.nativeMediaName=String(name||'Library Video');
     state.nativeMediaKey=String(libraryItemId||name||'')+'|'+String(size||0);
     state.file=null;
@@ -3148,6 +3156,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if (!isVideoFile(file)) { notify('Choose an audio or video file.'); return; }
     removeMedia();
     state.source = 'file';
+    state.autoBufferSuppressed=false;
     state.file = file;
     state.localFingerprint = null;
     void fileFingerprint(file).then(hash=>{
@@ -3275,7 +3284,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         if (data.type === 'buffer-status' && typeof data.ready==='boolean') {
           entry.bufferReady=data.ready;entry.lastBufferReport=performance.now();
           // Optional coordinated pause, only for seekable buffered sources.
-          if((state.source==='hosted'||state.source==='file')&&state.strictSync){
+          if((state.source==='hosted'||state.source==='file'||state.source==='native')&&state.strictSync){
             const active=[...state.connections.values()].filter(e=>e.conn.open&&!e.localMirror&&(state.source==='hosted'||e.bufferedFile));
             const wait=active.some(e=>e.bufferReady===false && performance.now()-(e.lastBufferReport||0)<15000);
             if(wait&&!state.heldForBuffer&&!media.paused){state.heldForBuffer=true;media.pause();syncState();}
@@ -4773,9 +4782,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return new MediaStream([track, ...audioTracks].filter(Boolean));
   }
   function autoStartIfPlaying() {
-    if(state.gameFrameMode)return;
+    if(state.gameFrameMode||state.autoBufferSuppressed)return;
+    const guestWaiting=[...state.connections.values()].some(e=>e.conn.open&&!e.localMirror);
     if (state.role === 'host' && state.peer?.open && ['file','native'].includes(state.source) && state.fileReady &&
-        !media.paused && !state.broadcasting && !state.broadcastStarting) {
+        (!media.paused||guestWaiting&&media.readyState>=2) && !state.broadcasting && !state.broadcastStarting) {
       void startBroadcast();
     }
   }
@@ -4793,6 +4803,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if (state.role !== 'host' || !state.peer?.open) { notify('Create your watch room first.'); return; }
     if (!state.fileReady && state.source !== 'screen') { notify('Choose a playable video first, or share a player window.'); return; }
     if (state.broadcasting || state.broadcastStarting) return;
+    state.autoBufferSuppressed=false;
     state.broadcastStarting = true;
     el.startBroadcast.disabled = true;
     try {
@@ -6027,10 +6038,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   el.broadcastToggle.addEventListener('click',()=>{
     if(state.role!=='host'||state.broadcastStarting)return;
     if(state.broadcasting){
+      state.autoBufferSuppressed=true;
       stopBroadcast(state.source==='screen');
       connection('Not Broadcasting');
       updateBroadcastIndicator();
-    }else void startBroadcast().finally(updateBroadcastIndicator);
+    }else{state.autoBufferSuppressed=false;void startBroadcast().finally(updateBroadcastIndicator);}
   });
   el.endRoom.addEventListener('click',()=>{
     stopHostRecovery();rememberHostCode('');
@@ -6434,13 +6446,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
       state.fileReady = true;
       showStage(true);
-      updateTransport();
+      updateTransport();autoStartIfPlaying();
     } else if (state.role === 'guest' &&
         ['remote','local-guest','hosted-guest','buffered-guest'].includes(state.source)) {
       showStage(true);
     }
   });
   media.addEventListener('error', () => {
+    if(state.source==='buffered-guest'){window.MarmaladeRollingBuffer?.stop(true,'Buffered movie decoding failed');return;}
     if((state.source==='hosted' || state.source==='hosted-guest') && state.backupUrl &&
        state.pendingHostedLoad!==state.backupUrl){
       notify('Switching to backup hosted media.');
@@ -6590,7 +6603,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     });
   }
   window.MarmaladeAddonBridge={state,media,el,ensureAudioPlayback,
-    expectedHostTime,applyVolume,showStage,badge,syncSeekablePlayback,updateBufferDisplay,recoveryCheck,stopGuestAudioRelay,
+    expectedHostTime,applyVolume,showStage,badge,syncSeekablePlayback,updateBufferDisplay,recoveryCheck,stopGuestAudioRelay,updateQualityHint,
     chooseVideo:selectHostFile,chooseNativeStream,openMoviePicker,notify,
     pauseAndSeekGameFrame,stopGameVideo,setGameFrameMode};
   // Offline app shell is optional; room signaling and WebRTC require connectivity.
