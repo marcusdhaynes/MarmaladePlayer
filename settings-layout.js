@@ -128,7 +128,7 @@
  keyboard.innerHTML='<span>Keyboard</span><span><kbd>Space</kbd> Play / Pause <em>·</em> <kbd>←</kbd> <kbd>→</kbd> Skip</span>';
  pages.get('controls').appendChild(keyboard);
  into('stabilityMode','party');
- for(const id of ['strictSync','peerAssist','hostMatchRow']){
+ for(const id of ['strictSync','allowOriginalBuffer','peerAssist','hostMatchRow']){
    const row=into(id,'party','settings-toggle-row');
    // Native labels began with their checkbox. Put the title on the left,
    // the compact toggle on the far right without replacing the input.
