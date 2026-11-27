@@ -712,8 +712,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label><span>Night Mode <small>Compress loud passages for quieter listening. Personal audio only.</small></span><input type="checkbox" id="audioNightMode"></label>
             <label><span>Dialogue Enhancement <small>Improve speech clarity with personal frequency shaping.</small></span><select id="audioDialogue" aria-label="Dialogue Enhancement"><option value="off">Off</option><option value="mild">Mild</option><option value="strong">Strong</option></select></label>
             <label><span>Automatic Loudness Leveling <small>Gently balance quiet and loud audio. Personal output only.</small></span><input type="checkbox" id="audioNormalize"></label>
-            <label><span>Equalizer <small>Personal audio · seven frequency bands</small></span><select id="audioEqPreset" aria-label="Equalizer preset"><option value="flat">Flat (Off)</option><option value="cinema">Cinema</option><option value="speech">Speech</option><option value="music">Music</option><option value="soft">Soft</option><option value="custom">Custom</option></select></label>
-            <details id="audioEqEditor" class="settings-advanced audio-eq-editor"><summary>Fine-Tune Equalizer</summary><div id="audioEqBands" class="audio-eq-bands"><label class="audio-eq-band"><span>60 Hz</span><input id="audioEq0" type="range" min="-12" max="12" step="1" value="0" aria-label="60 Hz gain in decibels"><output for="audioEq0">0 dB</output></label><label class="audio-eq-band"><span>150 Hz</span><input id="audioEq1" type="range" min="-12" max="12" step="1" value="0" aria-label="150 Hz gain in decibels"><output for="audioEq1">0 dB</output></label><label class="audio-eq-band"><span>400 Hz</span><input id="audioEq2" type="range" min="-12" max="12" step="1" value="0" aria-label="400 Hz gain in decibels"><output for="audioEq2">0 dB</output></label><label class="audio-eq-band"><span>1 kHz</span><input id="audioEq3" type="range" min="-12" max="12" step="1" value="0" aria-label="1000 Hz gain in decibels"><output for="audioEq3">0 dB</output></label><label class="audio-eq-band"><span>2.5 kHz</span><input id="audioEq4" type="range" min="-12" max="12" step="1" value="0" aria-label="2500 Hz gain in decibels"><output for="audioEq4">0 dB</output></label><label class="audio-eq-band"><span>6 kHz</span><input id="audioEq5" type="range" min="-12" max="12" step="1" value="0" aria-label="6000 Hz gain in decibels"><output for="audioEq5">0 dB</output></label><label class="audio-eq-band"><span>12 kHz</span><input id="audioEq6" type="range" min="-12" max="12" step="1" value="0" aria-label="12000 Hz gain in decibels"><output for="audioEq6">0 dB</output></label></div><button type="button" id="audioEqReset">Reset to Flat</button></details>
+            <label><span>Audio Output <small id="audioOutputStatus" aria-live="polite">System Default</small></span><select id="audioOutput" aria-label="Audio Output Device"><option value="">System Default</option></select></label>
+            <button id="audioOutputChoose" type="button" class="settings-action-row" hidden>Choose Audio Output Device</button>
+            <label><span>Equalizer <small>Personal audio · bass, midrange and treble</small></span><select id="audioEqPreset" aria-label="Equalizer preset"><option value="flat">Flat (Off)</option><option value="cinema">Cinema</option><option value="speech">Speech</option><option value="music">Music</option><option value="soft">Soft</option><option value="custom">Custom</option></select></label>
+            <details id="audioEqEditor" class="settings-advanced audio-eq-editor"><summary>Fine-Tune Equalizer</summary><div id="audioEqBands" class="audio-eq-bands"><label class="audio-eq-band"><span title="Bass">60 Hz</span><input id="audioEq0" type="range" min="-12" max="12" step="1" value="0" aria-label="60 Hz gain in decibels"><output for="audioEq0">0 dB</output></label><label class="audio-eq-band"><span>150 Hz</span><input id="audioEq1" type="range" min="-12" max="12" step="1" value="0" aria-label="150 Hz gain in decibels"><output for="audioEq1">0 dB</output></label><label class="audio-eq-band"><span>400 Hz</span><input id="audioEq2" type="range" min="-12" max="12" step="1" value="0" aria-label="400 Hz gain in decibels"><output for="audioEq2">0 dB</output></label><label class="audio-eq-band"><span>1 kHz</span><input id="audioEq3" type="range" min="-12" max="12" step="1" value="0" aria-label="1000 Hz gain in decibels"><output for="audioEq3">0 dB</output></label><label class="audio-eq-band"><span>2.5 kHz</span><input id="audioEq4" type="range" min="-12" max="12" step="1" value="0" aria-label="2500 Hz gain in decibels"><output for="audioEq4">0 dB</output></label><label class="audio-eq-band"><span>6 kHz</span><input id="audioEq5" type="range" min="-12" max="12" step="1" value="0" aria-label="6000 Hz gain in decibels"><output for="audioEq5">0 dB</output></label><label class="audio-eq-band"><span title="Treble">12 kHz</span><input id="audioEq6" type="range" min="-12" max="12" step="1" value="0" aria-label="12000 Hz gain in decibels"><output for="audioEq6">0 dB</output></label></div><button type="button" id="audioEqReset">Reset to Flat</button></details>
              <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
@@ -1501,6 +1503,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const ctx=state.guestAudioContext||new Context({latencyHint:'interactive'});
       if(state.guestAudioContext!==ctx){
         state.guestAudioContext=ctx;
+        void routeNewAudioContext(ctx);
         ctx.addEventListener('statechange',()=>{if(state.guestAudioContext===ctx){state.guestAudioPrimed=ctx.state==='running';recoverGuestSound();}});
       }
       // Call resume directly within user activation; never await here or
@@ -4898,6 +4901,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const Context=window.AudioContext||window.webkitAudioContext;
       if(!Context)return false;
       state.audioContext=new Context({latencyHint:'interactive'});
+      void routeNewAudioContext(state.audioContext);
       state.audioContext.addEventListener('statechange',()=>{
         if(state.audioContext?.state==='running'&&state.role==='guest'&&state.source==='remote')recoverGuestSound();
       });
@@ -5345,6 +5349,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         try{
           const ctx=hostMonitorAudioContext||new Context({latencyHint:'interactive'});
           hostMonitorAudioContext=ctx;hostMonitorGainPending=true;
+          void routeNewAudioContext(ctx);
           const connect=()=>{
             if(ctx.state!=='running'||hostMonitorAudioGain||!state.hostMonitorActive)return;
             const source=ctx.createMediaElementSource(hostMonitor),gain=ctx.createGain();
@@ -6596,6 +6601,91 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   audioNightMode.addEventListener('change',()=>{rememberPreference('audio-night-mode',audioNightMode.checked);refreshPersonalProcessing();});
   audioDialogue.addEventListener('change',()=>{rememberPreference('audio-dialogue',audioDialogue.value);refreshPersonalProcessing();});
   audioNormalize.addEventListener('change',()=>{rememberPreference('audio-normalize',audioNormalize.checked);refreshPersonalProcessing();});
+  // Output devices are selected for this session only. Do not acquire
+  // microphone/camera permission to enumerate speakers or store device IDs.
+  const outputSelect=$('audioOutput'),outputChoose=$('audioOutputChoose'),outputStatus=$('audioOutputStatus');
+  let outputDevice='',outputBusy=false,outputOptionsGeneration=0;
+  const mediaDevices=navigator.mediaDevices;
+  function outputTargets(){
+    return [media,hostMonitor,state.audioContext,state.guestAudioContext,hostMonitorAudioContext]
+      .filter(target=>target&&target.state!=='closed');
+  }
+  function outputAvailable(){
+    return typeof media.setSinkId==='function'||typeof (window.AudioContext||window.webkitAudioContext)?.prototype?.setSinkId==='function';
+  }
+  async function refreshOutputOptions(){
+    const generation=++outputOptionsGeneration;
+    if(!outputAvailable()){
+      outputSelect.disabled=true;outputChoose.hidden=true;
+      outputStatus.textContent='Use your system audio settings';return;
+    }
+    outputChoose.hidden=typeof mediaDevices?.selectAudioOutput!=='function';
+    try{
+      const devices=await mediaDevices?.enumerateDevices?.()||[];
+      if(generation!==outputOptionsGeneration)return;
+      const outputs=devices.filter(d=>d.kind==='audiooutput'&&d.deviceId&&d.deviceId!=='default');
+      outputSelect.replaceChildren(new Option('System Default',''));
+      for(const [i,d] of outputs.entries())outputSelect.add(new Option(d.label||'Speaker '+(i+1),d.deviceId));
+      if(outputDevice&&![...outputSelect.options].some(o=>o.value===outputDevice))
+        outputSelect.add(new Option('Selected Speaker',outputDevice));
+      outputSelect.value=outputDevice;outputSelect.disabled=outputBusy;
+      if(!outputs.length&&!outputDevice)outputStatus.textContent='System Default · browser may restrict device listing';
+    }catch{
+      outputStatus.textContent='Device listing unavailable · system default available';
+    }
+  }
+  async function applyOutputDevice(id){
+    if(outputBusy)return false;
+    outputBusy=true;outputSelect.disabled=true;outputChoose.disabled=true;
+    const targets=outputTargets(),previous=outputDevice;
+    try{
+      // Avoid silently sending processed audio to a different device.
+      if(id&&targets.some(target=>typeof target.setSinkId!=='function'))throw Error('This browser cannot route every active audio path.');
+      if(id&&(window.AudioContext||window.webkitAudioContext)&&
+         typeof (window.AudioContext||window.webkitAudioContext).prototype.setSinkId!=='function')
+        throw Error('This browser cannot route processed audio. Choose the speaker in system settings.');
+      for(const target of targets)if(typeof target.setSinkId==='function')await target.setSinkId(id);
+      outputDevice=id;
+      const label=[...outputSelect.options].find(o=>o.value===id)?.textContent;
+      outputStatus.textContent=id?(label||'Selected Speaker'):'System Default';
+      return true;
+    }catch(error){
+      // A failed switch must not mute the movie or strand partial routes.
+      for(const target of outputTargets())if(typeof target.setSinkId==='function'){
+        try{await target.setSinkId(previous);}catch{try{await target.setSinkId('');}catch{}}
+      }
+      outputDevice=previous;outputStatus.textContent='Speaker switch failed · previous output retained where available';
+      return false;
+    }finally{
+      outputBusy=false;outputChoose.disabled=false;await refreshOutputOptions();
+    }
+  }
+  async function routeNewAudioContext(ctx){
+    if(!outputDevice||!ctx)return;
+    try{if(typeof ctx.setSinkId!=='function')throw Error('Output routing unsupported');await ctx.setSinkId(outputDevice);}
+    catch{if(!outputBusy)void applyOutputDevice('');}
+  }
+  outputSelect.addEventListener('change',()=>{void applyOutputDevice(outputSelect.value);});
+  outputChoose.addEventListener('click',async()=>{
+    if(outputBusy||!mediaDevices?.selectAudioOutput)return;
+    try{
+      const device=await mediaDevices.selectAudioOutput();
+      if(!device?.deviceId)return;
+      if(![...outputSelect.options].some(o=>o.value===device.deviceId))
+        outputSelect.add(new Option(device.label||'Selected Speaker',device.deviceId));
+      await applyOutputDevice(device.deviceId);
+    }catch{outputStatus.textContent='Speaker selection cancelled or unavailable';}
+  });
+  mediaDevices?.addEventListener?.('devicechange',async()=>{
+    if(outputDevice){
+      try{const devices=await mediaDevices.enumerateDevices();
+        if(!devices.some(d=>d.kind==='audiooutput'&&d.deviceId===outputDevice)){await applyOutputDevice('');return;}
+      }catch{}
+    }
+    void refreshOutputOptions();
+  });
+  el.settingsBtn.addEventListener('click',()=>{void refreshOutputOptions();});
+  void refreshOutputOptions();
   let eqRefreshTimer=null;
   function commitEq(){
     reflectEq();

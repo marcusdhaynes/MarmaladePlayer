@@ -56,6 +56,39 @@ try{
   assert.equal(await page.locator('#settingsPageControls #audioDialogue').inputValue(),'strong');
   assert.equal(await page.locator('#settingsPageControls #audioNormalize').isChecked(),true);
   assert.equal(await page.locator('#settingsPageControls #audioEqPreset').inputValue(),'cinema');
+  assert.equal(await page.locator('#settingsPageControls #audioOutput').inputValue(),'');
+  assert.equal(await page.locator('#settingsPageControls #audioOutput').count(),1);
+  // Deterministic browser API simulation: verify routing success and rollback
+  // without sending sound to a physical device on the CI runner.
+  const routing=await page.evaluate(async()=>{
+    const media=document.querySelector('#player'),monitor=document.querySelector('#hostMonitor');
+    const Context=window.AudioContext||window.webkitAudioContext;
+    const original=Object.getOwnPropertyDescriptor(Context.prototype,'setSinkId');
+    const originalEnumerate=navigator.mediaDevices?.enumerateDevices;
+    const records=[];
+    try{
+      Object.defineProperty(Context.prototype,'setSinkId',{configurable:true,value:async()=>{}});
+      media.setSinkId=async id=>{records.push(['player',id]);};
+      monitor.setSinkId=async id=>{records.push(['monitor',id]);if(id==='fail')throw Error('Mock disconnect');};
+      if(navigator.mediaDevices)navigator.mediaDevices.enumerateDevices=async()=>[{kind:'audiooutput',deviceId:'speaker',label:'Test Speaker'},{kind:'audiooutput',deviceId:'fail',label:'Unavailable'}];
+      const control=document.querySelector('#audioOutput');
+      const select=async id=>{
+        if(![...control.options].some(o=>o.value===id))control.add(new Option(id,id));
+        control.value=id;control.dispatchEvent(new Event('change',{bubbles:true}));
+        for(let i=0;i<100&&control.disabled;i++)await new Promise(r=>setTimeout(r,10));
+        return control.value;
+      };
+      const selected=await select('speaker'),afterFailure=await select('fail'),reset=await select('');
+      return {selected,afterFailure,reset,records};
+    }finally{
+      delete media.setSinkId;delete monitor.setSinkId;
+      if(original)Object.defineProperty(Context.prototype,'setSinkId',original);else delete Context.prototype.setSinkId;
+      if(navigator.mediaDevices&&originalEnumerate)navigator.mediaDevices.enumerateDevices=originalEnumerate;
+    }
+  });
+  assert.equal(routing.selected,'speaker');assert.equal(routing.afterFailure,'speaker');assert.equal(routing.reset,'');
+  assert(routing.records.some(([target,id])=>target==='monitor'&&id==='speaker'));
+  assert(routing.records.some(([target,id])=>target==='player'&&id===''));
   assert.equal(await page.locator('#audioEq0').inputValue(),'4');
   await page.evaluate(()=>{const s=document.querySelector('#audioEq0');s.value='7';s.dispatchEvent(new Event('input',{bubbles:true}));s.dispatchEvent(new Event('change',{bubbles:true}));});
   assert.equal(await page.locator('#audioEqPreset').inputValue(),'custom');
