@@ -35,6 +35,18 @@ try{
   assert.equal(await page.locator('#volumeIncrement').inputValue(),'5');
   assert.equal(await page.locator('#volumeSnap').isChecked(),false);
   assert.equal(await page.locator('#allowOriginalBuffer').isChecked(),false);
+  await page.waitForFunction(()=>window.MarmaladeMediaLibrary?.ready);
+  const backup={format:'marmaladeum-library-backup',version:1,libraries:[{id:'audit-catalog',name:'Audit Recovery',kind:'movie',folders:[{id:'audit-folder',name:'Films'}],items:[{folderId:'audit-folder',path:'Example.mp4',title:'Example',favorite:true,watched:true,collections:['Test']}]}]};
+  const file={name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))};
+  await page.locator('#mlCatalogBackupInput').setInputFiles(file);
+  await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.id==='audit-catalog'&&l.count===1));
+  await page.locator('#mlCatalogBackupInput').setInputFiles(file);
+  await page.waitForFunction(()=>document.querySelector('#mlStatus').textContent.includes('No new libraries'));
+  assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().filter(l=>l.id==='audit-catalog').length),1);
+  backup.libraries[0].id='invalid-audit-catalog';backup.libraries[0].items[0].path='../outside.mp4';
+  await page.locator('#mlCatalogBackupInput').setInputFiles({...file,buffer:Buffer.from(JSON.stringify(backup))});
+  await page.waitForFunction(()=>document.querySelector('#mlStatus').textContent.includes('Invalid media path'));
+  assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.id==='invalid-audit-catalog')),false);
   const stage=await page.locator('#dropZone').boundingBox();
   assert.ok(stage&&stage.x>=-1&&stage.x+stage.width<=viewport.width+1,'Video stage exceeds viewport');
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
