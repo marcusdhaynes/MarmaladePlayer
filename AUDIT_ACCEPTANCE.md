@@ -44,4 +44,4 @@ is supported by implementation and verification evidence.
 
 ## Section 18 — Settings improvements
 
-Versioned allowlisted preference backup, validated import and category-specific reset added. Imports are staged before explicit apply/reload; room codes, credentials, library contents and viewing history are excluded. Browser acceptance tests are pending. Remaining settings categories, complete preference coverage and export verification are open.
+Versioned allowlisted preference backup, validated import and category-specific reset added. Imports are staged before explicit apply/reload; room codes, credentials, library contents and viewing history are excluded. Import, reload persistence, invalid room-code rejection and scoped reset passed all three browser engines on commit a1e0f362d05a28bde3dfcfdfadf8445cfd111751 ([audit](https://github.com/marcusdhaynes/MarmaladePlayer/actions/runs/46068622321)). Expanded eight-category preference resets, stale import cancellation, and actual downloaded JSON export tests now await CI. Remaining settings categories and complete preference coverage are open.

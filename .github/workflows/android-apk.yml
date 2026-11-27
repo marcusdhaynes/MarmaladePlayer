@@ -70,7 +70,20 @@ jobs:
         working-directory: mobile/android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          # Reuse successfully fetched dependencies and retry only transient
+          # upstream rate limits/network failures; real compile errors fail.
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if ./gradlew --no-daemon assembleDebug 2>&1 | tee "$RUNNER_TEMP/gradle-build.log"; then
+              exit 0
+            fi
+            if ! grep -Eiq 'Received status code (429|502|503|504)|Read timed out|Connection reset|Connect timed out' "$RUNNER_TEMP/gradle-build.log" || [ "$attempt" = 3 ]; then
+              exit 1
+            fi
+            echo "Transient dependency retrieval failure; retrying build"
+            sleep "$((attempt * 30))"
+          done
+          exit 1
       - name: Verify APK exists and is an Android package
         run: |
           test -s mobile/android/app/build/outputs/apk/debug/app-debug.apk

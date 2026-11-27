@@ -180,35 +180,38 @@
  // Portable preferences only: never export room invitations, credentials,
  // file handles, viewing history, or cached movie/subtitle content.
  const backup=document.createElement('details');backup.id='settingsBackup';backup.className='settings-advanced';
- backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video &amp; Appearance</option><option value="controls">Controls &amp; Audio</option><option value="party">Party Preferences</option><option value="library">Library Preferences</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
+ backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="appearance">Appearance</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
  panel.appendChild(backup);
  const backupStatus=$('settingsBackupStatus'),applyBackup=$('settingsApplyBackup');
  const bool=v=>v==='true'||v==='false';
  const choices=(...values)=>v=>values.includes(v);
  const numeric=(min,max)=>v=>v.trim()!==''&&Number.isFinite(Number(v))&&Number(v)>=min&&Number(v)<=max;
  const schema={
+  appearance:{'background-theme':choices('cosmic01','cosmic02','none'),'cosmic-background':bool,'window-theme':choices('classic','glass')},
   video:{
-   'background-theme':choices('cosmic01','cosmic02','none'),
-   'cosmic-background':bool,'window-theme':choices('classic','glass'),
    'mobile:match-video-aspect':bool,'fullscreen-orientation':choices('portrait','landscape'),
    'guest-quality':choices('144','240','360','480','540','720','1080'),
    'adaptive-video-brightness:v1':numeric(0,200)
   },
   controls:{
+   'skip-interval-seconds':choices('5','10','15','20','30','60'),'control-fade-seconds':choices('2','3','5','8','10','15'),'tap-video-playback':bool
+  },
+  audio:{
    'volume-increment':choices('1','5','10','25','50'),'volume-maximum':choices('100','200','300','400','500','600'),
    'volume-snap':bool,'volume-level':numeric(0,600),'audio-peak-protection':bool,'audio-night-mode':bool,
    'audio-dialogue':choices('off','mild','strong'),'audio-normalize':bool,
    'personal-audio-delay':choices('0','25','50','75','100','150','200','250','300','400','500'),
    'preferred-audio-language':choices('','en','ar','id','es','fr','de','it','pt','ja','ko','zh','hi','ru','tr'),
    'audio-eq-preset':choices('flat','cinema','speech','music','soft','custom'),
-   'audio-eq-bands':v=>{try{const a=JSON.parse(v);return Array.isArray(a)&&a.length===7&&a.every(n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=12);}catch{return false;}},
-   'skip-interval-seconds':choices('5','10','15','20','30','60'),'control-fade-seconds':choices('2','3','5','8','10','15'),'tap-video-playback':bool
+   'audio-eq-bands':v=>{try{const a=JSON.parse(v);return Array.isArray(a)&&a.length===7&&a.every(n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=12);}catch{return false;}}
   },
-  party:{'stability-mode':choices('fast','balanced','smooth'),'strict-sync':bool,'original-file-buffer':bool,'peer-assist':bool},
-  library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':numeric(1,20),'games:visible:v1':bool}
+  party:{'stability-mode':choices('fast','balanced','smooth'),'strict-sync':bool},
+  buffering:{'original-file-buffer':bool,'peer-assist':bool},
+  library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':numeric(1,20)},
+  games:{'games:visible:v1':bool}
  };
  const validators=new Map(Object.values(schema).flatMap(group=>Object.entries(group)).map(([key,validate])=>['marmalade:'+key,validate]));
- let pending=null;
+ let pending=null,backupRevision=0;
  function exportPreferences(){
   const preferences=Object.create(null);
   for(const [key,validate] of validators){
@@ -241,14 +244,18 @@
  $('settingsImport').addEventListener('click',()=>$('settingsImportFile').click());
  $('settingsImportFile').addEventListener('change',async event=>{
   const file=event.target.files?.[0];event.target.value='';
+  const revision=++backupRevision;
   pending=null;applyBackup.hidden=true;
   if(!file)return;
   try{
    if(file.size>65536)throw Error('Settings backup exceeds 64 KiB.');
-   stageChanges(validateImport(JSON.parse(await file.text())),'Validated import:');
-  }catch(error){backupStatus.textContent=String(error.message||error);}
+   const text=await file.text();
+   if(revision!==backupRevision)return;
+   stageChanges(validateImport(JSON.parse(text)),'Validated import:');
+  }catch(error){if(revision===backupRevision)backupStatus.textContent=String(error.message||error);}
  });
  $('settingsReset').addEventListener('click',()=>{
+  ++backupRevision;pending=null;applyBackup.hidden=true;
   try{
    const group=schema[$('settingsResetCategory').value];
    if(!group)return;
@@ -259,7 +266,7 @@
  applyBackup.addEventListener('click',()=>{
   if(!pending)return;
   const state=window.MarmaladeAddonBridge?.state;
-  if(state?.broadcasting||state?.guestConn?.open||!localVideo?.paused){
+  if(state?.broadcasting||state?.guestConn?.open||state?.connections?.size||!localVideo?.paused){
    backupStatus.textContent='Leave the room and pause playback before applying settings.';return;
   }
   const before=new Map();
@@ -270,7 +277,7 @@
    for(const [key,value] of before)try{if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,value);}catch{}
    backupStatus.textContent='Settings could not be saved. Previous values restored where possible.';return;
   }
-  pending=null;location.reload();
+  ++backupRevision;pending=null;location.reload();
  });
  panel.appendChild(footer);
  const save=key=>{try{localStorage.setItem('marmalade:settings-category',key);}catch{}};
