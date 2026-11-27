@@ -9,7 +9,7 @@ permissions:
 jobs:
   smoke:
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +37,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           test -r /dev/kvm && test -w /dev/kvm
+          ls -l /dev/kvm
       - name: Launch APK on Android 15 emulator and check for fatal crashes
         timeout-minutes: 18
         uses: reactivecircus/android-emulator-runner@v2
@@ -47,6 +48,7 @@ jobs:
           profile: pixel_5
           emulator-boot-timeout: 600
           disable-animations: true
+          disable-linux-hw-accel: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
             set -euo pipefail
