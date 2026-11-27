@@ -5452,6 +5452,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     .stage.has-video.controls-visible .theater-controls,
     .stage.has-video.controls-visible .theater-top {opacity:1!important;pointer-events:auto!important}
+    @media(max-width:800px){
+      /* At narrow aspect ratios the decorative gradient can cover nearly
+         the entire movie. Keep the actual picture reachable for gestures. */
+      #dropZone.has-video.controls-visible:not(.pip-interactive):not(.mini-pip-visible):not(.floating-player) :is(.theater-controls,.theater-top){pointer-events:none!important}
+      #dropZone.has-video.controls-visible:not(.pip-interactive):not(.mini-pip-visible):not(.floating-player) :is(.theater-controls,.theater-top) :is(button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),label,a,[role="button"],[role="slider"],[role="switch"],.theater-popover:not([hidden]),.adaptive-brightness-popover:not([hidden])){pointer-events:auto!important}
+    }
   `;
   document.head.appendChild(fadeOverride);
   // Settings is a real floating palette, not a child clipped by the video.

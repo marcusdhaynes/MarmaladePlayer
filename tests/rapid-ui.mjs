@@ -151,26 +151,31 @@ try{
     };
   });
   const stage=page.locator('#dropZone');
-  const tiny=size.width<360;
-  if(tiny){
-    // On 320px screens the interactive toolbar fills the video hit region.
-    // Test the stage's double-click handler directly; larger viewports
-    // continue exercising genuine physical pointer double-clicks.
-    await page.evaluate(()=>{document.getElementById('dropZone').requestFullscreen=async()=>{};});
+  async function doubleClickPicture(){
+    await stage.scrollIntoViewIfNeeded();
+    // Find a real hit-tested picture point rather than assuming a fixed
+    // percentage of the stage remains uncovered on narrow/mobile screens.
+    const point=await stage.evaluate(el=>{
+      const box=el.getBoundingClientRect();
+      const controls='button,input,select,label,textarea,a,[role="button"],[role="slider"],[role="switch"],[role="menuitem"],[role="dialog"],[contenteditable="true"],.theater-controls,.theater-top,.theater-popover,.mini-player-overlay,.stage-quick-actions,.exit-theater,#guestAudioUnlock,#hostVideoDiagnostic,[data-no-video-toggle]';
+      for(const y of [.4,.5,.3,.6,.2,.7,.1,.8,.9])for(const x of [.5,.3,.7,.2,.8,.1,.9]){
+        const px=Math.round(box.left+box.width*x),py=Math.round(box.top+box.height*y);
+        if(px<0||py<0||px>=innerWidth||py>=innerHeight)continue;
+        const target=document.elementFromPoint(px,py);
+        if(target&&el.contains(target)&&!target.closest(controls))return {x:px,y:py};
+      }
+      return null;
+    });
+    assert.ok(point,'A real video-picture gesture target must exist at '+size.width+'×'+size.height);
+    await page.mouse.dblclick(point.x,point.y,{delay:70});
   }
-  let area=await stage.boundingBox();
-  if(tiny)await page.evaluate(()=>document.getElementById('player')
-    .dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true,composed:true})));
-  else await page.mouse.dblclick(area.x+area.width/2,area.y+area.height*.31,{delay:70});
-  await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.theaterMode);
-  assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('fullscreen-fallback')),true,
-    'Double-click expands the regular video to fullscreen');
-  area=await stage.boundingBox();
-  if(tiny)await page.evaluate(()=>document.getElementById('player')
-    .dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true,composed:true})));
-  else await page.mouse.dblclick(area.x+area.width/2,area.y+area.height*.31,{delay:70});
-  await page.waitForFunction(()=>!window.MarmaladeAddonBridge.state.theaterMode);
-  assert.equal(await page.locator('#dropZone').evaluate(el=>el.classList.contains('fullscreen-fallback')),false,
+  await doubleClickPicture();
+  await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.theaterMode&&document.fullscreenElement===document.getElementById('dropZone'),null,{timeout:12000});
+  assert.equal(await stage.evaluate(el=>el.classList.contains('fullscreen-fallback')),true,
+    'Double-click expands the regular video to actual browser fullscreen');
+  await doubleClickPicture();
+  await page.waitForFunction(()=>!window.MarmaladeAddonBridge.state.theaterMode&&!document.fullscreenElement,null,{timeout:12000});
+  assert.equal(await stage.evaluate(el=>el.classList.contains('fullscreen-fallback')),false,
     'Second double-click returns to regular video');
   await page.waitForTimeout(500);
   assert.equal(await page.evaluate(()=>window.__fullscreenPlayCalls),0,
