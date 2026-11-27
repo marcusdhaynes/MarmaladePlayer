@@ -11,6 +11,15 @@ try{
   await page.goto('http://127.0.0.1:8080/index.html',{waitUntil:'domcontentloaded',timeout:60000});
   await page.waitForFunction(()=>window.MarmaladeAddonBridge&&window.MarmaladeRollingBuffer&&document.querySelector('#allowOriginalBuffer').closest('.settings-row'),{},{timeout:30000});
   assert.equal(await page.locator('#player').count(),1);
+  await page.locator('#settingsBtn').click({force:true});
+  await page.locator('#settingsSearch').fill('maximum volume');
+  await page.locator('#settingsSearchResults button').filter({hasText:'Maximum Volume'}).click();
+  assert.equal(await page.locator('#settingsTabControls').getAttribute('aria-selected'),'true');
+  assert.equal(await page.locator('#settingsSearch').inputValue(),'');
+  await page.locator('#settingsSearch').fill('original-file buffering');
+  await page.locator('#settingsSearchResults button').filter({hasText:'Original-File Buffering'}).click();
+  assert.equal(await page.locator('#settingsTabParty').getAttribute('aria-selected'),'true');
+  await page.locator('#closeSettingsPanel').click();
   const settings=await page.evaluate(()=>{
    const maximum=document.querySelector('#volumeMaximum'),step=document.querySelector('#volumeIncrement'),snap=document.querySelector('#volumeSnap'),buffer=document.querySelector('#allowOriginalBuffer');
    maximum.value='400';maximum.dispatchEvent(new Event('change',{bubbles:true}));
