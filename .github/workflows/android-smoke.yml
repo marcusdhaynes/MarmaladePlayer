@@ -49,22 +49,8 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: true
           disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            set -euo pipefail
-            trap 'adb logcat -d > marmalade-logcat.txt || true; adb exec-out screencap -p > marmalade-screen.png || true' EXIT
-            adb install candidate/app-debug.apk
-            adb logcat -c
-            adb shell am start -W -n app.marmaladeplayer.mobile/.MainActivity
-            sleep 12
-            PID="$(adb shell pidof app.marmaladeplayer.mobile | tr -d '\r')"
-            test -n "$PID"
-            adb shell dumpsys activity activities | grep 'app.marmaladeplayer.mobile'
-            adb logcat -d -s AndroidRuntime:E > marmalade-runtime.txt
-            if grep -A 5 -F 'FATAL EXCEPTION' marmalade-runtime.txt | grep -F 'Process: app.marmaladeplayer.mobile'; then
-              echo 'MarmaladePlayer crashed on Android emulator' >&2
-              exit 1
-            fi
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -cores 2
+          script: bash scripts/android-emulator-smoke.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -73,5 +59,8 @@ jobs:
             marmalade-screen.png
             marmalade-logcat.txt
             marmalade-runtime.txt
+            marmalade-startup.png
+            marmalade-launch.txt
+            marmalade-activities.txt
           if-no-files-found: ignore
           retention-days: 14

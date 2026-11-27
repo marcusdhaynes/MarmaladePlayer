@@ -127,30 +127,25 @@ try{
  console.log('PASS searchable full-length subtitle lines and exact per-video timing');
 
  await page.evaluate(()=>window.MarmaladeSubtitleTiming.set(0));
- const plus=page.locator('#subtitleTimingPlus'),minus=page.locator('#subtitleTimingMinus');
- await plus.evaluate(e=>e.click());
- assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.1');
- const hold=async(locator,ms,id)=>{
-  await locator.dispatchEvent('pointerdown',{button:0,pointerId:id,pointerType:'mouse',isPrimary:true});
-  await page.waitForTimeout(ms);
-  await locator.dispatchEvent('pointerup',{button:0,pointerId:id,pointerType:'mouse',isPrimary:true});
-  await locator.dispatchEvent('click');
- };
- await hold(plus,800,13);
- assert.equal(await page.locator('#subtitleTiming').inputValue(),'1.1','Long press must change exactly once');
- await page.locator('#subtitlesBtn').click({force:true});
- await page.locator('#settingsBtn').click({force:true});
- await page.evaluate(()=>window.MarmaladeSettingsLayout.activate('controls'));
- assert.equal(await page.locator('#subtitleTimingHold').inputValue(),'250');
- await page.locator('#subtitleTimingHold').selectOption('150');
- await page.locator('#settingsBtn').click({force:true});
- await page.locator('#subtitlesBtn').click({force:true});
- await page.locator('#subSyncTab').click({force:true});
- await hold(minus,250,14);
- assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.1','Configured hold changes once');
- await minus.evaluate(e=>e.click());
- assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.0','Tap changes one tenth');
- console.log('PASS configurable 0.25-second, nonrepeating long press');
+ const finePlus=page.locator('#subtitleTimingFinePlus'),fineMinus=page.locator('#subtitleTimingFineMinus');
+ const majorPlus=page.locator('#subtitleTimingPlus'),majorMinus=page.locator('#subtitleTimingMinus');
+ await finePlus.click();
+ assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.1','Outer plus changes one tenth');
+ await majorPlus.click();
+ assert.equal(await page.locator('#subtitleTiming').inputValue(),'1.1','Inner plus changes one second');
+ await majorMinus.click();
+ assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.1','Inner minus changes one second');
+ await fineMinus.click();
+ assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.0','Outer minus changes one tenth');
+ // A held pointer must not repeat or silently change the fixed step.
+ for(const [button,expected] of [[finePlus,'0.1'],[majorPlus,'1.1'],[majorMinus,'0.1'],[fineMinus,'0.0']]){
+  await button.hover();
+  await page.mouse.down();
+  await page.waitForTimeout(800);
+  await page.mouse.up();
+  assert.equal(await page.locator('#subtitleTiming').inputValue(),expected,'Hold retains the same fixed adjustment exactly once');
+ }
+ console.log('PASS fixed fine/major subtitle timing controls and nonrepeating holds');
 
  // The host can provide an actual scene over the room's existing data channel.
  const hostPacket=await page.evaluate(async()=>{
