@@ -4207,7 +4207,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         setStage('Connecting your stream…', 'Your host has started playback.', 'ALMOST THERE');
         state.streamWaitTimer = setTimeout(() => {
           state.streamWaitTimer = null;
-          if (state.role !== 'guest' || state.source === 'remote' || !state.guestConn?.open) return;
+          if (state.role !== 'guest' || state.source === 'remote' || state.bufferedMode || !state.guestConn?.open) return;
           setStage('Video has not connected', 'Retrying the media connection. If this persists, your network may require a TURN relay.', 'CONNECTION TROUBLE');
           connection('Video reconnecting…', 'error');
           requestMissingMedia('media-timeout');
@@ -4268,15 +4268,19 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       joinFailed('The host has not appeared on the room service. The host must show "Room online" and keep their app open.',false,peer);
     },JOIN_TIMEOUT_MS);
     setupGuestCallHandler(peer);
-    peer.on('open', () => {
-      if (state.peer !== peer || !state.connecting) return;
+    let controlRetries=0;
+    function connectControl(recovering=false){
+      if(state.peer!==peer||(!recovering&&!state.connecting))return;
       let conn;
-      try { conn = peer.connect(PEER_PREFIX + code,{reliable:true}); }
-      catch { joinFailed('Could not reach the host. Please check the invitation.',false,peer); return; }
-      state.guestConn = conn;
+      try{conn=peer.connect(PEER_PREFIX+code,{reliable:true});}
+      catch{if(recovering){fallbackRejoin();return;}joinFailed('Could not reach the host. Please check the invitation.',false,peer);return;}
+      state.guestConn=conn;
+      if(recovering)window.MarmaladeRollingBuffer?.rebind(conn);
+      const reconnectTimeout=recovering?setTimeout(()=>{if(state.guestConn===conn&&!conn.open){try{conn.close();}catch{}if(state.guestConn===conn&&!conn.open)recoverControl(conn);}},9000):null;
       el.joinProgressText.textContent = `Finding host · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`;
       conn.on('open', () => {
         if (state.guestConn !== conn || state.peer !== peer) return;
+        clearTimeout(reconnectTimeout);controlRetries=0;
         clearTimeout(state.joinTimeout);
         clearTimeout(state.joinRetryTimer);
         state.joinTimeout = state.joinRetryTimer = null;
@@ -4301,6 +4305,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         el.localCopyPanel.hidden = true;
         updateRoomActions();
         send(conn,{type:'hello'});
+        if(recovering)window.MarmaladeRollingBuffer?.announce();
         // If the media connection raced ahead of the data channel, the
         // earlier acknowledgment could not have been transmitted.
         if (state.source === 'remote' && state.guestCall)
@@ -4323,7 +4328,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         }
         if(data.type==='state' || (data.type==='local-clock' && state.localVerified))
           receiveState(data);
-        if (data.type === 'media-error' && state.source !== 'remote' && !state.localVerified) {
+        if (data.type === 'media-error' && state.source !== 'remote' && !state.localVerified && !state.bufferedMode) {
           connection('Media connection failed','error');
           setStage('Video and sound not connected',
             typeof data.message === 'string' ? data.message :
@@ -4378,24 +4383,34 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         }
       });
       conn.on('close',()=>{
+        clearTimeout(reconnectTimeout);
         if(state.guestConn!==conn||state.peer!==peer)return;
         if(state.connecting){joinFailed('Host closed connection during joining. Retrying…',false,peer);return;}
-        const code=state.code;
-        notify('Connection lost. Rejoining the room…');
-        el.joinInput.value=code;
-        closeConnections();state.role='guest';
-        setTimeout(()=>{
-          if(state.role==='guest'&&!state.peer&&parseCode(el.joinInput.value)===code)
-            void joinRoom();
-        },1500);
+        recoverControl(conn);
       });
       conn.on('error', (error) => {
         if (state.guestConn !== conn || state.peer !== peer) return;
         console.warn('Guest connection error',error);
         if (state.connecting) joinFailed('The connection to the host failed. Retrying…',false,peer);
+        else if(recovering&&!conn.open){clearTimeout(reconnectTimeout);recoverControl(conn);}
         else notify('The host connection was interrupted.');
       });
-    });
+    }
+    function fallbackRejoin(){
+      const oldCode=state.code;el.joinInput.value=oldCode;
+      closeConnections();state.role='guest';
+      setTimeout(()=>{if(state.role==='guest'&&!state.peer&&parseCode(el.joinInput.value)===oldCode)void joinRoom();},1500);
+    }
+    let controlRetryTimer=0;
+    function recoverControl(conn){
+      if(state.guestConn!==conn||state.peer!==peer||controlRetryTimer)return;
+      if(state.source==='buffered-guest'&&window.MarmaladeRollingBuffer?.getStatus()?.ready&&controlRetries<4&&!peer.destroyed){
+        controlRetries++;
+        connection('Reconnecting · using buffered movie','error');
+        controlRetryTimer=setTimeout(()=>{controlRetryTimer=0;if(state.guestConn===conn&&state.peer===peer)connectControl(true);},Math.min(2000,250*controlRetries));
+      }else{notify('Connection lost. Rejoining the room…');fallbackRejoin();}
+    }
+    peer.on('open',()=>connectControl());
     peer.on('error', (error) => {
       if (state.peer !== peer) return;
       console.error('Join signaling error',error);
@@ -6250,7 +6265,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   const revealPlayableVideo = () => {
     if (media.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || media.error) return;
     if ((state.role === 'host' && ['file','native','hosted','screen'].includes(state.source)) ||
-        (state.role === 'guest' && ['remote','local-guest','hosted-guest'].includes(state.source))) {
+        (state.role === 'guest' && ['remote','local-guest','hosted-guest','buffered-guest'].includes(state.source))) {
       showStage(true);
     }
   };
@@ -6421,7 +6436,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       showStage(true);
       updateTransport();
     } else if (state.role === 'guest' &&
-        ['remote','local-guest','hosted-guest'].includes(state.source)) {
+        ['remote','local-guest','hosted-guest','buffered-guest'].includes(state.source)) {
       showStage(true);
     }
   });
