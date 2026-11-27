@@ -65,7 +65,12 @@ try{
 
  async function sample(frac){
   await page.mouse.move(seek.x+seek.width*frac,seek.y+seek.height/2);
-  await page.waitForFunction(()=>!document.querySelector('#seekPreviewCanvas').hidden,null,{timeout:9000});
+  await page.waitForFunction(frac=>{
+   const c=document.querySelector('#seekPreviewCanvas');
+   if(!c||c.hidden)return false;
+   const p=c.getContext('2d').getImageData(96,54,1,1).data;
+   return frac<.5?p[0]>95&&p[2]<85:p[2]>95&&p[0]<85;
+  },frac,{timeout:9000});
   return await page.locator('#seekPreviewCanvas').evaluate(c=>{
    const p=c.getContext('2d').getImageData(96,54,1,1).data;return [p[0],p[1],p[2]];
   });
@@ -98,8 +103,12 @@ try{
  assert(text.startsWith('00:00:04.2 | ')&&text.includes(full),'Full Time | Line is preserved');
  await page.locator('#subTimingCue .sub-cue-option').click();
  await page.evaluate(()=>{document.querySelector('#player').currentTime=5;});
- await page.locator('#subTimingAlign').click();
- assert.equal(await page.locator('#subtitleTiming').inputValue(),'-0.8');
+ await page.waitForFunction(()=>{const v=document.querySelector('#player');return !v.seeking&&Math.abs(v.currentTime-5)<.01;});
+ const firstWord=page.locator('#subSelectedLine .sub-word').first();
+ assert.equal(await firstWord.textContent(),'At');
+ await firstWord.click();
+ assert.equal(await firstWord.getAttribute('aria-pressed'),'true');
+ assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.8');
  const result=await page.evaluate(()=>{
   const {state,media}=window.MarmaladeAddonBridge;
   return {clock:window.MarmaladeSubtitleClock(media.currentTime),

@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -28,30 +30,46 @@ jobs:
           mkdir -p candidate
           gh run download "$APK_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MarmaladePlayer-Android-APK --dir candidate
           test -s candidate/app-debug.apk
+      - name: Enable hardware acceleration for emulator
+        run: |
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
       - name: Launch APK on Android 15 emulator and check for fatal crashes
+        timeout-minutes: 18
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
           profile: pixel_5
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
+            set -euo pipefail
+            trap 'adb logcat -d > marmalade-logcat.txt || true; adb exec-out screencap -p > marmalade-screen.png || true' EXIT
             adb install candidate/app-debug.apk
+            adb logcat -c
             adb shell am start -W -n app.marmaladeplayer.mobile/.MainActivity
             sleep 12
             PID="$(adb shell pidof app.marmaladeplayer.mobile | tr -d '\r')"
             test -n "$PID"
             adb shell dumpsys activity activities | grep 'app.marmaladeplayer.mobile'
-            if adb logcat -d -s AndroidRuntime:E | grep -F 'FATAL EXCEPTION'; then
+            adb logcat -d -s AndroidRuntime:E > marmalade-runtime.txt
+            if grep -A 5 -F 'FATAL EXCEPTION' marmalade-runtime.txt | grep -F 'Process: app.marmaladeplayer.mobile'; then
               echo 'MarmaladePlayer crashed on Android emulator' >&2
               exit 1
             fi
-            adb shell screencap -p /sdcard/marmalade-screen.png
-            adb pull /sdcard/marmalade-screen.png marmalade-screen.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: MarmaladePlayer-Android-Emulator-Screenshot
-          path: marmalade-screen.png
+          path: |
+            marmalade-screen.png
+            marmalade-logcat.txt
+            marmalade-runtime.txt
           if-no-files-found: ignore
           retention-days: 14

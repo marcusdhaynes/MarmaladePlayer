@@ -4,6 +4,7 @@ on:
     paths:
       - index.html
       - seek-preview.js
+      - standalone-pip.js
       - rapid-controls.js
       - adaptive-brightness.js
       - rapid-controls.css
@@ -43,9 +44,14 @@ jobs:
       - run: node tests/subtitle-codec.test.cjs
       - run: node tests/rapid-ui.mjs
       - run: node tests/pip-controls.mjs
+        id: pip
+        if: ${{ !cancelled() }}
       - name: Install FFmpeg for thumbnail test
+        id: ffmpeg
+        if: ${{ !cancelled() }}
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: node tests/thumbnail-timing.mjs
+        if: ${{ !cancelled() && steps.ffmpeg.outcome == 'success' }}
       - name: Preserve visual screenshots
         if: always()
         uses: actions/upload-artifact@v4
