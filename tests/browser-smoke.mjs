@@ -273,9 +273,15 @@ try {
       'Timing must use an editable seconds box instead of a slider');
     assert.equal(await page.locator('#subtitleTimingPlus').count(),1);
     assert.equal(await page.locator('#subtitleTimingMinus').count(),1);
-    await page.locator('#subtitleTimingPlus').evaluate(e=>e.click());
+    await page.locator('#subtitleTimingFinePlus').evaluate(e=>e.click());
     assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.1',
-      'Quick + press must advance 0.1 seconds');
+      'Outer + press must advance 0.1 seconds');
+    await page.locator('#subtitleTimingPlus').evaluate(e=>e.click());
+    assert.equal(await page.locator('#subtitleTiming').inputValue(),'1.1','Inner + press must advance 1 second');
+    await page.locator('#subtitleTimingMinus').evaluate(e=>e.click());
+    assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.1');
+    await page.locator('#subtitleTimingFineMinus').evaluate(e=>e.click());
+    assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.0');
     await page.locator('#subtitleTiming').fill('-1.5');
     await page.locator('#subtitleTiming').press('Enter');
     assert.equal(await page.locator('#subtitleTiming').inputValue(),'-1.5',
