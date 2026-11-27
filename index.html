@@ -1799,7 +1799,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const localFile = state.role === 'host' &&
       (state.source === 'file' && Boolean(state.fileUrl) ||
        state.source === 'native' && Boolean(state.nativeStreamUrl));
-    const key = localFile ? 'file:' + state.fileUrl :
+    const key = localFile ? state.source==='native'?'native:'+state.nativeStreamUrl:'file:' + state.fileUrl :
       (state.source || '') + ':' + (media.currentSrc || media.src || '');
     if (key !== durationResourceKey) {
       durationResourceKey = key;
@@ -6642,7 +6642,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   });
   media.addEventListener('timeupdate', () => {
     saveWatchPosition();
-    if (state.role === 'host' && ['file','hosted'].includes(state.source)) { updateTransport(); syncState(); }
+    if (state.role === 'host' && ['file','native','hosted'].includes(state.source)) { updateTransport(); syncState(); }
   });
   window.setInterval(() => {
     if(state.role==='guest'&&state.guestConn?.open&&!state.seeking){
