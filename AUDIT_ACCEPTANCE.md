@@ -29,7 +29,11 @@ verifies thumbnails, bookmarks, chapter markers, exact timestamps, nearby
 scene boundaries, actual adjacent decoded pictures, guest thumbnail requests,
 and paused navigation. Remaining: measure preview latency and playback stutter
 under active playback load, verify buffered-range visualization and cancellation
-under repeated requests; VFR stepping is not guaranteed frame-accurate.
+under repeated requests. Dedicated real-media acceptance tests for these now
+exist and await CI. Fixture budgets: cached preview <500 ms, uncached <1500 ms,
+no pause/seek/wait/stall events and bounded frame loss during stress. These
+are regression budgets, not guarantees of instant preview on every device.
+VFR stepping is not guaranteed frame-accurate.
 
 ## Section 19 — Updates, checkpoints and regression prevention (page 23)
 
@@ -39,9 +43,7 @@ verified all 34 staged asset hashes. Permanent version backup passed
 [46066691212](https://github.com/marcusdhaynes/MarmaladePlayer/actions/runs/46066691212).
 New contract and archive-restore checks added: deterministic web stamping,
 tamper rejection, extracted archive integrity and forward/back cache migration.
-Await CI evidence for these new checks. Actual production rollback is not
-performed; native build reproducibility and persistent user-data schema
-migration coverage are still open.
+These checks passed on commit `1d5000973300d2ab7c1cde8238543ca8f321858a`: [contract suite](https://github.com/marcusdhaynes/MarmaladePlayer/actions/runs/46067391710) and [restored archive](https://github.com/marcusdhaynes/MarmaladePlayer/actions/runs/46067391682). Actual production rollback is not performed; native build reproducibility and persistent user-data schema migration coverage are still open.
 
 Other sections remain open until a comparable item-level acceptance record
 is supported by implementation and verification evidence.

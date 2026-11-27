@@ -61,12 +61,13 @@
  function setStatus(message){
   status.textContent=message;status.hidden=!message;
   canvas.hidden=!!message;
+  if(message)delete card.dataset.renderedTime;
  }
  function clearCard(){
   active=false;card.hidden=true;canvas.hidden=true;
   clearTimeout(debounce);debounce=0;hoverEpoch++;
   latestRemote=0;remoteOutstanding=0;remoteWanted=null;remoteAttempts=0;
-  delete card.dataset.time;delete card.dataset.source;
+  delete card.dataset.time;delete card.dataset.source;delete card.dataset.renderedTime;
   for(let i=captureQueue.length-1;i>=0;i--){
    if(captureQueue[i].interactive)captureQueue.splice(i,1)[0].reject(Error('Superseded'));
   }
@@ -170,18 +171,16 @@
  function getFrame(time,interactive=false){
   const point=Math.round(time/BUCKET_SECONDS)*BUCKET_SECONDS;
   const source=sourceSignature(),key=source+':'+point.toFixed(3);
+  // Even a cache hit supersedes older queued hover work.
+  if(interactive)for(let i=captureQueue.length-1;i>=0;i--){
+   if(captureQueue[i].interactive)captureQueue.splice(i,1)[0].reject(Error('Superseded'));
+  }
   if(cache.has(key)){
    const frame=cache.get(key);
    cache.delete(key);cache.set(key,frame); // LRU preserves recently hovered frames.
    return Promise.resolve(frame);
   }
   return new Promise((resolve,reject)=>{
-   if(interactive){
-    for(let i=captureQueue.length-1;i>=0;i--){
-     if(captureQueue[i].interactive)
-      captureQueue.splice(i,1)[0].reject(Error('Superseded'));
-    }
-   }
    if(captureQueue.length>=MAX_QUEUED){
     if(!interactive){reject(Error('Preview queue busy'));return;}
     captureQueue.pop().reject(Error('Superseded'));
@@ -198,6 +197,7 @@
   image.onload=()=>{
    if(!active||epoch!==hoverEpoch||card.hidden)return;
    context.clearRect(0,0,192,108);context.drawImage(image,0,0,192,108);
+   card.dataset.renderedTime=String(at);
    status.hidden=true;canvas.hidden=false;
   };
   image.onerror=()=>{if(epoch===hoverEpoch)setStatus('Preview unavailable');};

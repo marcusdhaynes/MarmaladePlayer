@@ -92,6 +92,83 @@ try{
  await page.mouse.move(1,1);
  assert.equal(await page.locator('#seekPreview').isVisible(),false);
  console.log('PASS thumbnails show distinct frames at hovered scene times; main playback unchanged');
+ // Confirm actual buffered ranges, plus disjoint-range geometry and the
+ // absence of a fictional future buffer on a live stream.
+ const ranges=await page.evaluate(()=>{
+  const {media,state,el,updateBufferDisplay}=window.MarmaladeAddonBridge;
+  updateBufferDisplay();
+  const real={length:media.buffered.length,hidden:el.bufferedFill.hidden};
+  const descriptor=Object.getOwnPropertyDescriptor(media,'buffered');
+  const old={source:state.source,localVerified:state.localVerified,bufferedMode:state.bufferedMode};
+  const d=media.duration;
+  try{
+   Object.defineProperty(media,'buffered',{configurable:true,value:{length:2,start:i=>[0,d*.5][i],end:i=>[d*.25,d*.75][i]}});
+   updateBufferDisplay();
+   const gradient=el.bufferedFill.style.background;
+   const disjoint={hidden:el.bufferedFill.hidden,stops:[...gradient.matchAll(/(\d+(?:\.\d+)?)%/g)].map(m=>Number(m[1]))};
+   Object.assign(state,{source:'remote',localVerified:false,bufferedMode:false});updateBufferDisplay();
+   return {real,disjoint,remoteHidden:el.bufferedFill.hidden};
+  }finally{
+   Object.assign(state,old);if(descriptor)Object.defineProperty(media,'buffered',descriptor);else delete media.buffered;
+   updateBufferDisplay();
+  }
+ });
+ assert(ranges.real.length>0&&!ranges.real.hidden,JSON.stringify(ranges));
+ assert.equal(ranges.disjoint.hidden,false);
+ assert.deepEqual(ranges.disjoint.stops,[0,0,0,25,25,50,50,75,75,100]);
+ assert.equal(ranges.remoteHidden,true);
+ console.log('PASS real media buffer and disjoint-range visualization; live stream has no fake forward buffer');
+ // Stress cached and uncached hovers while the main video is playing.
+ await page.evaluate(async()=>{
+  const v=document.querySelector('#player');v.currentTime=.5;
+  await new Promise(r=>v.addEventListener('seeked',r,{once:true}));
+  v.muted=true;await v.play();
+ });
+ await page.waitForFunction(()=>document.querySelector('#player').currentTime>.65);
+ const geometry=await page.locator('#seek').boundingBox();
+ assert(geometry&&geometry.width>0);
+ const move=frac=>page.mouse.move(geometry.x+geometry.width*frac,geometry.y+geometry.height/2);
+ const rendered=async frac=>{
+  await page.waitForFunction(frac=>{
+   const card=document.querySelector('#seekPreview'),c=document.querySelector('#seekPreviewCanvas');
+   const t=Number(card.dataset.renderedTime),d=document.querySelector('#player').duration;
+   if(card.hidden||c.hidden||!Number.isFinite(t)||Math.abs(t-frac*d)>.15)return false;
+   const p=c.getContext('2d').getImageData(96,54,1,1).data;
+   return frac<.5?p[0]>95&&p[2]<85:p[2]>95&&p[0]<85;
+  },frac,{timeout:5000});
+ };
+ const start=await page.evaluate(()=>{
+  const v=document.querySelector('#player');
+  const monitor={events:[],time:v.currentTime,at:performance.now(),quality:v.getVideoPlaybackQuality(),handler:null};
+  monitor.handler=e=>monitor.events.push(e.type);
+  for(const event of ['seeking','pause','waiting','stalled'])v.addEventListener(event,monitor.handler);
+  window.__timelineAcceptanceMonitor=monitor;return monitor.time;
+ });
+ let clock=performance.now();await move(.25);await rendered(.25);const warmMs=performance.now()-clock;
+ clock=performance.now();await move(.375);await rendered(.375);const coldMs=performance.now()-clock;
+ // Send several real pointer events in succession and demand the last
+ // requested image; old completions must not repaint the visible canvas.
+ for(const frac of [.625,.125,.875,.25,.75])await move(frac);
+ await rendered(.75);
+ await page.mouse.move(1,1);
+ await page.waitForTimeout(300);
+ assert.equal(await page.locator('#seekPreview').isVisible(),false);
+ assert.equal(await page.locator('#seekPreview').getAttribute('data-rendered-time'),null);
+ const continuity=await page.evaluate(()=>{
+  const v=document.querySelector('#player'),m=window.__timelineAcceptanceMonitor;
+  for(const event of ['seeking','pause','waiting','stalled'])v.removeEventListener(event,m.handler);
+  const q=v.getVideoPlaybackQuality();
+  delete window.__timelineAcceptanceMonitor;
+  return {elapsed:(performance.now()-m.at)/1000,advanced:v.currentTime-m.time,events:m.events,paused:v.paused,
+   frames:q.totalVideoFrames-m.quality.totalVideoFrames,dropped:q.droppedVideoFrames-m.quality.droppedVideoFrames};
+ });
+ assert(warmMs<500,'Cached preview latency '+warmMs);
+ assert(coldMs<1500,'Uncached preview latency '+coldMs);
+ assert(!continuity.paused&&!continuity.events.length,JSON.stringify(continuity));
+ assert(continuity.advanced>=continuity.elapsed*.7&&continuity.advanced<=continuity.elapsed*1.3,JSON.stringify(continuity));
+ assert(continuity.frames>0&&continuity.dropped<=Math.max(2,continuity.frames*.15),JSON.stringify(continuity));
+ console.log('PASS active-playback preview latency, latest-pointer cancellation and playback continuity',JSON.stringify({warmMs,coldMs,start,...continuity}));
+ await page.evaluate(()=>document.querySelector('#player').pause());
  // Bookmarks use exact movie identity, real seeks and durable local storage.
  await page.waitForFunction(()=>!document.querySelector('#bookmarkAdd').disabled,null,{timeout:12000});
  await page.evaluate(async()=>{const v=document.querySelector('#player');v.pause();v.currentTime=2;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
