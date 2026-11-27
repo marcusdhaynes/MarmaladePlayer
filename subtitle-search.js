@@ -57,26 +57,14 @@
   function place(){
     if(panel.hidden)return;
     if(window.MarmaladeDockPlayerPanel?.(panel))return;
-    const full=document.fullscreenElement===el.stage;
+    const full=(document.fullscreenElement||document.webkitFullscreenElement)===el.stage;
     const parent=full?el.stage:document.body;
     if(panel.parentElement!==parent)parent.append(panel);
-    const mobile=matchMedia('(pointer:coarse)').matches||innerWidth<=650;
-    const stage=el.stage.getBoundingClientRect();
     const viewHeight=window.visualViewport?.height||innerHeight;
-    const top=Math.max(12,Math.round(stage.bottom+8));
-    // Portrait/mobile: use the remaining viewport beneath the movie and
-    // center the editor, leaving the movie unobstructed for play/seek tests.
-    const below=mobile&&!full&&!el.stage.classList.contains('fullscreen-fallback')&&
-      top<viewHeight-120&&stage.bottom>0;
-    panel.classList.toggle('subtitle-mobile-below',below);
-    if(below){
-      panel.style.setProperty('--subtitle-top',top+'px');
-      panel.style.setProperty('--subtitle-space',Math.max(108,Math.floor(viewHeight-top-12))+'px');
-      panel.style.left='';
-      panel.style.top='';
-      panel.style.transform='';
-      return;
-    }
+    // Portrait document docking is handled by the common policy above.
+    // Every other viewing mode uses the original floating subtitle studio.
+    panel.classList.remove('subtitle-mobile-below');
+    panel.style.removeProperty('transform');
     panel.style.removeProperty('--subtitle-top');
     panel.style.removeProperty('--subtitle-space');
     const trigger=el.subtitleBtn.getBoundingClientRect();
@@ -84,9 +72,9 @@
     // Landscape/fullscreen: compact, scrollable overlay in a corner so the
     // video remains interactable outside the editor.
     panel.style.left=Math.round(Math.max(pad,Math.min(innerWidth-rect.width-pad,
-      mobile?innerWidth-rect.width-pad:trigger.right-rect.width)))+'px';
+      trigger.right-rect.width)))+'px';
     panel.style.top=Math.round(Math.max(pad,Math.min(viewHeight-rect.height-pad,
-      mobile?pad:trigger.top-rect.height-10)))+'px';
+      trigger.top-rect.height-10)))+'px';
   }
   function tab(which){
     find.hidden=which!=='find';style.hidden=which!=='style';
@@ -102,6 +90,7 @@
   window.visualViewport?.addEventListener('resize',place,{passive:true});
   addEventListener('scroll',place,{passive:true});
   document.addEventListener('fullscreenchange',place);
+  document.addEventListener('webkitfullscreenchange',place);
   el.subtitleBtn.setAttribute('aria-controls','subtitlePanel');
   el.subtitleBtn.addEventListener('click',()=>{if(!panel.hidden){defaultFromFile();place();}});
 

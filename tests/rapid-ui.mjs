@@ -212,6 +212,7 @@ try{
   await page.screenshot({path:resolve(pictures,'party-'+size.width+'x'+size.height+'.png'),animations:'disabled'});
   await page.mouse.click(4,4);
   const settingsDocked=await page.locator('#settingsPanel').evaluate(el=>el.classList.contains('player-docked'));
+ assert.equal(settingsDocked,size.height>size.width,'Responsive settings docking follows orientation');
   assert.equal(await page.locator('#settingsPanel').isVisible(),settingsDocked,'Docked settings remain open; floating settings dismiss on outside pointer');
   if(settingsDocked)await page.locator('#closeSettingsPanel').click();
   await page.evaluate(()=>document.getElementById('subtitlesBtn').click());
@@ -252,6 +253,7 @@ try{
   });
   await page.mouse.click(4,4);
   const subtitlesDocked=await page.locator('#subtitlePanel').evaluate(el=>el.classList.contains('player-docked'));
+ assert.equal(subtitlesDocked,size.height>size.width,'Responsive subtitle docking follows orientation');
   assert.equal(await page.locator('#subtitlePanel').isVisible(),subtitlesDocked,'Docked subtitles remain open; floating subtitles dismiss on outside pointer');
   if(subtitlesDocked)await page.locator('#closeSubtitlePanel').click();
 

@@ -63,6 +63,7 @@ try{
     });
     const {panel,viewport:vp,positions}=boxes;
     assert(panel.left>=-1&&panel.right<=vp.width+1,'Settings must not be horizontally clipped');
+    assert.equal(boxes.docked,vp.height>vp.width,'Only portrait view docks settings');
     if(boxes.docked){
       assert(Math.abs(panel.width-boxes.dockWidth)<=2,'Docked settings fill the player column');
       // In normal viewing mode the panel is intentionally below the video.
@@ -75,6 +76,8 @@ try{
     }else{
       assert(panel.top>=-1&&panel.bottom<=vp.height+1,'Floating settings remain inside viewport');
       assert(panel.width<=350&&panel.width>=280,'Compact floating palette width');
+      assert.equal(await page.locator('#settingsPanel').evaluate(p=>getComputedStyle(p).position),'fixed');
+      assert.equal(await page.locator('#playerPanelDock').isVisible(),false,'Landscape reserves no dock space');
     }
     assert.deepEqual(boxes.visible,[which]);
     assert.equal(boxes.tabCount,3);
@@ -119,10 +122,33 @@ try{
   assert.equal(await page.locator('#settingsPanel').isVisible(),false);
   assert.equal(await page.locator('#subtitlePanel').isVisible(),true,
     'Subtitles shortcut opens the original specialized subtitle studio');
+  assert.equal(await page.locator('#subtitlePanel').evaluate(p=>p.classList.contains('player-docked')),viewport.height>viewport.width,'Only portrait view docks subtitles');
+  if(viewport.width>viewport.height){
+    const r=await page.locator('#subtitlePanel').boundingBox();
+    assert(r&&r.x>=-1&&r.y>=-1&&r.x+r.width<=viewport.width+1&&r.y+r.height<=viewport.height+1,'Floating subtitles fit the viewport');
+    assert.equal(await page.locator('#subtitlePanel').evaluate(p=>getComputedStyle(p).position),'fixed');
+  }
+  // Rotate an already-open panel. Preserve the current tab and ensure the
+  // window moves between the document dock and the fixed overlay.
+  if(viewport.width===1366){
+    await page.setViewportSize({width:390,height:844});
+    await page.waitForFunction(()=>document.querySelector('#subtitlePanel').classList.contains('player-docked'));
+    await page.setViewportSize({width:844,height:390});
+    await page.waitForFunction(()=>!document.querySelector('#subtitlePanel').classList.contains('player-docked')&&document.querySelector('#subtitlePanel').parentElement===document.body);
+    await page.setViewportSize(viewport);
+  }
   await page.locator('#closeSubtitlePanel').click();
   await page.locator('#settingsBtn').click({force:true});
   await page.waitForFunction(()=>!document.getElementById('settingsPanel').hidden);
   assert.equal(await page.locator('#settingsTabVideo').getAttribute('aria-selected'),'true');
+  if(viewport.width===1366){
+    await page.setViewportSize({width:390,height:844});
+    await page.waitForFunction(()=>document.querySelector('#settingsPanel').classList.contains('player-docked'));
+    await page.setViewportSize({width:844,height:390});
+    await page.waitForFunction(()=>!document.querySelector('#settingsPanel').classList.contains('player-docked')&&document.querySelector('#settingsPanel').parentElement===document.body);
+    assert.equal(await page.locator('#settingsTabVideo').getAttribute('aria-selected'),'true');
+    await page.setViewportSize(viewport);
+  }
   assert.deepEqual(errors,[], 'No runtime exceptions during settings interactions');
   await page.close();
   console.log('PASS settings desktop/mobile layout '+viewport.width+'×'+viewport.height);
