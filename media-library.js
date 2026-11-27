@@ -396,6 +396,34 @@
     return {id:folder.id+'|'+path,folderId:folder.id,path,name:file.name,
       size:file.size||0,lastModified:file.lastModified||0,addedAt:now(),...info};
   }
+  // Preserve metadata when a unique unchanged file moves inside a scanned
+  // folder. Never guess between equal-size/equal-mtime candidates.
+  function reconcileFolder(previous,found,hiddenIds=[]){
+    const oldById=new Map(previous.map(item=>[item.id,item]));
+    const newIds=new Set(found.map(item=>item.id));
+    const identity=item=>Number(item.size)>0&&Number(item.lastModified)>0?item.size+'|'+item.lastModified:null;
+    const missing=new Map(),added=new Map(),renamed=new Map();
+    const add=(map,key,item)=>{if(key){if(!map.has(key))map.set(key,[]);map.get(key).push(item);}};
+    for(const item of previous)if(!newIds.has(item.id))add(missing,identity(item),item);
+    for(const item of found)if(!oldById.has(item.id))add(added,identity(item),item);
+    for(const item of found){
+      let old=oldById.get(item.id);
+      if(!old){
+        const key=identity(item),from=missing.get(key),to=added.get(key);
+        if(from?.length===1&&to?.length===1){old=from[0];renamed.set(old.id,item.id);}
+      }
+      if(!old)continue;
+      // A replacement at the same path is not the previous movie.
+      if(!item.metadataPending&&old.size>0&&item.size>0&&
+          (old.size!==item.size||old.lastModified!==item.lastModified))continue;
+      const current={id:item.id,path:item.path,folderId:item.folderId,name:item.name,
+        size:item.metadataPending?old.size:item.size,
+        lastModified:item.metadataPending?old.lastModified:item.lastModified,
+        metadataPending:!!item.metadataPending,addedAt:old.addedAt||item.addedAt};
+      Object.assign(item,old,current);
+    }
+    return [...new Set(hiddenIds.map(id=>renamed.get(id)||id))];
+  }
   function scanPreview(message){
     const el=$('mlScanPreview');
     if(el)el.textContent=message||'';
@@ -419,12 +447,7 @@
           return null;
         }
         state.scanProblems.delete(folder.id);
-        const previous=new Map((draft.items||[]).map(i=>[i.id,i]));
-        for(const item of found){
-          const old=previous.get(item.id);
-          if(old)Object.assign(item,{...old,id:item.id,path:item.path,folderId:item.folderId,
-            name:item.name,size:item.size,lastModified:item.lastModified});
-        }
+        draft.hiddenIds=reconcileFolder((draft.items||[]).filter(i=>i.folderId===folder.id),found,draft.hiddenIds||[]);
         draft.items=(draft.items||[]).filter(i=>i.folderId!==folder.id).concat(found);
         const deferred=found.filter(item=>item.metadataPending).length;
         const direct=state.autoAttachDraft===draft;
@@ -482,8 +505,8 @@
     }
     state.scanning=true;
     const seq=++state.scanSeq,oldItems=(lib.items||[]).slice();
-    const prior=new Map(oldItems.map(item=>[item.id,item]));
     let items=oldItems.slice(),accessIssues=0,folderIssues=0;
+    let hiddenIds=(lib.hiddenIds||[]).slice();
     ui.rescan.disabled=true;notify('Scanning '+lib.name+'…');
     try{
       for(const folder of lib.folders){
@@ -499,16 +522,8 @@
         }
         if(found!==null){
           items=items.filter(item=>item.folderId!==folder.id);
-          for(const item of found){
-            const previous=prior.get(item.id);
-            if(previous){
-              Object.assign(item,{...previous,id:item.id,path:item.path,folderId:item.folderId,
-                name:item.name,size:item.size,lastModified:item.lastModified,
-                metadataPending:!!item.metadataPending,
-                addedAt:previous.addedAt||item.addedAt});
-            }
-          }
-          const blocked=new Set(lib.hiddenIds||[]);
+          hiddenIds=reconcileFolder(oldItems.filter(item=>item.folderId===folder.id),found,hiddenIds);
+          const blocked=new Set(hiddenIds);
           items.push(...found.filter(item=>!blocked.has(item.id)));
           state.scanProblems.delete(folder.id);
         }else{
@@ -517,7 +532,7 @@
         }
       }
       if(seq!==state.scanSeq)return;
-      lib.items=items;
+      lib.items=items;lib.hiddenIds=hiddenIds;
       lib.lastScan=now();
       await persist(lib);
       if(folderIssues)notify('Some folders failed to scan. Edit Library to reconnect; previously indexed titles are kept.');
