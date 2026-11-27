@@ -53,8 +53,12 @@ try{
   // Adaptive brightness lives to the right of the volume readout and
   // controls video gamma rather than putting a white overlay over the stage.
   await page.waitForFunction(()=>Boolean(window.MarmaladeAdaptiveBrightness));
-  assert.equal(await page.locator('#volumeMark + #adaptiveBrightnessControl').count(),1,
-    'Brightness control must be immediately after volume');
+  assert.equal(await page.locator('.theater-volume-group + .theater-right > #adaptiveBrightnessControl:first-child').count(),1,
+    'Brightness control must be the first action immediately after the volume group');
+  const volumeBounds=await page.locator('.theater-volume-group').boundingBox();
+  const brightnessBounds=await page.locator('#adaptiveBrightnessControl').boundingBox();
+  assert(volumeBounds&&brightnessBounds&&brightnessBounds.x>=volumeBounds.x+volumeBounds.width-2,
+    'Brightness must visually follow volume without overlap');
   assert.equal(await page.locator('#brightnessBtn svg').count(),1);
   assert.equal(await page.locator('#brightnessBtn svg').getAttribute('viewBox'),'0 0 24 24',
     'Brightness button uses the current compact flashlight artwork');
