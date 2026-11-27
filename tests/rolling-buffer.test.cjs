@@ -4,7 +4,7 @@ const vm=require('node:vm');
 const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../rolling-buffer.js'),'utf8');
-const {ahead,goal,playable,validRange,TARGET}=require('../rolling-buffer.js');
+const {ahead,goal,playable,validRange,openDiskCache,TARGET}=require('../rolling-buffer.js');
 function ranges(pairs){return {length:pairs.length,start:i=>pairs[i][0],end:i=>pairs[i][1]};}
 test('rolling target is three minutes with five seconds of refill headroom',()=>{
  assert.equal(TARGET,180);
@@ -88,4 +88,41 @@ test('repeated invalid or replayed read requests close only the bulk channel',as
  for(let n=0;n<8;n++)await c.data({type:'read',id:1,offset:0,length:8});
  assert.equal(c.open,false);assert.equal(c.sent.length,count);
  assert.equal(state.connections.get('guest').conn.open,true);
+});
+
+test('temporary range cache encrypts bytes, enforces LRU bounds and deletes on close',async()=>{
+ const {webcrypto}=require('node:crypto');
+ const stores=new Map();
+ const caches={
+   keys:async()=>[...stores.keys()],
+   open:async name=>{
+     const entries=new Map();stores.set(name,entries);
+     return {match:async k=>entries.get(k)?.clone(),put:async(k,v)=>entries.set(k,v.clone()),delete:async k=>entries.delete(k)};
+   },
+   delete:async name=>stores.delete(name)
+ };
+ const env={caches,crypto:webcrypto,Response,URL,location:{origin:'https://example.test'}};
+ const disk=await openDiskCache(env,8);
+ assert.ok(disk);
+ const original=Uint8Array.from([1,2,3,4]);
+ assert.equal(await disk.put(0,original),true);
+ const raw=new Uint8Array(await [...[...stores.values()][0].values()][0].clone().arrayBuffer());
+ assert.equal(raw.length,32); // nonce + data + authentication tag
+ assert.notDeepEqual(raw.subarray(12,16),original);
+ assert.deepEqual(await disk.get(0),original);
+ await disk.put(4,Uint8Array.from([5,6,7,8]));
+ await disk.get(0);
+ await disk.put(8,Uint8Array.from([9,10,11,12]));
+ assert.equal(disk.size,8);
+ assert.equal(await disk.get(4),null);
+ assert.deepEqual(await disk.get(0),original);
+ assert.equal(await disk.put(12,new Uint8Array(9)),false);
+ await disk.close();
+ assert.equal(stores.size,0);
+ assert.equal(disk.size,0);
+ assert.equal(await disk.get(0),null);
+ assert.equal(await disk.put(0,original),false);
+});
+test('optional disk cache degrades cleanly when unavailable',async()=>{
+ assert.equal(await openDiskCache({}),null);
 });
