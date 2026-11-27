@@ -19,6 +19,10 @@ async function stamp(commit){
   if(!/^[a-f0-9]{40}$/.test(commit))throw Error('Expected complete Git commit SHA');
   const files={};
   let html=await readFile('index.html','utf8');
+  const meta='<meta name="marmalade-build" content="'+commit+'">';
+  html=html.replace(/\n<meta name="marmalade-build" content="[a-f0-9]{40}">\n/g,'');
+  if(!/<head\b[^>]*>/i.test(html))throw Error('Missing HTML head for build identity');
+  html=html.replace(/<head\b[^>]*>/i,match=>match+'\n'+meta+'\n');
   const replacements=new Map();
   for(const m of html.matchAll(/\b(?:src|href)\s*=\s*(['"])([^'"]+)\1/gi)){
     const path=assetPath(m[2]);if(!path)continue;
@@ -48,6 +52,7 @@ async function verifyLocal(expected){
     if(hash(await readFile(absolute))!==digest)throw Error('Restored asset mismatch: '+path);
   }
   const html=await readFile('index.html','utf8');
+  if(!html.includes('<meta name="marmalade-build" content="'+manifest.commit+'">'))throw Error('Incorrect running build identity');
   for(const match of html.matchAll(/\b(?:src|href)\s*=\s*(['"])([^'"]+)\1/gi)){
     const path=assetPath(match[2]);if(!path)continue;
     if(!manifest.files[path]||new URL(match[2],'https://release.invalid/').searchParams.get('v')!==manifest.files[path].slice(0,16))

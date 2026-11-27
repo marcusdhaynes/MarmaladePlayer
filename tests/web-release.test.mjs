@@ -13,7 +13,7 @@ test('reproducible web stamping, independent recovery and tamper detection',()=>
  const root=mkdtempSync(join(tmpdir(),'marmalade-release-'));
  try{
   const original=join(root,'original');mkdirSync(original);
-  writeFileSync(join(original,'index.html'),'<script src="./runtime.js?v=obsolete"></script><link href="style.css"><script src="https://cdn.example.test/x.js"></script>');
+  writeFileSync(join(original,'index.html'),'<html><head><script src="./runtime.js?v=obsolete"></script><link href="style.css"><script src="https://cdn.example.test/x.js"></script></head></html>');
   writeFileSync(join(original,'runtime.js'),'window.version=1;');
   writeFileSync(join(original,'style.css'),'body{color:white}');
   writeFileSync(join(original,'sw.js'),"const CACHE = 'marmalade-shell-legacy';");
@@ -24,6 +24,7 @@ test('reproducible web stamping, independent recovery and tamper detection',()=>
   const manifest=readFileSync(join(first,'build-info.json'),'utf8');
   ok(first,'stamp',old);assert.equal(readFileSync(join(first,'build-info.json'),'utf8'),manifest);
   ok(first,'verify-local',old);
+  assert(readFileSync(join(first,'index.html'),'utf8').includes('<meta name="marmalade-build" content="'+old+'">'));
   assert.notEqual(run(first,'verify-local',next).status,0);
   const recovered=join(root,'recovered');cpSync(first,recovered,{recursive:true});
   ok(recovered,'verify-local',old);

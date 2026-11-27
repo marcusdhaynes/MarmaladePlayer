@@ -4835,7 +4835,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         el.joinActive.hidden = false;
         el.joinedCode.textContent = code;
         // Remember confirmed guest rooms only, not failed attempts.
-        try{localStorage.setItem('marmalade:last-joined-room-code',code);}catch{}
+        try{if(localPreference('remember-last-room','true')==='true')localStorage.setItem('marmalade:last-joined-room-code',code);else localStorage.removeItem('marmalade:last-joined-room-code');}catch{}
         window.dispatchEvent(new CustomEvent('marmalade:room-joined',{detail:{code}}));
         updateRoomPanel();
         el.joinRoom.disabled = true;
@@ -7589,11 +7589,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
 <script src="./subtitle-codec.js?v=20261126-natural-subtitles-v1"></script>
 <script src="./subtitle-archive.js?v=20261112-subdl-zip-v2"></script>
 <script src="./watch-sync-subtitles.js?v=20261127-stable-timing-press-v4"></script>
-<script src="./settings-layout.js?v=20261127-mini-diagnostics-v4"></script>
-<script src="./updates.js?v=20261120-update-settings-ui-v2"></script>
+<script src="./settings-layout.js?v=20261127-privacy-updates-v5"></script>
+<script src="./updates.js?v=20261127-build-identity-v3"></script>
 <script src="./subtitle-match.js?v=20261112-matching-v1"></script>
 <script src="./subtitle-search.js?v=20261127-language-preference-v3"></script>
-<script src="./rapid-controls.js?v=20261126-docked-local-resume-v1"></script>
+<script src="./rapid-controls.js?v=20261127-private-room-v2"></script>
 <script src="./subtitle-compact.js?v=20261126-audit-v3"></script>
 <script src="./seek-preview.js?v=20261127-timeline-acceptance-v4"></script>
 <script src="./adaptive-brightness.js?v=20261116-flashlight-lucide-v1"></script>

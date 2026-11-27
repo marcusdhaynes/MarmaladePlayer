@@ -110,6 +110,7 @@
  const LAST_ROOM_KEY='marmalade:last-joined-room-code';
  const lastJoinedRoom=()=>{
    try{
+     if(localStorage.getItem('marmalade:remember-last-room')==='false')return '';
      const code=localStorage.getItem(LAST_ROOM_KEY)||'';
      return /^(?:[A-Z2-9]{8}|[A-Z2-9]{12})$/.test(code)?code:'';
    }catch{return '';}
@@ -131,9 +132,10 @@
    el.joinRoom.click();
    bridge.notify('Rejoining last room '+code+'…');
  });
- window.addEventListener('marmalade:room-joined',event=>{
-   if(event.detail?.code)quickJoin.title='Rejoin room '+event.detail.code;
- });
+ const reflectRoomPrivacy=()=>{quickJoin.title=lastJoinedRoom()?'Rejoin the most recently connected room':'No saved room invitation';};
+ window.addEventListener('marmalade:room-joined',reflectRoomPrivacy);
+ window.addEventListener('marmalade:room-privacy-changed',reflectRoomPrivacy);
+ reflectRoomPrivacy();
  window.addEventListener('marmalade:room-join-unavailable',event=>{
    if(event.detail?.code!==lastJoinedRoom())return;
    quickJoin.title='Last room is not currently available';

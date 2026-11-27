@@ -26,6 +26,12 @@ try{
   await page.locator('#settingsAdvanced > summary').click();
   await page.locator('#diagnosticsToggle').click();
   assert.equal(await page.locator('#diagnosticsToggle').getAttribute('aria-expanded'),'true');
+  await page.locator('#rememberLastRoom').uncheck();
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:last-joined-room-code')),null);
+  await page.locator('#rememberLastRoom').check();
+  await page.evaluate(()=>localStorage.setItem('marmalade:last-joined-room-code','PRIVATE-ROOM'));
+  await page.locator('#automaticUpdateChecks').uncheck();
+  await page.waitForFunction(()=>document.querySelector('#updatesSection').textContent.includes('Automatic checks off.'));
   await page.locator('#settingsBackup > summary').click();
   await page.evaluate(()=>{localStorage.setItem('marmalade:volume-maximum','400');localStorage.setItem('marmalade:skip-interval-seconds','30');});
   const [download]=await Promise.all([page.waitForEvent('download'),page.locator('#settingsExport').click()]);
@@ -37,6 +43,8 @@ try{
   assert.equal(exported.preferences['marmalade:preferred-subtitle-language'],'ar');
   assert.equal(exported.preferences['marmalade:mini-player-fade'],'8');
   assert.equal(exported.preferences['marmalade:playback-diagnostics'],'true');
+  assert.equal(exported.preferences['marmalade:remember-last-room'],'true');
+  assert.equal(exported.preferences['marmalade:auto-update-checks'],'false');
   assert.equal(exported.preferences['marmalade:volume-maximum'],'400');
   assert.equal(exported.preferences['marmalade:skip-interval-seconds'],'30');
   assert(!Object.hasOwn(exported.preferences,'marmalade:last-joined-room-code'));
@@ -55,6 +63,8 @@ try{
   await Promise.all([page.waitForEvent('load'),page.locator('#settingsApplyBackup').click()]);
   await page.waitForFunction(()=>window.MarmaladeSettingsLayout);
   assert.equal(await page.locator('#skipInterval').inputValue(),'20');
+  assert.equal(await page.locator('#automaticUpdateChecks').isChecked(),false);
+  assert.equal(await page.locator('#rememberLastRoom').isChecked(),true);
   assert.equal(await page.locator('#miniPlayerFadeDelay').inputValue(),'8');
   assert.equal(await page.locator('#diagnosticsToggle').getAttribute('aria-expanded'),'true');
   assert.equal(await page.locator('#preferredSubtitleLanguage').inputValue(),'ar');
@@ -73,7 +83,7 @@ try{
   assert.equal(await page.locator('#preferredSubtitleLanguage').inputValue(),'ar','Controls reset must preserve subtitle settings');
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:window-theme')),'glass');
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:last-joined-room-code')),'PRIVATE-ROOM');
-  await page.evaluate(()=>{localStorage.removeItem('marmalade:last-joined-room-code');localStorage.removeItem('marmalade:window-theme');localStorage.removeItem('marmalade:volume-maximum');localStorage.removeItem('marmalade:preferred-subtitle-language');localStorage.removeItem('marmalade:mini-player-fade');localStorage.removeItem('marmalade:playback-diagnostics');});
+  await page.evaluate(()=>{localStorage.removeItem('marmalade:last-joined-room-code');localStorage.removeItem('marmalade:window-theme');localStorage.removeItem('marmalade:volume-maximum');localStorage.removeItem('marmalade:preferred-subtitle-language');localStorage.removeItem('marmalade:mini-player-fade');localStorage.removeItem('marmalade:playback-diagnostics');localStorage.removeItem('marmalade:auto-update-checks');localStorage.removeItem('marmalade:remember-last-room');});
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.MarmaladeSettingsLayout&&window.MarmaladeRollingBuffer);
   await page.locator('#settingsBtn').click({force:true});

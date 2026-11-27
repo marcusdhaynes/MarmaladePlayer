@@ -192,8 +192,34 @@
  }).catch(()=>{});
  // Portable preferences only: never export room invitations, credentials,
  // file handles, viewing history, or cached movie/subtitle content.
+ const privacy=document.createElement('label');privacy.className='settings-row settings-toggle-row';
+ privacy.innerHTML='<span>Remember Last Room <small>Keep the last successful invitation on this device.</small></span><input type="checkbox" id="rememberLastRoom" aria-label="Remember Last Room">';
+ const roomRemember=privacy.querySelector('input');
+ try{roomRemember.checked=localStorage.getItem('marmalade:remember-last-room')!=='false';}catch{roomRemember.checked=true;}
+ roomRemember.addEventListener('change',()=>{
+   try{
+    localStorage.setItem('marmalade:remember-last-room',String(roomRemember.checked));
+    if(!roomRemember.checked)localStorage.removeItem('marmalade:last-joined-room-code');
+   }catch{}
+   window.dispatchEvent(new Event('marmalade:room-privacy-changed'));
+ });
+ pages.get('party').querySelector('.settings-stack').append(privacy);
+ const clearRoom=document.createElement('button');clearRoom.type='button';clearRoom.id='forgetLastRoom';clearRoom.className='settings-action-row';clearRoom.textContent='Forget Last Room';
+ clearRoom.addEventListener('click',()=>{
+  try{localStorage.removeItem('marmalade:last-joined-room-code');window.dispatchEvent(new Event('marmalade:room-privacy-changed'));window.MarmaladeAddonBridge?.notify('Saved invitation cleared.');}catch{window.MarmaladeAddonBridge?.notify('Could not clear saved invitation.');}
+ });
+ pages.get('party').querySelector('.settings-stack').append(clearRoom);
+ const updatePreference=document.createElement('label');updatePreference.className='settings-row settings-toggle-row';
+ updatePreference.innerHTML='<span>Automatic Update Checks <small>Check for a different deployed build when opening the app.</small></span><input type="checkbox" id="automaticUpdateChecks" aria-label="Automatic Update Checks">';
+ const autoUpdate=updatePreference.querySelector('input');
+ try{autoUpdate.checked=localStorage.getItem('marmalade:auto-update-checks')!=='false';}catch{autoUpdate.checked=true;}
+ autoUpdate.addEventListener('change',()=>{
+  try{localStorage.setItem('marmalade:auto-update-checks',String(autoUpdate.checked));}catch{}
+  window.dispatchEvent(new Event('marmalade:update-preference-changed'));
+ });
+ panel.appendChild(updatePreference);
  const backup=document.createElement('details');backup.id='settingsBackup';backup.className='settings-advanced';
- backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="subtitles">Subtitles</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="miniPlayer">Mini-Player</option><option value="appearance">Appearance</option><option value="performance">Performance</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
+ backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="subtitles">Subtitles</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="miniPlayer">Mini-Player</option><option value="appearance">Appearance</option><option value="privacy">Privacy</option><option value="performance">Performance</option><option value="updates">Updates</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
  panel.appendChild(backup);
  const backupStatus=$('settingsBackupStatus'),applyBackup=$('settingsApplyBackup');
  const bool=v=>v==='true'||v==='false';
@@ -224,7 +250,9 @@
   library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':numeric(1,20)},
   games:{'games:visible:v1':bool},
   miniPlayer:{'mini-player-fade':choices('follow','2','3','5','8','10','15')},
-  performance:{'playback-diagnostics':bool}
+  performance:{'playback-diagnostics':bool},
+  privacy:{'remember-last-room':bool},
+  updates:{'auto-update-checks':bool}
  };
  const validators=new Map(Object.values(schema).flatMap(group=>Object.entries(group)).map(([key,validate])=>['marmalade:'+key,validate]));
  let pending=null,backupRevision=0;
@@ -289,6 +317,7 @@
   try{
    for(const key of pending.keys())before.set(key,localStorage.getItem(key));
    for(const [key,value] of pending){if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,value);}
+   if(localStorage.getItem('marmalade:remember-last-room')==='false')localStorage.removeItem('marmalade:last-joined-room-code');
   }catch{
    for(const [key,value] of before)try{if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,value);}catch{}
    backupStatus.textContent='Settings could not be saved. Previous values restored where possible.';return;

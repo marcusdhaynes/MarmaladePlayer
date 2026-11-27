@@ -6,6 +6,15 @@
   'use strict';
   var REPO = 'marcusdhaynes/MarmaladePlayer';
   var CURRENT_VERSION = '0.1.0';
+  var build = document.querySelector('meta[name="marmalade-build"]')?.content || '';
+  var stamped = /^[a-f0-9]{40}$/.test(build);
+  var installed = stamped ? build.slice(0,12) : 'v'+CURRENT_VERSION;
+  function automaticChecks(){try{return localStorage.getItem('marmalade:auto-update-checks')!=='false';}catch{return true;}}
+  var inFlight=null;
+  function activePlayback(){
+    var state=window.MarmaladeAddonBridge?.state,video=document.getElementById('player');
+    return !!(state?.broadcasting||state?.guestConn?.open||state?.connections?.size||video&&!video.paused);
+  }
   // Dismissal is persisted PER VERSION: localStorage key
   // `updates:dismissed:<version>` — that version's ribbon never reappears.
   function dismissedKey(version) { return 'updates:dismissed:' + version; }
@@ -22,13 +31,20 @@
     return false;
   }
   function checkForUpdate() {
-    return fetch('https://api.github.com/repos/' + REPO + '/releases/latest', {
+    if(inFlight)return inFlight;
+    var request=stamped?fetch(new URL('build-info.json',document.baseURI),{cache:'no-store'}).then(function(res){
+      if(!res.ok)throw Error('Deployment check failed');
+      return res.json();
+    }).then(function(data){
+      if(!/^[a-f0-9]{40}$/.test(data?.commit)||!data.files?.['index.html'])throw Error('Invalid deployment manifest');
+      return data.commit===build?null:{version:data.commit.slice(0,12),tag:data.commit,web:true,notes:'A different verified-release identity is deployed. Refresh to load that build.'};
+    }):fetch('https://api.github.com/repos/' + REPO + '/releases/latest', {
       headers: { Accept: 'application/vnd.github+json' },
     }).then(function (res) {
-      if (!res.ok) return null;
+      if (!res.ok) throw Error('Release check failed');
       return res.json();
     }).then(function (data) {
-      if (!data || !data.tag_name || !isNewer(data.tag_name, CURRENT_VERSION)) return null;
+      if (!data || !/^v?\d+\.\d+\.\d+$/.test(data.tag_name||'') || !isNewer(data.tag_name, CURRENT_VERSION)) return null;
       var asset = Array.isArray(data.assets) && data.assets[0];
       return {
         version: String(data.tag_name).replace(/^v/i, ''),
@@ -38,6 +54,8 @@
         downloadUrl: (asset && asset.browser_download_url) || data.html_url || null,
       };
     });
+    inFlight=request.finally(function(){inFlight=null;});
+    return inFlight;
   }
   function isDismissed(version) {
     try { return localStorage.getItem(dismissedKey(version)) !== null; } catch (e) { return false; }
@@ -49,6 +67,8 @@
     // Web: open the release asset/page, then refresh to the new deployed
     // version. APK/native builds hand the download to the platform
     // installer; Android still requires the user's install tap.
+    if(activePlayback()){window.MarmaladeAddonBridge?.notify('Pause playback and leave the room before updating.');return;}
+    if(info.web){window.location.reload();return;}
     if (info.downloadUrl) window.open(info.downloadUrl, '_blank', 'noopener');
     window.location.reload();
   }
@@ -67,7 +87,7 @@
     else if(status)statusText.dataset.state='error';
     heading.append(caption,statusText);el.append(heading);
     var versions=document.createElement('div');versions.className='updates-versions';
-    for(var entry of [['Installed','v'+CURRENT_VERSION],['Latest',info?'v'+info.version:'—']]){
+    for(var entry of [['Installed',installed],['Available',info?(info.web?info.version:'v'+info.version):status==='You are up to date.'?installed:'—']]){
       var item=document.createElement('div');item.className='updates-version';
       var label=document.createElement('small');label.textContent=entry[0];
       var value=document.createElement('strong');value.textContent=entry[1];
@@ -87,7 +107,7 @@
     actions.append(check);
     if(info){
       var update=document.createElement('button');update.type='button';
-      update.className='updates-install';update.textContent='Get v'+info.version;
+      update.className='updates-install';update.textContent=info.web?'Reload Deployed Build':'Get v'+info.version;
       update.addEventListener('click',function(){applyUpdate(info);});
       actions.append(update);
     }
@@ -112,7 +132,7 @@
       'font-size:12px;line-height:1.4;background:rgba(127,127,127,.16);' +
       'border:1px solid rgba(127,127,127,.35);backdrop-filter:blur(6px);cursor:pointer;';
     var label = document.createElement('span');
-    label.textContent = 'Update available · v' + info.version;
+    label.textContent = info.web?'Different deployed build · '+info.version:'Update available · v' + info.version;
     var close = document.createElement('button');
     close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', 'Dismiss this update');
     close.style.cssText = 'background:none;border:none;color:inherit;cursor:pointer;padding:0 4px;font-size:12px;';
@@ -147,10 +167,13 @@
       }
     }
     var section = document.getElementById('updatesSection');
-    if (section) mountSection(section);
-    checkForUpdate().then(function (info) {
-      if (info && !isDismissed(info.version)) mountRibbon(info);
-    }).catch(function () { /* silent */ });
+    function automatic(){
+      if(!automaticChecks()){document.getElementById('museUpdateRibbon')?.remove();if(section)renderSection(section,null,'Automatic checks off.');return;}
+      if(section)mountSection(section);
+      checkForUpdate().then(function(info){if(automaticChecks()&&info&&!isDismissed(info.version))mountRibbon(info);}).catch(function(){});
+    }
+    window.addEventListener('marmalade:update-preference-changed',automatic);
+    automatic();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
