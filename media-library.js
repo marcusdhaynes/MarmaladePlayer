@@ -23,6 +23,8 @@
   };
   const PAGE_SIZE=120;
   const KEY='marmalade:media-library:visible';
+  const AUTO_NEXT_KEY='marmalade:media-library:auto-next';
+  let episodeSelection=null,episodeGeneration=0;
   const DB='marmalade:local-library:v1';
   const VIDEO=/\.(3g2|3gp|amv|asf|avi|divx|drc|f4v|flv|gifv|m1v|m2p|m2t|m2ts|m2v|m4v|mjpeg|mjpg|mk3d|mkv|mov|mp4|mpe|mpeg|mpg|mpv|mts|mxf|nsv|ogv|qt|rm|rmvb|roq|rv|ts|vob|webm|wmv|xvid|y4m|yuv)$/i;
   const IGNORE=new Set(['.git','node_modules','$recycle.bin','system volume information','__macosx']);
@@ -413,6 +415,11 @@
     importButton.addEventListener('click',()=>backupInput.click());
     backupInput.addEventListener('change',()=>{const file=backupInput.files?.[0];backupInput.value='';void importLibraryBackup(file);});
     append(settingsPanel,'p','','Portable backups preserve local catalog metadata. Reconnect media folders after importing.');
+    const nextLabel=append(settingsPanel,'label','ml-setting-control');
+    append(nextLabel,'span','','Automatically Play Next Episode (Solo)');
+    const nextToggle=append(nextLabel,'input');nextToggle.type='checkbox';nextToggle.id='mlAutoNext';
+    nextToggle.checked=readLocal(AUTO_NEXT_KEY,'false')==='true';
+    nextToggle.addEventListener('change',()=>setLocal(AUTO_NEXT_KEY,nextToggle.checked?'true':'false'));
     addSmartEditor(settingsPanel);
     document.addEventListener('pointerdown',event=>{
       if(!settingsPanel.hidden&&!settingsPanel.contains(event.target)&&
@@ -1684,7 +1691,7 @@
     queueLibraryBackup();
     window.dispatchEvent(new Event('marmalade:media-library-updated'));
   }
-  async function getPlayable(item){
+  async function getPlayable(item,{ask=true}={}){
     const lib=state.libraries.find(l=>l.id===item.libraryId);
     const folder=lib?.folders.find(f=>f.id===item.folderId);
     if(!folder)throw Error('This source folder is no longer in your library.');
@@ -1695,7 +1702,7 @@
     // without copying huge video files or creating a duplicate library.
     const root=folder.playHandle||folder.handle;
     if(!root)throw Error('Indexed titles are not playable until you select their local files. Use Choose Video Files in OnlyFrames.');
-    if(!await permissions({handle:root},true))
+    if(!await permissions({handle:root},ask))
       throw Error('The browser blocked that directory. Use Choose Video Files to select individual videos.');
     const pieces=item.path.split('/').filter(Boolean);
     let directory=root;
@@ -1705,6 +1712,8 @@
     return {file,handle};
   }
   async function play(item){
+    const generation=++episodeGeneration;
+    episodeSelection=null;
     const ownerLib=state.libraries.find(l=>l.id===item.libraryId);
     const ownerFolder=ownerLib?.folders.find(f=>f.id===item.folderId);
     // Minternet add-on items stream from the add-on's scoped asset serving.
@@ -1726,7 +1735,7 @@
         const started=bridge.chooseNativeStream({
           url,name:item.name||item.title||'Library Video',size:item.size,id:item.id
         });
-        if(started)notify('Opening '+(item.name||item.title)+' from the optional native source.');
+        if(started){rememberEpisode(item,bridge);notify('Opening '+(item.name||item.title)+' from the optional native source.');}
       }catch(error){notify('Unable to play native stream. Add Video Files for local playback.');}
       return;
     }
@@ -1751,11 +1760,71 @@
     }
     try{
       const {file,handle}=await getPlayable(item);
+      if(generation!==episodeGeneration)return;
       if(!video(file.name))throw Error('This file is no longer a supported video container.');
       if(handle)bridge.state.lastOpenedHandle=handle;
       bridge.chooseVideo(file);
+      rememberEpisode(item,bridge);
       notify('Playing '+file.name+' · Your video stays on this device.');
     }catch(error){notify(error?.message||'This video cannot be accessed. Reconnect the folder.');}
+  }
+  // Only an explicit library selection arms episode advancement. Raw file
+  // selection, clearing media, and game-owned playback invalidate the token.
+  function rememberEpisode(item,bridge){
+    if(item.type!=='tv'||!item.show||!Number.isInteger(item.season)||!Number.isInteger(item.episode)||item.season<1||item.episode<1)return;
+    const s=bridge.state;
+    if(s.role!=='host'||s.gameFrameMode||!['file','native'].includes(s.source))return;
+    episodeSelection={libraryId:item.libraryId,id:item.id,source:s.source,file:s.file,nativeKey:s.nativeMediaKey};
+  }
+  function soloEpisode(bridge,selection){
+    const s=bridge?.state;
+    return !!(selection&&s?.role==='host'&&!s.gameFrameMode&&!s.guestConn?.open&&
+      ![...s.connections.values()].some(e=>e.conn?.open)&&s.source===selection.source&&
+      (s.source==='file'?s.file===selection.file:s.nativeMediaKey===selection.nativeKey));
+  }
+  function nextEpisode(lib,current){
+    if(!current||current.type!=='tv'||!current.show||!Number.isInteger(current.season)||
+       !Number.isInteger(current.episode)||current.season<1||current.episode<1)return null;
+    const entries=(lib.items||[]).filter(i=>i.type==='tv'&&i.show===current.show&&
+      Number.isInteger(i.season)&&Number.isInteger(i.episode)&&i.season>0&&i.episode>0);
+    // Do not silently skip a missing episode or choose between alternate editions.
+    const same=entries.filter(i=>i.season===current.season&&i.episode===current.episode+1);
+    if(same.length)return same.length===1?same[0]:null;
+    if(entries.some(i=>i.season===current.season&&i.episode>current.episode))return null;
+    const next=entries.filter(i=>i.season===current.season+1&&i.episode===1);
+    return next.length===1?next[0]:null;
+  }
+  async function advanceEpisode(){
+    if(readLocal(AUTO_NEXT_KEY,'false')!=='true')return;
+    const bridge=window.MarmaladeAddonBridge,selection=episodeSelection;
+    if(!soloEpisode(bridge,selection)||!bridge.media.ended)return;
+    const {lib,entry}=storedItem(selection);
+    if(!lib||!entry)return;
+    const next=nextEpisode(lib,entry);
+    // Consume the event once, including failures or the final episode.
+    episodeSelection=null;
+    const generation=++episodeGeneration;
+    if(!next)return;
+    const valid=()=>generation===episodeGeneration&&readLocal(AUTO_NEXT_KEY,'false')==='true'&&soloEpisode(bridge,selection)&&bridge.media.ended;
+    const item={...next,libraryId:lib.id};
+    const folder=lib.folders.find(f=>f.id===item.folderId);
+    try{
+      if(folder?.source==='native'&&nativeLibraryApi()&&!folder.playHandle&&!folder.handle&&!state.sessionFiles.has(item.id)){
+        if(!valid()||!item.url)return;
+        if(!bridge.chooseNativeStream({url:item.url,name:item.name||item.title,size:item.size,id:item.id}))return;
+        rememberEpisode(item,bridge);
+      }else{
+        // No automatic browser permission prompts at the end of an episode.
+        const {file,handle}=await getPlayable(item,{ask:false});
+        if(!valid()||!video(file.name))return;
+        if(handle)bridge.state.lastOpenedHandle=handle;
+        bridge.chooseVideo(file);
+        if(bridge.state.file!==file)return;
+        rememberEpisode(item,bridge);
+        try{await bridge.media.play();}catch{notify('Next episode is ready. Press Play to continue.');return;}
+      }
+      notify('Next Episode: '+(item.title||item.name));
+    }catch{notify('Next episode is unavailable. Open it manually from the library.');}
   }
   // Library catalogs and file access are different. Browser extensions
   // cannot give a web page their FileSystemDirectoryHandles; the website
@@ -2613,6 +2682,8 @@
         event.stopPropagation();closeEditor();
       }
     });
+    window.addEventListener('marmalade:media-cleared',()=>{episodeSelection=null;episodeGeneration++;});
+    window.MarmaladeAddonBridge?.media?.addEventListener('ended',()=>{void advanceEpisode();});
     window.addEventListener('marmalade:video-selected',event=>{
       const file=event.detail?.file;
       if(!file)return;

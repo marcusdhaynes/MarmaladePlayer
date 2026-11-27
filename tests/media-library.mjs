@@ -5,6 +5,7 @@ import {resolve,extname,sep,join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
+import {execFileSync} from 'node:child_process';
 
 const root=resolve(fileURLToPath(new URL('../',import.meta.url)));
 const fallbackRoot=mkdtempSync(join(tmpdir(),'marmalade-library-'));
@@ -443,6 +444,30 @@ try{
     l.name==='Test'&&l.count===5&&l.folders.length===2)),
     'Both folder-picker modes durably save the attached folder catalog');
 
+  // Use real, short WebM media for automatic progression, not a synthetic ended event.
+  const episodeBytes=execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=red:s=160x90:r=24','-t','1.5','-c:v','libvpx','-f','webm','pipe:1'],{maxBuffer:4*1024*1024});
+  await page.evaluate(async bytes=>{
+    const api=window.MarmaladeMediaLibrary;
+    const files=[1,2].map(i=>new File([new Uint8Array(bytes)],'Audit.Show.S01E0'+i+'.webm',{type:'video/webm'}));
+    const result=await api.importGameFiles(null,files,'Audit Episode Shelf');
+    api.select(result.libraryId);
+  },Array.from(episodeBytes));
+  await page.locator('#mlCards .ml-card').filter({hasText:'Audit Show'}).first().click();
+  const firstEpisode=page.locator('#mlCards .ml-card').filter({hasText:'S01 E01'});
+  await firstEpisode.click();
+  await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.file?.name==='Audit.Show.S01E01.webm');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:media-library:auto-next')),null,'Automatic advancement defaults off');
+  await page.evaluate(async()=>{const p=document.querySelector('#player');p.muted=true;await p.play();});
+  await page.waitForFunction(()=>document.querySelector('#player').ended,{},{timeout:10000});
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.file.name),'Audit.Show.S01E01.webm','Default does not advance');
+  await page.locator('#mlSettingsBtn').click();
+  await page.locator('#mlAutoNext').check();
+  await page.locator('#mlSettingsClose').click();
+  await page.evaluate(async()=>{const p=document.querySelector('#player');p.currentTime=0;await p.play();});
+  await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.file?.name==='Audit.Show.S01E02.webm',{},{timeout:15000});
+  await page.waitForFunction(()=>document.querySelector('#player').ended,{},{timeout:10000});
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.file.name),'Audit.Show.S01E02.webm','Last episode stops without looping');
+  console.log('PASS opt-in next-episode playback with real media');
   assert.deepEqual(errors,[],'Library and player must initialize without JavaScript errors');
   console.log('PASS Plex-style named libraries, recursive scan, search, TV grouping, player, persistence, rename, delete, split UI');
 }finally{
