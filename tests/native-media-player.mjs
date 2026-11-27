@@ -69,7 +69,9 @@ const listen=server=>new Promise((resolve,reject)=>{
 let browser;
 try{
   await listen(app);await listen(mediaServer);
-  browser=await chromium.launch({headless:true,
+  // The unbranded headless Chromium shell may lack proprietary H.264/AAC codecs.
+  // This native MP4 compatibility test must run on a codec-capable browser.
+  browser=await chromium.launch({channel:'chrome',headless:true,
     args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});
   const page=await browser.newPage();
   const errors=[],mediaRequests=[];
