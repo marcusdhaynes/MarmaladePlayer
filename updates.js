@@ -36,15 +36,16 @@
       if(!res.ok)throw Error('Deployment check failed');
       return res.json();
     }).then(function(data){
-      if(!/^[a-f0-9]{40}$/.test(data?.commit)||!data.files?.['index.html'])throw Error('Invalid deployment manifest');
-      return data.commit===build?null:{version:data.commit.slice(0,12),tag:data.commit,web:true,notes:'A different verified-release identity is deployed. Refresh to load that build.'};
+      if(!/^[a-f0-9]{40}$/.test(data?.commit)||!/^[a-f0-9]{64}$/.test(data.files?.['index.html']||''))throw Error('Invalid deployment manifest');
+      return data.commit===build?null:{version:data.commit.slice(0,12),tag:data.commit,web:true,notes:'A different build identity is deployed. Refresh to load that build.'};
     }):fetch('https://api.github.com/repos/' + REPO + '/releases/latest', {
       headers: { Accept: 'application/vnd.github+json' },
     }).then(function (res) {
       if (!res.ok) throw Error('Release check failed');
       return res.json();
     }).then(function (data) {
-      if (!data || !/^v?\d+\.\d+\.\d+$/.test(data.tag_name||'') || !isNewer(data.tag_name, CURRENT_VERSION)) return null;
+      if (!data || !/^v?\d+\.\d+\.\d+$/.test(data.tag_name||'')) throw Error('No comparable release version');
+      if (!isNewer(data.tag_name, CURRENT_VERSION)) return null;
       var asset = Array.isArray(data.assets) && data.assets[0];
       return {
         version: String(data.tag_name).replace(/^v/i, ''),
@@ -114,11 +115,13 @@
     el.append(actions);
   }
 
+  var renderRevision=0;
   function mountSection(el) {
+    var revision=++renderRevision;
     renderSection(el, null, 'Checking…');
     checkForUpdate().then(function (info) {
-      renderSection(el, info, info ? '' : 'You are up to date.');
-    }).catch(function () { renderSection(el, null, 'Could not check for updates.'); });
+      if(revision===renderRevision)renderSection(el, info, info ? '' : 'You are up to date.');
+    }).catch(function () { if(revision===renderRevision)renderSection(el, null, 'Could not check for updates.'); });
   }
 
   function mountRibbon(info) {
@@ -168,7 +171,7 @@
     }
     var section = document.getElementById('updatesSection');
     function automatic(){
-      if(!automaticChecks()){document.getElementById('museUpdateRibbon')?.remove();if(section)renderSection(section,null,'Automatic checks off.');return;}
+      if(!automaticChecks()){++renderRevision;document.getElementById('museUpdateRibbon')?.remove();if(section)renderSection(section,null,'Automatic checks off.');return;}
       if(section)mountSection(section);
       checkForUpdate().then(function(info){if(automaticChecks()&&info&&!isDismissed(info.version))mountRibbon(info);}).catch(function(){});
     }

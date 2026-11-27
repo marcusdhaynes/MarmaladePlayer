@@ -1,5 +1,5 @@
 /* Offline application shell only. Never cache media, credentials or peer data. */
-const CACHE = 'marmalade-shell-v88-mini-diagnostics';
+const CACHE = 'marmalade-shell-v89-privacy-updates';
 const PREFIX = 'marmalade-shell-';
 const CORE = ['./','./index.html','./manifest.webmanifest','./favicon.svg','./favicon.ico','./favicon-32.png','./assets/marmalade-icon.webp','./assets/apple-touch-icon.png'];
 const scope = new URL(self.registration.scope);

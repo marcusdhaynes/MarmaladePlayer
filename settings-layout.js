@@ -183,13 +183,11 @@
  const footer=document.createElement('div');
  footer.className='settings-footer';
  footer.innerHTML='<span class="settings-saved-dot" aria-hidden="true"></span>Saved on this device';
- // Display only a build identity returned by the deployed static artifact.
+ // Read the identity of this running HTML, not a potentially newer remote manifest.
  const build=document.createElement('small');build.className='settings-hint';build.textContent='Build: local or unverified';
  footer.appendChild(build);
- fetch(new URL('build-info.json',document.baseURI),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(info=>{
-   if(!/^[a-f0-9]{40}$/i.test(info?.commit||''))return;
-   build.textContent='Build: '+info.commit.slice(0,12);build.title=info.commit;
- }).catch(()=>{});
+ const runningCommit=document.querySelector('meta[name="marmalade-build"]')?.content||'';
+ if(/^[a-f0-9]{40}$/.test(runningCommit)){build.textContent='Build: '+runningCommit.slice(0,12);build.title=runningCommit;}
  // Portable preferences only: never export room invitations, credentials,
  // file handles, viewing history, or cached movie/subtitle content.
  const privacy=document.createElement('label');privacy.className='settings-row settings-toggle-row';

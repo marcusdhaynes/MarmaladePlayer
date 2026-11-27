@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: '22'
       - run: node --check rolling-buffer.js && node --check sw.js && node --check settings-layout.js
-      - run: node --test tests/rolling-buffer.test.cjs tests/offline-shell.test.cjs tests/library-reconcile.test.mjs tests/game-randomization.test.mjs tests/web-release.test.mjs
+      - run: node --test tests/rolling-buffer.test.cjs tests/offline-shell.test.cjs tests/library-reconcile.test.mjs tests/game-randomization.test.mjs tests/web-release.test.mjs tests/update-identity.test.mjs
       - run: node scripts/install-mkv-decoder.mjs
       - run: node --test tests/mkv-compatibility.test.cjs tests/mkv-playback-pipeline.test.cjs
       - run: node scripts/validate-mkv-decoder-assets.mjs
