@@ -1075,6 +1075,10 @@
     const titleYear=String(data.title||data.name||'').match(/\(((?:18|19|20|21)\d{2})\)/);
     const sub=String(data.year||titleYear?.[1]||data.detail||'').trim();
     if(sub)append(copy,'span','ml-card-year',sub);
+    if(data.metadataPending&&sub!=='File access needed'){
+      const access=append(copy,'span','ml-card-year ml-card-access','File access needed');
+      access.title='The file is indexed; its metadata will be verified when accessed.';
+    }
     if(menuTarget?.kind==='item'||menuTarget?.kind==='show'){
       const star=append(surface,'button','ml-card-star',data.favorite?'★':'☆');
       star.type='button';
