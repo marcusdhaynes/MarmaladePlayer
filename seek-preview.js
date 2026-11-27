@@ -34,9 +34,9 @@
  document.body.appendChild(preview);
  let decoderUrl='',decoderEpoch=0,decoderLoading=null,hoverEpoch=0,debounce=0,
      active=false,requestSerial=0,latestRemote=0,lastGuestAt=0,
-     remoteOutstanding=0,remoteWanted=null,remoteTimeout=0,captureBusy=false;
- const cache=new Map(),hostThrottle=new WeakMap(),captureQueue=[];
- const MAX_CACHED=96,BUCKET_SECONDS=.125;
+     remoteOutstanding=0,remoteWanted=null,remoteTimeout=0,captureBusy=false,remoteAttempts=0;
+ const cache=new Map(),hostThrottle=new WeakMap(),hostPending=new WeakSet(),captureQueue=[];
+ const MAX_CACHED=96,MAX_QUEUED=12,MAX_REMOTE_ATTEMPTS=3,BUCKET_SECONDS=.125;
  const limit=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
  const duration=()=>state.role==='guest'?Number(state.sharedDuration)||0:
    (Number(window.MarmaladeStableDuration?.() ?? media.duration)||0);
@@ -65,7 +65,11 @@
  function clearCard(){
   active=false;card.hidden=true;canvas.hidden=true;
   clearTimeout(debounce);debounce=0;hoverEpoch++;
-  latestRemote=0;remoteOutstanding=0;remoteWanted=null;
+  latestRemote=0;remoteOutstanding=0;remoteWanted=null;remoteAttempts=0;
+  delete card.dataset.time;delete card.dataset.source;
+  for(let i=captureQueue.length-1;i>=0;i--){
+   if(captureQueue[i].interactive)captureQueue.splice(i,1)[0].reject(Error('Superseded'));
+  }
   clearTimeout(remoteTimeout);remoteTimeout=0;
  }
  function clearDecoder(){
@@ -81,7 +85,7 @@
  }
  window.addEventListener('marmalade:video-selected',onMediaChange);
  window.addEventListener('marmalade:media-cleared',onMediaChange);
- window.addEventListener('pagehide',onMediaChange);
+ window.addEventListener('pagehide',()=>{clearCard();clearDecoder();});
  const waitFor=(target,event,ms)=>new Promise((resolve,reject)=>{
   let timer=0;
   const ok=()=>{cleanup();resolve();};
@@ -178,6 +182,10 @@
       captureQueue.splice(i,1)[0].reject(Error('Superseded'));
     }
    }
+   if(captureQueue.length>=MAX_QUEUED){
+    if(!interactive){reject(Error('Preview queue busy'));return;}
+    captureQueue.pop().reject(Error('Superseded'));
+   }
    const job={time:point,source,key,interactive,resolve,reject};
    if(interactive)captureQueue.unshift(job);else captureQueue.push(job);
    void drainCaptureQueue();
@@ -214,7 +222,7 @@
   const wanted=remoteWanted;remoteWanted=null;
   if(wanted.epoch!==hoverEpoch)return;
   const id=++requestSerial;
-  remoteOutstanding=id;latestRemote=id;lastGuestAt=performance.now();
+  remoteOutstanding=id;latestRemote=id;lastGuestAt=performance.now();remoteAttempts++;
   try{state.guestConn.send({type:'seek-thumbnail-request',id,time:wanted.time});}
   catch{remoteOutstanding=0;setStatus('Preview unavailable');return;}
   clearTimeout(remoteTimeout);
@@ -222,13 +230,14 @@
    if(remoteOutstanding!==id)return;
    remoteOutstanding=0;
    if(active&&!card.hidden){
+    if(remoteAttempts>=MAX_REMOTE_ATTEMPTS){remoteWanted=null;setStatus('Host preview timed out');return;}
     remoteWanted={time:Number(card.dataset.time),epoch:hoverEpoch};
     sendGuestRequest();
    }
   },1250);
  }
  function guestPreview(time,epoch){
-  remoteWanted={time,epoch};
+  remoteAttempts=0;remoteWanted={time,epoch};
   sendGuestRequest();
  }
  function schedule(time){
@@ -286,14 +295,16 @@
   const now=performance.now(),last=hostThrottle.get(conn)||0;
   if(last&&now-last<80)return;
   hostThrottle.set(conn,now);
-  if(!availableUrl())return;
+  if(!availableUrl()||hostPending.has(conn))return;
+  hostPending.add(conn);
+  const original=sourceSignature();
   try{
    const frame=await getFrame(time);
-   if(conn.open&&state.role==='host'&&frame.length<68000)
+   if(conn.open&&state.role==='host'&&sourceSignature()===original&&frame.length<68000)
     send(conn,{type:'seek-thumbnail-response',id:data.id,time,frame});
   }catch{
-   if(conn.open)send(conn,{type:'seek-thumbnail-response',id:data.id,time,unavailable:true});
-  }
+   if(conn.open&&state.role==='host'&&sourceSignature()===original)send(conn,{type:'seek-thumbnail-response',id:data.id,time,unavailable:true});
+  }finally{hostPending.delete(conn);}
  }
  function handleResponse(data){
   if(!data||data.type!=='seek-thumbnail-response'||data.id!==remoteOutstanding)return;

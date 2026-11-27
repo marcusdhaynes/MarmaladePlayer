@@ -78,6 +78,10 @@ try{
  const red=await sample(.25),blue=await sample(.75);
  assert(red[0]>95&&red[2]<85,'2-second hover shows red scene '+red);
  assert(blue[2]>95&&blue[0]<85,'6-second hover shows blue scene '+blue);
+ // Re-enter at exactly the same timestamp after the previous preview closes.
+ await page.mouse.move(1,1);
+ const repeated=await sample(.75);
+ assert(repeated[2]>95&&repeated[0]<85,'Reopening an identical hover must redraw the cached frame');
  const after=await page.locator('#player').evaluate(e=>({paused:e.paused,t:e.currentTime}));
  assert.equal(before.paused,after.paused);
  assert(Math.abs(before.t-after.t)<.1,'Preview never seeks playing video');
@@ -161,16 +165,25 @@ try{
  await page.evaluate(()=>{
   const {state,el}=window.MarmaladeAddonBridge;
   el.subtitlePanel.hidden=true;
+  window.MarmaladeSeekPreview.hide();
   state.role='guest';state.source='remote';state.localVerified=false;
   state.bufferedMode=false;state.sharedDuration=8;state.code='ABCDEFGH';
   state.guestConn={open:true,sent:[],send(packet){this.sent.push(packet);}};
   el.seek.disabled=false;el.stage.classList.add('has-video','controls-visible');
  });
- await page.mouse.move(seek.x+seek.width*.75,seek.y+seek.height/2);
+ await page.mouse.move(1,1);
+ const guestSeek=page.locator('#seek');
+ await guestSeek.scrollIntoViewIfNeeded();
+ await page.evaluate(()=>window.MarmaladeAddonBridge.el.stage.classList.add('controls-visible'));
+ const guestRect=await guestSeek.boundingBox();
+ assert(guestRect&&guestRect.width>0,'Guest scrubber is visible');
+ await guestSeek.hover({position:{x:Math.floor(guestRect.width*.75),y:Math.floor(guestRect.height/2)}});
  await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.guestConn.sent
   .some(p=>p.type==='seek-thumbnail-request'),null,{timeout:4000});
  const sent=await page.evaluate(packet=>{
   const request=window.MarmaladeAddonBridge.state.guestConn.sent.findLast(p=>p.type==='seek-thumbnail-request');
+  window.MarmaladeSeekPreview.handleResponse({...packet,id:request.id+1,time:request.time});
+  if(!document.querySelector('#seekPreviewCanvas').hidden)throw Error('Unsolicited response displayed');
   window.MarmaladeSeekPreview.handleResponse({...packet,id:request.id,time:request.time});
   return request;
  },hostPacket);
