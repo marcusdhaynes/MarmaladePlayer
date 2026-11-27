@@ -18,7 +18,7 @@ const server=createServer((req,res)=>{
  const name=new URL(req.url,'http://local').pathname.slice(1)||'index.html',file=resolve(root,decodeURIComponent(name));
  if(!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
  try{const type={'.js':'application/javascript','.html':'text/html','.css':'text/css'}[extname(file)];
-  res.writeHead(200,{'content-type':type||'application/octet-stream'});res.end(readFileSync(file));
+  const data=readFileSync(file);res.writeHead(200,{'content-type':type||'application/octet-stream'});res.end(data);
  }catch{res.writeHead(404);res.end();}
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));

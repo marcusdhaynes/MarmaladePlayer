@@ -15,8 +15,9 @@ const server=createServer((request,response)=>{
     response.writeHead(403);response.end();return;
   }
   try{
+    const data=readFileSync(path);
     response.writeHead(200,{'content-type':mime[extname(path)]||'application/octet-stream'});
-    response.end(readFileSync(path));
+    response.end(data);
   }catch{response.writeHead(404);response.end();}
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
