@@ -11,8 +11,8 @@ const types={'.html':'text/html','.js':'application/javascript',
 const server=createServer((req,res)=>{
  const file=resolve(root,decodeURIComponent(new URL(req.url,'http://localhost').pathname.slice(1)||'index.html'));
  if(file!==root&&!file.startsWith(root+sep)){res.writeHead(403);res.end();return;}
- try{res.writeHead(200,{'content-type':types[extname(file)]||'application/octet-stream'});
-   res.end(readFileSync(file));}catch{res.writeHead(404);res.end();}
+ try{const data=readFileSync(file);res.writeHead(200,{'content-type':types[extname(file)]||'application/octet-stream'});
+   res.end(data);}catch{res.writeHead(404);res.end();}
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
