@@ -4,7 +4,7 @@
  */
 (function(root){
  'use strict';
- const TARGET=180,LOW=3,BLOCK=1024*1024,PART=16*1024,CACHE_LIMIT=24*BLOCK;
+ const TARGET=180,LOW=3,BLOCK=1024*1024,PART=16*1024,CACHE_LIMIT=24*BLOCK,QUOTA_RETRY_MS=30000;
  const LABEL='marmalade-buffer-v1';
  const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  const bridge=()=>root.MarmaladeAddonBridge;
@@ -16,6 +16,7 @@
    return 0;
  }
  function goal(time,duration){return Math.max(0,Math.min(TARGET+5,duration-time));}
+ function playable(ranges,time,duration){return ahead(ranges,time)>=Math.min(LOW,goal(time,duration))-.05;}
  function validRange(offset,length,total){
    return Number.isSafeInteger(offset)&&Number.isSafeInteger(length)&&offset>=0&&length>0&&length<=BLOCK&&offset<total&&length<=total-offset;
  }
@@ -26,7 +27,7 @@
  }
  function offer(){
    const a=bridge(),s=a?.state,file=hostSource(s);
-   if(!s||s.role!=='host'||!s.broadcasting||!s.fileReady||!file)return null;
+   if(!s||s.role!=='host'||!s.broadcasting||!s.fileReady||!file||s.allowOriginalBuffer===false)return null;
    if(!keys.has(file))keys.set(file,crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join(''));
    return {id:keys.get(file),size:file.size||file.length,name:file.name};
  }
@@ -38,12 +39,15 @@
    const file=hostSource(a.state);
    for(const prior of hostChannels)if(prior.peer===conn.peer)prior.close();
    hostChannels.add(conn);
-   let busy=false;
+   let busy=false,invalid=0,lastId=0;
    const authorized=()=>conn.open&&a.state.connections.get(conn.peer)?.conn.open&&hostSource(a.state)===file&&offer()?.id===o.id;
    const reply=m=>{if(authorized())conn.send(m);};
    conn.on('data',async m=>{
      if(!authorized()){conn.close();return;}
-     if(m?.type!=='read'||!Number.isSafeInteger(m.id)||!validRange(m.offset,m.length,o.size)||busy)return;
+     if(m?.type!=='read'||!Number.isSafeInteger(m.id)||m.id<=lastId||!validRange(m.offset,m.length,o.size)||busy){
+       if(++invalid>=8)conn.close();return;
+     }
+     invalid=0;lastId=m.id;
      busy=true;
      try{
        const bytes=new Uint8Array(await (file.read?file.read(m.offset,m.length):file.slice(m.offset,m.offset+m.length).arrayBuffer()));
@@ -159,7 +163,12 @@
  async function pump(s){
    if(!current(s)||!s.buffer||s.running||s.buffer.updating||s.reconnecting)return;
    const a=bridge(),v=a.media,time=position(s);
-   const available=ahead(s.buffer.buffered,time),wanted=Math.min(s.capacity,goal(time,s.duration));
+   const available=ahead(s.buffer.buffered,time);
+    // Recover the target gradually after a browser quota event; do not permanently lock a room to the first observed limit.
+    if(s.capacity<TARGET+5&&Date.now()>=(s.quotaRetryAt||0)){
+      s.capacity=Math.min(TARGET+5,Math.max(LOW,s.capacity+5));s.quotaRetryAt=Date.now()+QUOTA_RETRY_MS;
+    }
+    const wanted=Math.min(s.capacity,goal(time,s.duration));
    if(available>=wanted-.15){kick(s,200);return;}
    s.running=true;
    try{
@@ -185,7 +194,7 @@
          catch(e2){
            if(e2.name!=='QuotaExceededError')throw e2;
            // Device MSE quota is a hard limit; report actual buffered seconds.
-           s.capacity=Math.max(LOW,ahead(s.buffer.buffered,latest)-.25);
+           s.capacity=Math.max(LOW,ahead(s.buffer.buffered,latest)-.25);s.quotaRetryAt=Date.now()+QUOTA_RETRY_MS;
            s.cursor=null;kick(s,500);return;
          }
        }
@@ -193,9 +202,9 @@
        s.cursor=latest+ahead(ranges,latest);
        if(!ahead(ranges,latest)&&ranges.length)s.cursor=ranges.end(ranges.length-1);
        s.emptyReads=0;
-       if(!s.ready&&ahead(ranges,latest)>.1){
+       if(!s.ready&&playable(ranges,latest,s.duration)){
          s.ready=true;send(s,{type:'buffered-file-active',id:s.offer.id,active:true});
-         send(s,{type:'buffer-status',ready:ahead(ranges,latest)>=Math.min(LOW,goal(latest,s.duration))});
+         send(s,{type:'buffer-status',ready:playable(ranges,latest,s.duration)});
          const call=a.state.guestCall;a.state.guestCall=null;try{call?.close();}catch{}
        }
        a.updateBufferDisplay();a.recoveryCheck();a.updateQualityHint?.();void a.syncSeekablePlayback();
@@ -282,7 +291,7 @@
      await update(s.buffer,()=>s.buffer.appendBuffer(header.data));
      if(!current(s))return;
      a.media.currentTime=position(s);
-     s.timer=setInterval(()=>{kick(s);if(s.ready&&Date.now()-(s.lastReport||0)>1000){s.lastReport=Date.now();const t=position(s);send(s,{type:'buffer-status',ready:ahead(s.buffer.buffered,t)>=Math.min(LOW,goal(t,s.duration))});}},250);
+     s.timer=setInterval(()=>{kick(s);if(s.ready&&Date.now()-(s.lastReport||0)>1000){s.lastReport=Date.now();const t=position(s);send(s,{type:'buffer-status',ready:playable(s.buffer.buffered,t,s.duration)});}},250);
      kick(s);
    }catch(e){if(current(s))stop(true,e.message);}
  }
@@ -299,15 +308,15 @@
  function observe(o){
    const a=bridge(),s=a?.state;
    if(!s||s.role!=='guest'||s.localVerified){stop();return;}
-   if(!validOffer(o)){if(session)stop();return;}
+   if(!validOffer(o)){if(session)stop(true,'Original-file buffering no longer available');return;}
    if(session?.offer.id===o.id){kick(session);return;}
    if(session)stop();
    if(failedKey===o.id&&Date.now()<retryAt)return;
    if(s.guestConn?.open)void start(o,s.guestConn);
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,goal,validRange,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,goal,playable,validRange,TARGET};
  if(!root)return;
- root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?{target:TARGET,capacity:session.capacity,ready:session.ready}:null};
+ root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?{target:TARGET,capacity:session.capacity,ready:session.ready,seconds:session.buffer&&current(session)?ahead(session.buffer.buffered,position(session)):0,reconnecting:!!session.reconnecting,quotaLimited:session.capacity<TARGET+5}:null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});
  const media=bridge()?.media;
  for(const event of ['play','pause','seeking','seeked','waiting','stalled','loadeddata','canplay','progress','timeupdate','suspend','ended'])media?.addEventListener(event,()=>{if(session)kick(session);});
