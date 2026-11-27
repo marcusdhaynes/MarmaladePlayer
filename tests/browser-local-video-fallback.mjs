@@ -62,7 +62,13 @@ try{
     'A failed folder selection must not create an empty indexed library');
   // Chromium (and current Firefox/Safari) provide webkitRelativePath for
   // folder-input selections, including nested videos.
-  await page.locator('#mlDirectoryInput').setInputFiles(directory);
+  // Release the intentional picker spy and use the real chooser event.
+  // WebKit can hang when setting a hidden directory input without a chooser.
+  await page.evaluate(()=>{delete document.getElementById('mlDirectoryInput').click;});
+  const folderChooserPromise=page.waitForEvent('filechooser');
+  await page.locator('#mlPickFolder').click();
+  const folderChooser=await folderChooserPromise;
+  await folderChooser.setFiles(directory);
   await page.waitForFunction(()=>
     (document.getElementById('mlScanPreview')?.textContent||'').includes('2 videos'));
   await page.locator('#mlDialogSave').click();
