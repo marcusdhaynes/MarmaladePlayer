@@ -99,7 +99,12 @@ try{
     return {opacity:css.opacity,pointerEvents:css.pointerEvents};
   });
   assert.equal(emptyToolbar.opacity,'1','Empty-stage toolbar must not be transparent');
-  assert.equal(emptyToolbar.pointerEvents,'auto','Empty-stage toolbar must accept input');
+  // Decorative empty-stage chrome intentionally lets a movie-selection tap
+  // pass through; the actual enabled toolbar controls must remain clickable.
+  for(const id of ['muteBtn','volume','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn']){
+    const accepts=await page.locator('#'+id).evaluate(node=>getComputedStyle(node).pointerEvents!=='none');
+    assert(accepts,id+' must accept input on the empty stage');
+  }
   for(const id of ['playPause','skipBack','skipForward','seek'])
     assert.equal(await page.locator('#'+id).isEnabled(),false,id+' should require media');
   for(const id of ['muteBtn','volume','subtitlesBtn','popoutBtn','fullscreenBtn','settingsBtn'])
