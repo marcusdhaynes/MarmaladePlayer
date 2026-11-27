@@ -2673,7 +2673,20 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   const diagnosticFields=[['resolution','Resolution'],['fps','Presented FPS'],['dropped','Dropped Frames'],
     ['buffer','Forward Buffer'],['drift','Sync Drift'],['bandwidth','Received Video'],['loss','Packet Loss'],
     ['jitter','Network Jitter'],['rtt','Round Trip'],['decoder','Decoder'],['route','Connection'],
-    ['mode','Playback Mode'],['cache','Temporary Cache']];
+    ['mode','Playback Mode'],['cache','Temporary Cache'],['encoder','Host Encoder'],['audio','Audio Synchronization']];
+  // Classify only fresh telemetry. A slow guest is not proof of a slow
+  // network, and an encoder reporting a CPU limit is not a decoder failure.
+  function classifyPlayback(r,e,presented){
+    if(r&&(r.loss>.015||r.packetJitterMs>65)||e?.limit==='bandwidth')
+      return 'Network or sender bandwidth constrained. Try a wired connection or lower streaming quality.';
+    if(e&&(e.limit==='cpu'||e.fps>0&&e.fps<22))
+      return 'Host encoder constrained. Close resource-heavy host apps or reduce capture quality.';
+    if(r&&r.fps>0&&r.fps<22)
+      return 'Low decoded frame rate; cause unconfirmed. Check guest decoding resources and host encoder statistics.';
+    if(r&&r.fps>=22&&Number.isFinite(presented)&&presented<r.fps*.8)
+      return 'Guest rendering may be constrained. Close resource-heavy guest apps or disable expensive visual effects.';
+    return '';
+  }
   function diagnosticsVisible(){
     return state.diagnostics&&!document.hidden&&!el.settingsPanel.hidden&&el.stabilityInfo.getClientRects().length>0;
   }
@@ -2695,6 +2708,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     const fresh=state.role==='guest'&&state.source==='remote'&&Number.isFinite(state.statsReport?.at)&&now-state.statsReport.at<6000;
     const r=fresh?state.statsReport:null,l=fresh?state.latencyStats:null;
+    const e=state.role==='guest'&&state.source==='remote'&&Number.isFinite(state.highEncoderStats?.at)&&now-state.highEncoderStats.at<6000?state.highEncoderStats:null;
+    const diagnosis=classifyPlayback(r,e,diagnosticFps);
+    const configuredDelay=Number(audioDelay.value)||0;
+    const delayApplied=[state.speakerGain,state.guestAudioGain,hostMonitorAudioGain].some(gain=>{
+      const route=gain&&personalAudioRoutes.get(gain);
+      return route?.ctx.state==='running'&&route.delay>0&&gain.gain.value>.001;
+    });
     const rolling=window.MarmaladeRollingBuffer?.getStatus();
     const seekable=state.source!=='remote'&&state.source!=='screen';
     const sync=active&&state.role==='guest'&&(state.localVerified||state.bufferedMode)&&state.sharedDuration>0&&state.sharedAt>0;
@@ -2707,8 +2727,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(media.paused)assessment='Paused. Frame-rate sampling resumes with playback.';
       else if(rolling?.quotaLimited)assessment='Browser buffer quota reached. Free device storage or use a verified local copy.';
       else if(rolling?.reconnecting)assessment='Reconnecting. Previously downloaded data is retained where available.';
-      else if(r&&(r.loss>.015||r.packetJitterMs>65))assessment='Network congestion detected. Try a wired connection or lower streaming quality.';
-      else if(r&&r.fps>0&&r.fps<22)assessment='Low decoded frame rate. Try reducing stream quality or closing resource-heavy apps.';
+      else if(diagnosis)assessment=diagnosis;
       else if(media.readyState<3&&seekable)assessment='Waiting for media data. Check source access or throughput.';
       else assessment='No bottleneck detected in available measurements.';
     }else if(state.source)assessment='Waiting for decoded media.';
@@ -2719,7 +2738,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       bandwidth:r?num(r.incomingBitrate/1e6,2,' Mbps'):'—',loss:r?num(r.loss*100,1,'%'):'—',
       jitter:r?num(r.packetJitterMs,0,' ms'):'—',rtt:l?num(l.rttMs,0,' ms'):'—',
       decoder:l?.decoder&&l.decoder!=='unknown'?l.decoder:'Not Reported',route:state.source==='remote'?l?.route||'Not Reported':'—',mode,
-      cache:rolling?.diskAvailable?num(rolling.diskBytes/1048576,1,' MiB'):'—'};
+      cache:rolling?.diskAvailable?num(rolling.diskBytes/1048576,1,' MiB'):'—',
+      encoder:e?(num(e.fps,1,' fps')+' · '+(e.limit==='none'?'No reported limit':e.limit)):'—',
+      audio:!active?'—':(Number.isFinite(l?.avPlayoutMs)?num(l.avPlayoutMs,0,' ms audio–video estimate'):'A/V offset not reported')+
+        (configuredDelay?' · '+configuredDelay+' ms personal delay '+(delayApplied?'active':'configured'):'')};
     const grid=document.getElementById('diagnosticGrid'),note=document.getElementById('diagnosticAssessment');
     if(!grid||!note)return;
     if(!grid.childElementCount)for(const [key,label] of diagnosticFields){
@@ -4858,6 +4880,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         if (data.type === 'encoder-diagnostics' && state.role === 'guest' &&
             Number.isFinite(data.fps)) {
           state.highEncoderStats={
+            at:performance.now(),
             fps:Math.max(0,Math.min(120,data.fps)),
             width:Math.max(0,data.width||0),height:Math.max(0,data.height||0),
             encoder:String(data.encoder||'unknown').slice(0,72),
@@ -4983,10 +5006,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     try {
       const stats = await pc.getStats();
       if (call !== state.guestCall) return;
-      let v = null, availableIncoming = 0;
+      let v = null, audio = null, availableIncoming = 0;
       stats.forEach(x => {
         if (x.type === 'inbound-rtp' && !x.isRemote &&
           (x.kind === 'video' || x.mediaType === 'video')) v = x;
+        if(x.type==='inbound-rtp'&&!x.isRemote&&(x.kind==='audio'||x.mediaType==='audio'))audio=x;
         if (x.type === 'candidate-pair' && x.state === 'succeeded' &&
           Number.isFinite(x.availableIncomingBitrate))
           availableIncoming = Math.max(availableIncoming, x.availableIncomingBitrate);
@@ -5067,8 +5091,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const pair=transport?stats.get(transport.selectedCandidatePairId):[...stats.values()].find(x=>x.type==='candidate-pair'&&x.state==='succeeded'&&x.nominated);
       const candidates=pair?[stats.get(pair.localCandidateId)?.candidateType,stats.get(pair.remoteCandidateId)?.candidateType]:[];
       const route=candidates.includes('relay')?'TURN Relay':candidates.length===2&&candidates.every(Boolean)?'Direct P2P':'Not Reported';
+      // estimatedPlayoutTimestamp is optional RTP telemetry; this is a
+      // receiver-side timestamp estimate, not verified acoustic lip sync.
+      const avPlayoutMs=Number.isFinite(audio?.estimatedPlayoutTimestamp)&&Number.isFinite(v.estimatedPlayoutTimestamp)&&
+        Math.abs(audio.estimatedPlayoutTimestamp-v.estimatedPlayoutTimestamp)<10000?
+        audio.estimatedPlayoutTimestamp-v.estimatedPlayoutTimestamp:null;
       state.latencyStats={
-        route,playoutMs,packetJitterMs,rttMs,
+        route,playoutMs,packetJitterMs,rttMs,avPlayoutMs,
         width:v.frameWidth || media.videoWidth || 0,
         height:v.frameHeight || media.videoHeight || 0,
         decoder:String(v.decoderImplementation||codec||'unknown').slice(0,72),
