@@ -1420,12 +1420,13 @@
           metadataSource:string(item.metadataSource,120),customized:item.customized===true,analyzedAt:number(item.analyzedAt)};
       });
       return {id:lib.id,name:string(lib.name,100)||'Recovered Library',kind:lib.kind==='tv'?'tv':'movie',
-        folders,items,hiddenIds:names(lib.hiddenIds).filter(x=>itemIds.has(x)),createdAt:number(lib.createdAt),lastScan:number(lib.lastScan)};
+        folders,items,hiddenIds:Array.isArray(lib.hiddenIds)?[...new Set(lib.hiddenIds.filter(x=>itemIds.has(x)))]:[],createdAt:number(lib.createdAt),lastScan:number(lib.lastScan)};
     });
   }
   function downloadLibraryBackup(){
     const libraries=portableCatalog();
     const blob=new Blob([JSON.stringify({format:'marmaladeum-library-backup',version:1,createdAt:new Date().toISOString(),libraries})],{type:'application/json'});
+    if(blob.size>64*1024*1024){notify('Catalog exceeds the 64 MiB portable backup limit. Use the library extension backup for this catalog.');return;}
     const url=URL.createObjectURL(blob),a=create('a');a.href=url;a.download='Marmaladeum-Library-Backup-'+new Date().toISOString().slice(0,10)+'.json';
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
     notify('Catalog backup exported. No media files or folder permissions are included.');
@@ -1436,6 +1437,7 @@
       if(file.size>64*1024*1024)throw Error('Backup is larger than 64 MiB');
       const records=validatePortableCatalog(JSON.parse(await file.text()));
       if(!state.ready||state.scanning)throw Error('Wait for the current library scan to finish');
+      if(!state.db)throw Error('Persistent library storage is unavailable on this device');
       const result=await restoreSiteCatalog(records);
       notify(result.restored?result.items+' titles restored. Reconnect folders to play them. Existing libraries were kept.':'No new libraries to restore; existing libraries were kept.');
     }catch(e){notify('Backup not imported: '+(e.message||'Invalid backup'));}
