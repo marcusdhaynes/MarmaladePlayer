@@ -24,16 +24,10 @@ under sections 15, 17 and 20.
 
 ## Section 08 — Scrubber and timeline (page 12)
 
-Nine initial implementations; dedicated real media test [46064425096](https://github.com/marcusdhaynes/MarmaladePlayer/actions/runs/46064425096)
+Functional implementation accepted for supported sources and constant-rate frame stepping. All nine requirements have implementations; dedicated real media test [46064425096](https://github.com/marcusdhaynes/MarmaladePlayer/actions/runs/46064425096)
 verifies thumbnails, bookmarks, chapter markers, exact timestamps, nearby
 scene boundaries, actual adjacent decoded pictures, guest thumbnail requests,
-and paused navigation. Remaining: measure preview latency and playback stutter
-under active playback load, verify buffered-range visualization and cancellation
-under repeated requests. Dedicated real-media acceptance tests for these now
-exist and await CI. Fixture budgets: cached preview <500 ms, uncached <1500 ms,
-no pause/seek/wait/stall events and bounded frame loss during stress. These
-are regression budgets, not guarantees of instant preview on every device.
-VFR stepping is not guaranteed frame-accurate.
+and paused navigation. The [final targeted acceptance test](https://github.com/marcusdhaynes/MarmaladePlayer/actions/runs/46068164749) passed on commit 497fdced139f96b4f4c773d6bedf44ffa851217a: cached preview 14.27 ms, uncached preview 30.89 ms, no playback interruption events and no dropped frames across the short stress window. Disjoint buffer geometry and absence of invented live buffer also passed. Extended load tests and physical-device performance are still open under sections 15, 17 and 20. VFR stepping is not guaranteed frame-accurate.
 
 ## Section 19 — Updates, checkpoints and regression prevention (page 23)
 
@@ -47,3 +41,7 @@ These checks passed on commit `1d5000973300d2ab7c1cde8238543ca8f321858a`: [contr
 
 Other sections remain open until a comparable item-level acceptance record
 is supported by implementation and verification evidence.
+
+## Section 18 — Settings improvements
+
+Versioned allowlisted preference backup, validated import and category-specific reset added. Imports are staged before explicit apply/reload; room codes, credentials, library contents and viewing history are excluded. Browser acceptance tests are pending. Remaining settings categories, complete preference coverage and export verification are open.
