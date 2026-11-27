@@ -75,6 +75,15 @@ jobs:
           test -s assets/approved-fullbleed-icon.webp
           test -s assets/marmalade-icon.webp
 
+      - name: Stamp selected commit and hash web assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The selected rollback commit may predate the release utility.
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git show "$GITHUB_SHA:scripts/stamp-web-release.mjs" > "$RUNNER_TEMP/stamp-web-release.mjs"
+          node "$RUNNER_TEMP/stamp-web-release.mjs" stamp "$(git rev-parse HEAD)"
+
       # Same deploy mechanism as somniel.com (Oct 31, 2026): rsync over SSH
       # using a dedicated deploy key (DREAMHOST_SSH_KEY secret). Password-based
       # SSH hung on DreamHost's side, and FTP-Deploy-Action never supported SFTP.
@@ -89,3 +98,6 @@ jobs:
             -e "ssh -i ~/.ssh/deploy_key -p 22 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
             ./ \
             "${{ secrets.DREAMHOST_SFTP_USER }}@${{ secrets.DREAMHOST_SFTP_HOST }}:/home/marcusdhaynes/marmaladeum.com/"
+
+      - name: Verify live production identity and asset bytes
+        run: node "$RUNNER_TEMP/stamp-web-release.mjs" verify https://marmaladeum.com/

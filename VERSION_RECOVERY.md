@@ -69,3 +69,18 @@ back behavior.
 - Simulator ZIPs and Android debug APKs are not App Store / Play Store
   production-signed distributions.
 - Source commits can be restored even when a platform-specific build failed.
+
+## Web deployment identity and verification
+
+The Pages, DreamHost, and permanent web backup workflows use the same release
+stamping utility. The staged HTML references local assets by their content hash;
+the service worker cache is isolated by full Git SHA. The Settings footer reads
+`build-info.json`. This manifest contains the commit and SHA-256 hashes of the
+HTML, service worker, and referenced local runtime assets. Deployment checks
+compare the live manifest and asset bytes with the staged files, bypassing
+ordinary browser cache. A successful upload alone is not sufficient.
+
+For rollback, DreamHost stamps the selected historical commit, not the workflow
+trigger SHA. Old commits without compatible build steps still require manual
+archive recovery. External CDN dependencies and lazy-loaded decoder binaries are
+not covered by this shell manifest; native packaging is verified separately.
