@@ -40,6 +40,7 @@ try{
    buffer.checked=false;buffer.dispatchEvent(new Event('change',{bubbles:true}));
    const night=document.querySelector('#audioNightMode');night.checked=true;night.dispatchEvent(new Event('change',{bubbles:true}));
    const dialogue=document.querySelector('#audioDialogue');dialogue.value='strong';dialogue.dispatchEvent(new Event('change',{bubbles:true}));
+   const norm=document.querySelector('#audioNormalize');norm.checked=true;norm.dispatchEvent(new Event('change',{bubbles:true}));
    return {max:document.querySelector('#volume').max,step:document.querySelector('#volume').step,allow:window.MarmaladeAddonBridge.state.allowOriginalBuffer};
   });
   assert.deepEqual(settings,{max:'400',step:'5',allow:false});
@@ -52,12 +53,15 @@ try{
   assert.equal(await page.locator('#settingsPageControls #audioNightMode').count(),1);
   assert.equal(await page.locator('#audioNightMode').isChecked(),true);
   assert.equal(await page.locator('#settingsPageControls #audioDialogue').inputValue(),'strong');
+  assert.equal(await page.locator('#settingsPageControls #audioNormalize').isChecked(),true);
+  await page.evaluate(()=>{const n=document.querySelector('#audioNormalize');n.checked=false;n.dispatchEvent(new Event('change',{bubbles:true}));});
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-normalize')),'false');
   // Render actual Web Audio samples through the production routing function.
   // Test relative speech-band emphasis rather than claiming vocal separation.
   const response=await page.evaluate(async source=>{
     const Offline=window.OfflineAudioContext||window.webkitOfflineAudioContext;
     const settings={checked:false},dialogue={value:'off'};
-    const route=new Function('audioProtection','audioNightMode','audioDialogue',source+';return routePersonalAudio;')(settings,{checked:false},dialogue);
+    const {routePersonalAudio:route,levelingGain}=new Function('audioProtection','audioNightMode','audioDialogue','audioNormalize',source+';return {routePersonalAudio,levelingGain};')(settings,{checked:false},dialogue,{checked:false});
     async function measure(level,frequency){
       const ctx=new Offline(1,24000,48000),osc=ctx.createOscillator(),gain=ctx.createGain();
       dialogue.value=level;osc.frequency.value=frequency;gain.gain.value=.2;osc.connect(gain);route(gain,ctx);
@@ -67,11 +71,18 @@ try{
     const offBass=await measure('off',120),offSpeech=await measure('off',2300);
     const mildBass=await measure('mild',120),mildSpeech=await measure('mild',2300);
     const strongBass=await measure('strong',120),strongSpeech=await measure('strong',2300);
-    return {off:offSpeech/offBass,mild:mildSpeech/mildBass,strong:strongSpeech/strongBass,speech:strongSpeech/offSpeech};
+    const tone=amplitude=>Float32Array.from({length:4096},(_,i)=>amplitude*Math.sin(i*2*Math.PI/48));
+    return {off:offSpeech/offBass,mild:mildSpeech/mildBass,strong:strongSpeech/strongBass,speech:strongSpeech/offSpeech,
+      leveling:{silence:levelingGain(tone(.0001)),quiet:levelingGain(tone(.02)),loud:levelingGain(tone(.8)),normal:levelingGain(tone(.1123)),invalid:levelingGain([NaN])}};
   },routeSource);
   assert(response.off>.95&&response.off<1.05,'Off mode is transparent');
   assert(response.mild>response.off*1.4&&response.strong>response.mild*1.4,'Dialogue levels progressively emphasize speech');
   assert(response.speech>.85&&response.speech<1.15,'Headroom keeps speech near original peak gain');
+  assert.equal(response.leveling.silence,null,'Do not amplify silence');
+  assert.equal(response.leveling.invalid,null);
+  assert(response.leveling.quiet>1.9&&response.leveling.quiet<2.01,'Boost is bounded to 6 dB');
+  assert(response.leveling.loud>=.25&&response.leveling.loud<.26,'Attenuation is bounded to 12 dB');
+  assert(response.leveling.normal>.98&&response.leveling.normal<1.02,'Target-level audio remains unchanged');
   await page.evaluate(()=>{const d=document.querySelector('#audioDialogue');d.value='off';d.dispatchEvent(new Event('change',{bubbles:true}));});
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-dialogue')),'off');
   await page.evaluate(()=>{const n=document.querySelector('#audioNightMode');n.checked=false;n.dispatchEvent(new Event('change',{bubbles:true}));});

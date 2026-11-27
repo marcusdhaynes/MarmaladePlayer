@@ -711,6 +711,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label><span>Peak Protection <small>Reduce sudden loud peaks in personal audio.</small></span><input type="checkbox" id="audioProtection"></label>
             <label><span>Night Mode <small>Compress loud passages for quieter listening. Personal audio only.</small></span><input type="checkbox" id="audioNightMode"></label>
             <label><span>Dialogue Enhancement <small>Improve speech clarity with personal frequency shaping.</small></span><select id="audioDialogue" aria-label="Dialogue Enhancement"><option value="off">Off</option><option value="mild">Mild</option><option value="strong">Strong</option></select></label>
+            <label><span>Automatic Loudness Leveling <small>Gently balance quiet and loud audio. Personal output only.</small></span><input type="checkbox" id="audioNormalize"></label>
              <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
@@ -1072,22 +1073,71 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   const audioDialogue=$('audioDialogue');
   const savedDialogue=localPreference('audio-dialogue','off');
   audioDialogue.value=['off','mild','strong'].includes(savedDialogue)?savedDialogue:'off';
-  const personalProcessingEnabled=()=>audioProtection.checked||audioNightMode.checked||audioDialogue.value!=='off';
+  const audioNormalize=$('audioNormalize');
+  audioNormalize.checked=localPreference('audio-normalize','false')==='true';
+  const personalProcessingEnabled=()=>audioProtection.checked||audioNightMode.checked||audioDialogue.value!=='off'||audioNormalize.checked;
   const personalAudioRoutes=new WeakMap();
+  // Short-window RMS leveling, not integrated LUFS normalization. Limit
+  // boosts, ignore near-silence, and reserve peak headroom.
+  function levelingGain(samples){
+    if(!samples?.length)return null;
+    let sum=0,peak=0;
+    for(const sample of samples){if(!Number.isFinite(sample))return null;sum+=sample*sample;peak=Math.max(peak,Math.abs(sample));}
+    const rms=Math.sqrt(sum/samples.length);
+    if(rms<Math.pow(10,-50/20))return null;
+    const target=Math.pow(10,-22/20)/rms;
+    const maxPeak=Math.pow(10,-3/20)/Math.max(peak,.000001);
+    return Math.max(Math.pow(10,-12/20),Math.min(Math.pow(10,6/20),target,maxPeak));
+  }
+  function stopLeveling(route){
+    if(!route?.meter)return;
+    clearInterval(route.timer);
+    try{route.source?.disconnect(route.meter);}catch{}
+    try{route.meter.disconnect();}catch{}
+    route.meter=null;
+  }
+  function startLeveling(route,gain){
+    const ctx=route.ctx,source=route.source,level=route.level;
+    if(!source||!level||typeof ctx.createAnalyser!=='function')return;
+    const meter=ctx.createAnalyser();meter.fftSize=4096;
+    if(typeof meter.getFloatTimeDomainData!=='function'){meter.disconnect();return;}
+    route.meter=meter;source.connect(meter);
+    const samples=new Float32Array(meter.fftSize);
+    let silence=0,current=1;
+    route.timer=setInterval(()=>{
+      if(ctx.state==='closed'){stopLeveling(route);return;}
+      if(ctx.state!=='running')return;
+      // Muted/inactive personal routes do not analyse or amplify silence.
+      if(gain.gain.value<.001){silence=0;current=1;level.gain.setTargetAtTime(1,ctx.currentTime,.15);return;}
+      meter.getFloatTimeDomainData(samples);
+      let target=levelingGain(samples);
+      if(target===null){if(++silence<4)return;target=1;}else silence=0;
+      // Attenuate rapidly, recover slowly to avoid audible gain pumping.
+      const coefficient=target<current?.65:.10;
+      current+=(target-current)*coefficient;
+      level.gain.setTargetAtTime(current,ctx.currentTime,target<current?.08:.25);
+    },250);
+  }
   function detachPersonalAudio(gain,route,ctx){
     if(!route)return;
+    stopLeveling(route);
     try{gain.disconnect(route.nodes[0]||ctx.destination);}catch{}
     for(const node of route.nodes)try{node.disconnect();}catch{}
   }
-  function routePersonalAudio(gain,ctx){
+  function routePersonalAudio(gain,ctx,source){
     if(!gain||!ctx)return;
     const mode=audioNightMode.checked?'night':audioProtection.checked?'peak':'off';
     const dialogue=['mild','strong'].includes(audioDialogue.value)?audioDialogue.value:'off';
-    const signature=mode+'|'+dialogue;
+    const normalize=audioNormalize.checked;
+    const signature=mode+'|'+dialogue+'|'+normalize;
     const previous=personalAudioRoutes.get(gain);
-    if(previous?.signature===signature)return;
-    const nodes=[];
+    source=source||previous?.source;
+    if(previous?.signature===signature&&previous.source===source)return;
+    const nodes=[];let level=null,route=null;
     try{
+      if(normalize&&source&&typeof ctx.createAnalyser==='function'){
+        level=ctx.createGain();level.gain.value=1;nodes.push(level);
+      }
       if(dialogue!=='off'&&typeof ctx.createBiquadFilter==='function'){
         const strong=dialogue==='strong';
         const bass=ctx.createBiquadFilter();nodes.push(bass);
@@ -1098,7 +1148,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         const headroom=ctx.createGain();nodes.push(headroom);
         headroom.gain.value=Math.pow(10,-(strong?6:3)/20);
       }
-      if(mode!=='off'&&typeof ctx.createDynamicsCompressor==='function'){
+      if((mode!=='off'||normalize)&&typeof ctx.createDynamicsCompressor==='function'){
         const node=ctx.createDynamicsCompressor();nodes.push(node);
         const night=mode==='night';
         node.threshold.value=night?-30:-8;node.knee.value=night?24:12;
@@ -1108,14 +1158,17 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       for(let i=0;i<nodes.length;i++)nodes[i].connect(nodes[i+1]||ctx.destination);
       detachPersonalAudio(gain,previous,ctx);
       gain.connect(nodes[0]||ctx.destination);
-      personalAudioRoutes.set(gain,{nodes,signature,ctx});
+      route={nodes,signature,ctx,source,level};
+      personalAudioRoutes.set(gain,route);
+      if(level)startLeveling(route,gain);
     }catch(error){
+      if(route)detachPersonalAudio(gain,route,ctx);
       for(const node of nodes)try{node.disconnect();}catch{}
       // If a browser cannot create a processing node, restore the ordinary
       // personal speaker path rather than muting playback.
       detachPersonalAudio(gain,previous,ctx);
       gain.connect(ctx.destination);
-      personalAudioRoutes.set(gain,{nodes:[],signature,ctx});
+      personalAudioRoutes.set(gain,{nodes:[],signature,ctx,source});
       console.debug('Personal audio processing unavailable',error);
     }
   }
@@ -1467,7 +1520,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const source=ctx.createMediaStreamSource(new MediaStream(audioTracks));
       const gain=ctx.createGain();
       source.connect(gain);
-      routePersonalAudio(gain,ctx);
+      routePersonalAudio(gain,ctx,source);
       state.guestAudioSource=source;
       state.guestAudioGain=gain;
       state.guestAudioFallback=true;state.guestAudioStream=stream;state.guestAudioTrackIds=audioTracks.map(t=>t.id).join('|');
@@ -4816,7 +4869,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       state.audioSourceNode=state.audioContext.createMediaElementSource(media);
       state.speakerGain=state.audioContext.createGain();
       state.audioSourceNode.connect(state.speakerGain);
-      routePersonalAudio(state.speakerGain,state.audioContext);
+      routePersonalAudio(state.speakerGain,state.audioContext,state.audioSourceNode);
       media.volume=1;
     };
     // createMediaElementSource immediately redirects native media output into
@@ -5257,7 +5310,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           const connect=()=>{
             if(ctx.state!=='running'||hostMonitorAudioGain||!state.hostMonitorActive)return;
             const source=ctx.createMediaElementSource(hostMonitor),gain=ctx.createGain();
-            source.connect(gain);routePersonalAudio(gain,ctx);
+            source.connect(gain);routePersonalAudio(gain,ctx,source);
             hostMonitorAudioGain=gain;applyVolume();
           };
           if(ctx.state==='running'){hostMonitorGainPending=false;connect();}
@@ -6504,6 +6557,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   audioProtection.addEventListener('change',()=>{rememberPreference('audio-peak-protection',audioProtection.checked);refreshPersonalProcessing();});
   audioNightMode.addEventListener('change',()=>{rememberPreference('audio-night-mode',audioNightMode.checked);refreshPersonalProcessing();});
   audioDialogue.addEventListener('change',()=>{rememberPreference('audio-dialogue',audioDialogue.value);refreshPersonalProcessing();});
+  audioNormalize.addEventListener('change',()=>{rememberPreference('audio-normalize',audioNormalize.checked);refreshPersonalProcessing();});
   el.mute.addEventListener('click', () => {
     state.soundMuted = state.volumePercent>0&&!state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = Math.min(volumeMax,Math.round(state.lastVolume*100/volumeStep)*volumeStep||100);
