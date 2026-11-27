@@ -664,7 +664,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <div class="theater-title"><button type="button" id="mediaInfoToggle" class="theater-title-info" title="Movie &amp; Series Information" aria-label="Movie &amp; Series Information" aria-expanded="false" aria-controls="mediaInfoPanel"><strong id="fileName">Nothing Selected</strong></button><span class="watchers"><span class="watchers-icon">◉</span> <span id="viewerCountText">0 Watching</span></span></div>
             <div class="theater-seek" id="seekArea">
               <span class="timecode" id="currentTime">00:00</span>
-              <div class="seek-stack"><div id="bufferedFill" class="buffered-fill" aria-hidden="true"></div><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled></div>
+              <div class="seek-stack"><div id="bufferedFill" class="buffered-fill" aria-hidden="true"></div><div id="timelineBookmarkMarkers" aria-hidden="true"></div><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek video" disabled></div>
               <span class="timecode" id="duration">00:00</span>
             </div>
             <div class="theater-bottom">
@@ -704,6 +704,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
              <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Background Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
             <label for="windowTheme">Window Theme <select id="windowTheme" aria-label="Window Theme"><option value="classic">Classic</option><option value="glass">Glass</option></select></label>
+            <details id="timelineBookmarks" class="settings-advanced timeline-bookmarks"><summary>Timeline Bookmarks</summary><div class="bookmark-editor"><p id="bookmarkStatus" role="status">Open a local video to save bookmarks.</p><div class="bookmark-add"><input id="bookmarkName" type="text" maxlength="80" placeholder="Bookmark Name (Optional)" aria-label="Bookmark name"><button type="button" id="bookmarkAdd" disabled>Add Current Time</button></div><div id="bookmarkList"></div></div></details>
             <label>Skip Interval <select id="skipInterval" aria-label="Seconds to rewind or fast forward"><option value="5">5 Seconds</option><option value="10" selected>10 Seconds</option><option value="15">15 Seconds</option><option value="20">20 Seconds</option><option value="30">30 Seconds</option><option value="60">60 Seconds</option></select></label>
             <label id="tapVideoPlaybackRow"><input type="checkbox" id="tapVideoPlayback"> Tap Video To Play / Pause</label>
             <label>Volume Increment <select id="volumeIncrement"><option value="1">1%</option><option value="5">5%</option><option value="10" selected>10%</option><option value="25">25%</option><option value="50">50%</option></select></label>
@@ -1584,6 +1585,66 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const stored=JSON.parse(localStorage.getItem(WATCH_PROGRESS_KEY)||'{}');
     if(stored&&typeof stored==='object'&&!Array.isArray(stored))watchProgress=stored;
   }catch{}
+  // Local timeline bookmarks use the existing stable movie fingerprint,
+  // not a title alone. Native library IDs are already scoped to their source.
+  const BOOKMARK_KEY='marmalade:timeline-bookmarks:v1';
+  let timelineBookmarks={};
+  let bookmarkRenderSignature='';
+  try{
+    const data=JSON.parse(localStorage.getItem(BOOKMARK_KEY)||'{}');
+    if(data&&typeof data==='object'&&!Array.isArray(data)){
+      for(const [key,entries] of Object.entries(data).slice(0,500)){
+        if(!/^(hash:|library:)/.test(key)||key.length>512||!Array.isArray(entries))continue;
+        const seen=new Set();
+        timelineBookmarks[key]=entries.slice(0,100).filter(b=>b&&typeof b.id==='string'&&b.id.length<=80&&
+          !seen.has(b.id)&&seen.add(b.id)&&Number.isFinite(b.time)&&b.time>=0&&typeof b.name==='string'&&b.name.length<=80);
+      }
+    }
+  }catch{}
+  function bookmarkIdentity(){
+    if(state.role!=='host'||state.gameFrameMode||!state.fileReady)return '';
+    if(state.source==='native'&&state.nativeMediaKey)return 'library:'+state.nativeMediaKey;
+    if(state.source==='file'&&state.localFingerprint)return 'hash:'+state.localFingerprint;
+    return '';
+  }
+  function saveBookmarks(key,entries){
+    const next={...timelineBookmarks};
+    if(entries.length)next[key]=entries;else delete next[key];
+    if(Object.keys(next).length>500){notify('Bookmark storage supports 500 movies. Delete old bookmarks first.');return false;}
+    try{localStorage.setItem(BOOKMARK_KEY,JSON.stringify(next));}
+    catch{notify('Bookmarks could not be saved on this device.');return false;}
+    timelineBookmarks=next;bookmarkRenderSignature='';renderBookmarks();return true;
+  }
+  function bookmarkTime(t){
+    const seconds=Math.max(0,Math.floor(t));
+    return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(n=>String(n).padStart(2,'0')).join(':');
+  }
+  function renderBookmarks(){
+    const key=bookmarkIdentity(),duration=key?stableMovieDuration():0;
+    const ready=!!key&&Number.isFinite(duration)&&duration>0;
+    const entries=ready?(timelineBookmarks[key]||[]):[];
+    const signature=JSON.stringify([key,ready?duration:0,entries]);
+    if(signature===bookmarkRenderSignature)return;
+    bookmarkRenderSignature=signature;
+    const list=$('bookmarkList'),markers=$('timelineBookmarkMarkers'),add=$('bookmarkAdd');
+    if(!list||!markers||!add)return;
+    list.replaceChildren();markers.replaceChildren();
+    add.disabled=!ready||entries.length>=100;$('bookmarkName').disabled=!ready;
+    $('bookmarkStatus').textContent=ready?entries.length+' / 100 saved bookmarks on this device':
+      state.role==='guest'?'Bookmarks are available on the host’s local movie.':'Open a local video and wait for its identity to be verified.';
+    for(const entry of [...entries].sort((a,b)=>a.time-b.time)){
+      const row=document.createElement('div');row.className='bookmark-row';
+      const jump=document.createElement('button');jump.type='button';jump.className='bookmark-jump';
+      jump.textContent=bookmarkTime(entry.time)+' · '+entry.name;jump.disabled=entry.time>duration;
+      jump.addEventListener('click',()=>{if(bookmarkIdentity()!==key||entry.time>stableMovieDuration())return;commitSeek(entry.time);});
+      const remove=document.createElement('button');remove.type='button';remove.textContent='×';
+      remove.setAttribute('aria-label','Delete bookmark '+entry.name);
+      remove.addEventListener('click',()=>{if(bookmarkIdentity()===key)saveBookmarks(key,(timelineBookmarks[key]||[]).filter(b=>b.id!==entry.id));});
+      row.append(jump,remove);list.append(row);
+      if(entry.time<=duration){const marker=document.createElement('span');marker.className='timeline-bookmark-marker';
+        marker.style.left=(100*entry.time/duration)+'%';markers.append(marker);}
+    }
+  }
   function progressKeys(){
     if(state.role==='host'&&state.source==='native'&&state.nativeMediaKey)
       return ['library:'+state.nativeMediaKey];
@@ -1992,6 +2053,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       (localLivePause ? media.paused : !state.hostPlaying) : media.paused) ? PLAY_PATH : PAUSE_PATH;
     updateStatusDisplay();
     updateBufferDisplay();
+    renderBookmarks();
   }
 
   function updateStatusDisplay() {
@@ -3452,6 +3514,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     void fileFingerprint(file).then(hash=>{
       if(state.file===file){
         state.localFingerprint=hash;
+        renderBookmarks();
         restoreWatchPosition();
         syncState();
       }
@@ -6545,6 +6608,17 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     else applyTransport('seek',time);
     revealControls();
   };
+  $('bookmarkAdd').addEventListener('click',()=>{
+    const key=bookmarkIdentity(),duration=stableMovieDuration(),time=media.currentTime;
+    if(!key||!Number.isFinite(time)||!Number.isFinite(duration)||time<0||time>duration)return;
+    const entries=timelineBookmarks[key]||[];
+    if(entries.length>=100)return;
+    const name=$('bookmarkName').value.trim().slice(0,80)||'Bookmark '+bookmarkTime(time);
+    const entry={id:crypto.randomUUID?.()||Date.now().toString(36)+Math.random().toString(36).slice(2),time:Math.round(time*1000)/1000,name};
+    if(saveBookmarks(key,[...entries,entry]))$('bookmarkName').value='';
+  });
+  $('bookmarkName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();$('bookmarkAdd').click();}});
+  $('timelineBookmarks').addEventListener('toggle',()=>renderBookmarks());
   el.seek.addEventListener('change',()=>commitSeek(seekTime()));
   // Native range inputs can fail to emit change when merely tapped on Android.
   // Explicit click-to-time seeking works without initiating a thumb drag.

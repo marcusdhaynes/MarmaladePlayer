@@ -365,3 +365,14 @@ html[data-window-theme="glass"] #gamesPanel .game-score-card.delete-armed .game-
 .settings-popover .audio-eq-band input[type=range]{width:100%;min-width:0;margin:0;accent-color:#e6b58a}
 .settings-popover .audio-eq-band output{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .settings-popover #audioEqReset{display:block;margin:0 8px 8px auto;padding:4px 8px;font-size:11px}
+
+/* Timeline bookmarks are visual markers, never intercepting seek input. */
+#timelineBookmarkMarkers{position:absolute;inset:0 5px;pointer-events:none;z-index:3}
+.timeline-bookmark-marker{position:absolute;top:0;width:2px;height:6px;background:#f4cc8d;border-radius:1px;transform:translateX(-50%)}
+.settings-popover .bookmark-editor{display:grid;gap:6px;padding:8px;min-width:0}
+.settings-popover .bookmark-editor p{margin:0;font-size:10px;opacity:.8}
+.settings-popover .bookmark-add{display:flex;flex-wrap:wrap;gap:4px}
+.settings-popover .bookmark-add input{flex:1;min-width:0;width:100%;box-sizing:border-box;padding:5px;font-size:11px}
+.settings-popover .bookmark-add button{flex:0 0 auto;font-size:11px}
+.settings-popover .bookmark-row{display:flex;align-items:center;gap:4px;margin:3px 0}
+.settings-popover .bookmark-jump{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-size:11px}

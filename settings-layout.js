@@ -115,6 +115,7 @@
  subtitleLink.addEventListener('click',()=>$('subtitlesBtn')?.click());
  pages.get('video').querySelector('.settings-stack').appendChild(subtitleLink);
  into('skipInterval','controls');
+ pages.get('controls').querySelector('.settings-stack').appendChild($('timelineBookmarks'));
  into('volumeIncrement','controls');
  into('volumeSnap','controls','settings-toggle-row');
  into('volumeMaximum','controls');

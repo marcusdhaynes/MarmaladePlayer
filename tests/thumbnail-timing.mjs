@@ -88,6 +88,24 @@ try{
  await page.mouse.move(1,1);
  assert.equal(await page.locator('#seekPreview').isVisible(),false);
  console.log('PASS thumbnails show distinct frames at hovered scene times; main playback unchanged');
+ // Bookmarks use exact movie identity, real seeks and durable local storage.
+ await page.waitForFunction(()=>!document.querySelector('#bookmarkAdd').disabled,null,{timeout:12000});
+ await page.evaluate(async()=>{const v=document.querySelector('#player');v.pause();v.currentTime=2;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
+ await page.evaluate(()=>{document.querySelector('#bookmarkName').value='Red Scene';document.querySelector('#bookmarkAdd').click();});
+ assert.equal(await page.locator('#timelineBookmarkMarkers .timeline-bookmark-marker').count(),1);
+ assert.match(await page.locator('#bookmarkList').textContent(),/00:00:02 · Red Scene/);
+ await page.evaluate(async()=>{const v=document.querySelector('#player');v.currentTime=6;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));document.querySelector('.bookmark-jump').click();});
+ await page.waitForFunction(()=>Math.abs(document.querySelector('#player').currentTime-2)<.1&&!document.querySelector('#player').seeking);
+ assert.equal(await page.locator('#player').evaluate(v=>v.paused),true);
+ await page.reload({waitUntil:'domcontentloaded'});
+ await page.waitForFunction(()=>!!window.MarmaladeSeekPreview&&!!window.MarmaladeSubtitleCompact);
+ await page.locator('#fileInput').setInputFiles({name:'Scene.2026.webm',mimeType:'video/webm',buffer:readFileSync(fixture)});
+ await page.waitForFunction(()=>document.querySelector('#bookmarkList').textContent.includes('Red Scene'),null,{timeout:12000});
+ assert.equal(await page.locator('#timelineBookmarkMarkers .timeline-bookmark-marker').count(),1);
+ await page.evaluate(()=>document.querySelector('#bookmarkList button[aria-label^="Delete bookmark"]').click());
+ assert.equal(await page.locator('#timelineBookmarkMarkers .timeline-bookmark-marker').count(),0);
+ assert.equal(await page.evaluate(()=>Object.keys(JSON.parse(localStorage.getItem('marmalade:timeline-bookmarks:v1'))).length),0);
+ console.log('PASS movie bookmarks persist across reload, seek precisely and delete durably');
 
  await page.locator('#subtitlesBtn').click({force:true});
  await page.locator('#subSyncTab').click({force:true});

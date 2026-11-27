@@ -206,7 +206,8 @@ try{
   const posterChooser=await posterChooserPromise;
   await posterChooser.setFiles({name:'cover.png',mimeType:'image/png',
     buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAwAAAASCAIAAADgy6hbAAAAGUlEQVR4nGNcEDCNgRBgIqhiVNGoIiorAgAlRAGq0hp+tgAAAABJRU5ErkJggg==','base64')});
-  await page.waitForFunction(()=>Boolean(document.querySelector('#mlCards .ml-card img.ml-art-poster')));
+  await page.waitForFunction(()=>[...document.querySelectorAll('#mlCards .ml-card')].some(card=>card.textContent.includes('Arrival')&&card.querySelector('img.ml-art-poster')?.getAttribute('src')?.startsWith('data:image/')));
+  await page.waitForFunction(()=>document.querySelector('#mlStatus')?.textContent.includes('Custom glossy poster saved'));
   assert((await arrival().locator('img.ml-art-poster').getAttribute('src')).startsWith('data:image/'),
     'Compressed uploaded poster must appear on the card');
   await arrival().locator('.ml-card-more').click();
@@ -234,6 +235,8 @@ try{
   await page.locator('#mlCards .ml-card').filter({hasText:'Arrival Custom Title'}).click();
   assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.file?.name),
     'Arrival (2016).mp4','Library card opens its real file through the existing host player');
+  // Confirm the actual custom image, not merely an earlier remote artwork, is durable.
+  assert(await page.evaluate(()=>new Promise(resolve=>{const db=indexedDB.open('marmalade:local-library:v1');db.onerror=()=>resolve(false);db.onsuccess=()=>{const req=db.result.transaction('libraries','readonly').objectStore('libraries').getAll();req.onerror=()=>resolve(false);req.onsuccess=()=>{resolve(req.result.some(lib=>lib.items?.some(i=>i.name==='Arrival (2016).mp4'&&i.posterCustomized&&i.poster?.startsWith('data:image/'))));db.result.close();};};})), 'Custom poster is durably saved');
   // The thumbnail index is persisted, but a fake JS handle cannot be cloned
   // to IndexedDB; production Chromium stores real directory handles.
   await page.reload({waitUntil:'domcontentloaded'});

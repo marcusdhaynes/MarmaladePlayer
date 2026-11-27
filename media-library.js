@@ -226,7 +226,7 @@
                 await persist(lib);
                 updated=true;
               }catch(error){
-                entry.poster=previous;
+                if(!entry.posterCustomized&&entry.poster===match.poster)entry.poster=previous;
                 console.debug('Automatic poster could not be saved',error);
               }
             }
