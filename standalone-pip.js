@@ -38,10 +38,18 @@ function ensureDimensions(){
  const ratio=windowRatio||pw/ph;
  // Match the system viewport if it refuses the source ratio, using black
  // padding rather than stretching the picture or any of its lettering.
- const nextW=Math.max(2,Math.round(Math.max(pw,ph*ratio)/2)*2);
- const nextH=Math.max(2,Math.round(Math.max(ph,pw/ratio)/2)*2);
- if(width!==nextW||height!==nextH||pictureWidth!==pw||pictureHeight!==ph){
-   width=nextW;height=nextH;pictureWidth=pw;pictureHeight=ph;
+ // A portrait or unusually wide OS window must not inflate the compositor
+ // beyond its 960×540 budget. Scale the padded rectangle, then fit the
+ // original picture inside it without cropping or distorting the source.
+ const paddedW=Math.max(pw,ph*ratio),paddedH=Math.max(ph,pw/ratio);
+ const budget=Math.min(1,960/paddedW,540/paddedH);
+ const nextW=Math.max(2,Math.floor(paddedW*budget/2+1e-8)*2);
+ const nextH=Math.max(2,Math.floor(paddedH*budget/2+1e-8)*2);
+ const fit=Math.min(1,nextW/w,nextH/h);
+ const nextPictureW=Math.max(2,Math.floor(w*fit/2+1e-8)*2);
+ const nextPictureH=Math.max(2,Math.floor(h*fit/2+1e-8)*2);
+ if(width!==nextW||height!==nextH||pictureWidth!==nextPictureW||pictureHeight!==nextPictureH){
+   width=nextW;height=nextH;pictureWidth=nextPictureW;pictureHeight=nextPictureH;
    canvas.width=width;canvas.height=height;captionCanvas.width=width;captionCanvas.height=height;captionKey='';
    pip.style.width=Math.round(180*width/height)+'px';pip.style.height='180px';
    pip.style.aspectRatio=width+' / '+height;

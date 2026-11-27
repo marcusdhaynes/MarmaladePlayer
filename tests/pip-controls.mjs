@@ -32,7 +32,10 @@ try{
     Object.defineProperty(window,'documentPictureInPicture',{configurable:true,writable:true,value:undefined});
     let nativePip=null;
     window.__nativePipRequests=0;
-    window.__pipSubtitlePaints=0;
+    window.__pipSubtitlePaints=[];
+    const pipWindow=new EventTarget();
+    pipWindow.width=640;pipWindow.height=360;
+    window.__pipTestWindow=pipWindow;
     Object.defineProperty(document,'pictureInPictureEnabled',
       {configurable:true,get:()=>true});
     Object.defineProperty(document,'pictureInPictureElement',
@@ -41,7 +44,7 @@ try{
       nativePip=this;
       window.__nativePipRequests++;
       this.dispatchEvent(new Event('enterpictureinpicture'));
-      return this;
+      return pipWindow;
     };
     document.exitPictureInPicture=async()=>{
       const old=nativePip;nativePip=null;
@@ -49,8 +52,11 @@ try{
     };
     const originalFillText=CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText=function(text,...args){
-      if(String(text).includes('CAPTIONS IN PICTURE-IN-PICTURE'))
-        window.__pipSubtitlePaints++;
+      // Captions may be word-wrapped into multiple fillText calls. Keep
+      // the actual rasterization text rather than expecting one full line.
+      window.__pipSubtitlePaints.push(String(text));
+      if(window.__pipSubtitlePaints.length>100)
+        window.__pipSubtitlePaints.shift();
       return originalFillText.call(this,text,...args);
     };
   });
@@ -101,6 +107,7 @@ try{
   await page.locator('#popoutBtn').click({force:true});
   await page.waitForFunction(()=>window.MarmaladeStandalonePiP.isActive(),null,
     {timeout:10000});
+  await page.waitForFunction(()=>window.__pipSubtitlePaints.join(' ').replace(/\s+/g,' ').includes('CAPTIONS IN PICTURE-IN-PICTURE'),null,{timeout:10000});
   const active=await page.evaluate(()=>{
     const diag=window.MarmaladeStandalonePiP.getDiagnostics();
     const pip=document.pictureInPictureElement;
@@ -121,10 +128,26 @@ try{
   assert.equal(active.controlsStillOwned,true,'Never move the app chrome into a popup');
   assert.equal(active.external,true,'Adaptive brightness must track external playback');
   assert.match(active.subtitles,/CAPTIONS IN PICTURE-IN-PICTURE/);
-  assert(active.subtitlePaints>0,'Timed captions must be painted onto the PiP video');
+  assert.match(active.subtitlePaints.join(' ').replace(/\s+/g,' '),/CAPTIONS IN PICTURE-IN-PICTURE/,
+    'All timed caption words must be rasterized, including wrapped captions');
   assert(active.diag.frames>0,'PiP video compositor must render frames');
   assert(active.diag.canvasWidth<=960 && active.diag.canvasHeight<=540,
     'PiP video compositor must stay within its lightweight resolution budget');
+  for(const [w,h] of [[300,1000],[1000,250],[640,360]]){
+    const geometry=await page.evaluate(([w,h])=>{
+      const win=window.__pipTestWindow;
+      win.width=w;win.height=h;win.dispatchEvent(new Event('resize'));
+      return window.MarmaladeStandalonePiP.getDiagnostics();
+    },[w,h]);
+    assert(geometry.canvasWidth<=960 && geometry.canvasHeight<=540,
+      'Resized PiP must remain within the compositor budget');
+    assert(geometry.pictureWidth<=geometry.canvasWidth && geometry.pictureHeight<=geometry.canvasHeight,
+      'Picture must fit inside the canvas');
+    assert(Math.abs(geometry.pictureWidth/geometry.pictureHeight-640/360)<.05,
+      'The original movie aspect ratio must be preserved');
+    assert(Math.abs(geometry.canvasWidth/geometry.canvasHeight-w/h)<.05,
+      'Letterboxed canvas must follow the system window aspect ratio');
+  }
   await page.locator('#popoutBtn').click({force:true});
   await page.waitForFunction(()=>!window.MarmaladeStandalonePiP.isActive(),null,
     {timeout:10000});
