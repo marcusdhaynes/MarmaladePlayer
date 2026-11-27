@@ -2670,7 +2670,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return 'no detected bottleneck';
   }
   let diagnosticPrevious=null, diagnosticTimer=0, diagnosticFps=null;
-  const diagnosticFields=[['resolution','Resolution'],['fps','Presented FPS'],['dropped','Dropped Frames'],
+  const diagnosticFields=[['resolution','Resolution'],['fps','Non-dropped FPS'],['decoded','Decoded FPS'],['dropped','Dropped Frames'],
     ['buffer','Forward Buffer'],['drift','Sync Drift'],['bandwidth','Received Video'],['loss','Packet Loss'],
     ['jitter','Network Jitter'],['rtt','Round Trip'],['decoder','Decoder'],['route','Connection'],
     ['mode','Playback Mode'],['cache','Temporary Cache'],['encoder','Host Encoder'],['audio','Audio Synchronization']];
@@ -2681,6 +2681,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       return 'Network or sender bandwidth constrained. Try a wired connection or lower streaming quality.';
     if(e&&(e.limit==='cpu'||e.fps>0&&e.fps<22))
       return 'Host encoder constrained. Close resource-heavy host apps or reduce capture quality.';
+    if(r&&(r.stalls>0||r.freezes>0||r.fps===0))
+      return 'Video interruption detected. Check host playback, guest connection and decoder resources.';
     if(r&&r.fps>0&&r.fps<22)
       return 'Low decoded frame rate; cause unconfirmed. Check guest decoding resources and host encoder statistics.';
     if(r&&r.fps>=22&&Number.isFinite(presented)&&presented<r.fps*.8)
@@ -2729,15 +2731,18 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       else if(rolling?.reconnecting)assessment='Reconnecting. Previously downloaded data is retained where available.';
       else if(diagnosis)assessment=diagnosis;
       else if(media.readyState<3&&seekable)assessment='Waiting for media data. Check source access or throughput.';
+      else if(sync&&Math.abs(expectedHostTime()-media.currentTime)>.25)assessment='Playback clock is out of sync. Allow recovery or check the verified file and connection.';
+      else if(state.source==='remote'&&!r)assessment='Collecting live network and decoder measurements.';
+      else if(diagnosticFps===null&&!r)assessment='Collecting playback frame measurements.';
       else assessment='No bottleneck detected in available measurements.';
     }else if(state.source)assessment='Waiting for decoded media.';
     const values={resolution:active&&media.videoWidth&&media.videoHeight?media.videoWidth+' × '+media.videoHeight:'—',
-      fps:active&&media.paused?'Paused':num(diagnosticFps,1,' fps'),dropped:num(dropped),
+      fps:active&&media.paused?'Paused':num(diagnosticFps,1,' fps'),decoded:r?num(r.fps,1,' fps'):'—',dropped:num(dropped),
       buffer:active&&seekable?num(bufferAhead(),1,' s')+(rolling?' / '+rolling.target+' s':''):'—',
       drift:sync?num((expectedHostTime()-media.currentTime)*1000,0,' ms'):'—',
       bandwidth:r?num(r.incomingBitrate/1e6,2,' Mbps'):'—',loss:r?num(r.loss*100,1,'%'):'—',
       jitter:r?num(r.packetJitterMs,0,' ms'):'—',rtt:l?num(l.rttMs,0,' ms'):'—',
-      decoder:l?.decoder&&l.decoder!=='unknown'?l.decoder:'Not Reported',route:state.source==='remote'?l?.route||'Not Reported':'—',mode,
+      decoder:l?.decoder&&l.decoder!=='unknown'?l.decoder+(l.powerEfficient===true?' · power-efficient':l.powerEfficient===false?' · not power-efficient':''):'Not Reported',route:state.source==='remote'?l?.route||'Not Reported':'—',mode,
       cache:rolling?.diskAvailable?num(rolling.diskBytes/1048576,1,' MiB'):'—',
       encoder:e?(num(e.fps,1,' fps')+' · '+(e.limit==='none'?'No reported limit':e.limit)):'—',
       audio:!active?'—':(Number.isFinite(l?.avPlayoutMs)?num(l.avPlayoutMs,0,' ms audio–video estimate'):'A/V offset not reported')+
@@ -5101,6 +5106,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         width:v.frameWidth || media.videoWidth || 0,
         height:v.frameHeight || media.videoHeight || 0,
         decoder:String(v.decoderImplementation||codec||'unknown').slice(0,72),
+        powerEfficient:typeof v.powerEfficientDecoder==='boolean'?v.powerEfficientDecoder:null,
         dropped:v.framesDropped||0,
         freezeCount:v.freezeCount||0
       };

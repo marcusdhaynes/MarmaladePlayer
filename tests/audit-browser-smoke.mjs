@@ -34,8 +34,9 @@ try{
   assert.equal(await page.locator('#settingsPanel').evaluate(panel=>panel.classList.contains('player-docked')),viewport.height>viewport.width);
   await page.locator('#settingsAdvanced > summary').click();
   await page.locator('#diagnosticsToggle').click();
-  await page.waitForFunction(()=>document.querySelectorAll('#diagnosticGrid output').length===15);
+  await page.waitForFunction(()=>document.querySelectorAll('#diagnosticGrid output').length===16);
   assert.equal(await page.locator('[data-metric=fps]').textContent(),'—');
+  assert.equal(await page.locator('[data-metric=decoded]').textContent(),'—');
   assert.equal(await page.locator('[data-metric=mode]').textContent(),'No Movie');
   assert.equal(await page.locator('[data-metric=decoder]').textContent(),'Not Reported');
   assert.equal(await page.locator('[data-metric=audio]').textContent(),'—');
@@ -46,6 +47,8 @@ try{
   assert.match(classify({loss:0,fps:16},{limit:'cpu',fps:16},16),/Host encoder constrained/);
   assert.match(classify({loss:0,fps:16},null,16),/cause unconfirmed/);
   assert.match(classify({loss:0,fps:24},null,12),/Guest rendering/);
+  assert.match(classify({fps:0,loss:0},null,null),/Video interruption/);
+  assert.match(classify({fps:24,freezes:1},null,24),/Video interruption/);
   assert.equal(classify(null,null,null),'');
   assert.match(await page.locator('#diagnosticAssessment').textContent(),/Load a movie/);
   await page.locator('#diagnosticsToggle').click();

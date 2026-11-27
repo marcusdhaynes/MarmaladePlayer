@@ -598,6 +598,26 @@ try {
   console.log('SUSTAINED PERFORMANCE RESULTS',JSON.stringify(performanceIssues));
   if(!performanceIssues.length)
     console.log('PASS sustained host-to-guest moving video at every selectable tier');
+  // Exercise actual visible diagnostics after sustained performance sampling.
+  // No invented RTP values or production-state fixture mutations.
+  await guest.locator('#settingsBtn').click({force:true});
+  await guest.locator('#settingsTabParty').click();
+  await guest.evaluate(()=>{
+    const advanced=document.querySelector('#settingsAdvanced');advanced.open=true;
+    if(document.querySelector('#stabilityInfo').hidden)document.querySelector('#diagnosticsToggle').click();
+  });
+  await guest.waitForFunction(()=>{
+    const value=key=>document.querySelector('[data-metric='+key+']')?.textContent||'';
+    return value('mode')==='Live WebRTC'&&value('resolution')==='1920 × 1080'&&
+      parseFloat(value('decoded'))>0&&parseFloat(value('bandwidth'))>0&&
+      Number.isFinite(parseFloat(value('loss')))&&parseFloat(value('fps'))>0;
+  },null,{timeout:12000});
+  const liveDiagnostics=await guest.evaluate(()=>Object.fromEntries([...document.querySelectorAll('#diagnosticGrid output')].map(o=>[o.dataset.metric,o.textContent])));
+  console.log('PASS real live diagnostics match received resolution, decoded FPS, frame counters and bandwidth',JSON.stringify(liveDiagnostics));
+  assert.equal(liveDiagnostics.buffer,'—','Live WebRTC must not advertise future file buffering');
+  assert.equal(liveDiagnostics.drift,'—','Live WebRTC must not invent a seekable clock offset');
+  // Leave diagnostics enabled but hide its window before changing sources.
+  await guest.locator('#closeSettingsPanel').click();
   // Explicitly preserve the separate local-file path and its host clock.
   await guest.waitForFunction(()=>window.MarmaladeAddonBridge.state.remoteFingerprint,
     null,{timeout:10000});
@@ -616,6 +636,19 @@ try {
   assert(Math.abs(hostTime-guestTime)<2,
     'Locally verified guest must follow host seek: '+hostTime+' vs '+guestTime);
   console.log('PASS matching-file local sync follows host seek');
+  await guest.locator('#settingsBtn').click({force:true});
+  await guest.locator('#settingsTabParty').click();
+  await guest.evaluate(()=>{
+    document.querySelector('#settingsAdvanced').open=true;
+    if(document.querySelector('#stabilityInfo').hidden)document.querySelector('#diagnosticsToggle').click();
+  });
+  await guest.waitForFunction(()=>{
+    const value=key=>document.querySelector('[data-metric='+key+']')?.textContent||'';
+    return value('mode')==='Verified Local File'&&value('decoded')==='—'&&value('bandwidth')==='—'&&
+      value('encoder')==='—'&&value('route')==='—'&&Number.isFinite(parseFloat(value('drift')));
+  },null,{timeout:10000});
+  await guest.locator('#closeSettingsPanel').click();
+  console.log('PASS verified local diagnostics clear obsolete live network readings and show measured clock drift');
   await guest.locator('#localCopyButton').dispatchEvent('pointerdown',{
     button:0,bubbles:true
   });
