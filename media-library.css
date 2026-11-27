@@ -462,3 +462,6 @@
  .ml-panel .ml-filters select{font-size:7px!important;padding:2px 0!important;max-width:33%!important}
  .ml-panel .ml-filters input{font-size:7px!important}
 }
+
+.ml-settings-panel .ml-backup-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:6px 0}
+.ml-settings-panel .ml-backup-actions button{min-width:0;padding:6px 4px;white-space:normal;font-size:10px}
