@@ -33,6 +33,8 @@ jobs:
         run: node tests/media-library.mjs
       - name: Verify new Games panel, scoreboard, and Media Library settings
         run: node tests/games-ui.mjs
+      - name: Install codec-capable Google Chrome for native MP4 verification
+        run: npx playwright install chrome
       - name: Verify Minternet-style native library video uses normal playback controls
         run: node tests/native-media-player.mjs
       - name: Verify non-black WebRTC frames in Chromium and Firefox
