@@ -36,7 +36,7 @@ try{
   assert.equal(await page.locator('#volumeSnap').isChecked(),false);
   assert.equal(await page.locator('#allowOriginalBuffer').isChecked(),false);
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary?.ready);
-  const backup={format:'marmaladeum-library-backup',version:1,libraries:[{id:'audit-catalog',name:'Audit Recovery',kind:'movie',folders:[{id:'audit-folder',name:'Films'}],items:[{folderId:'audit-folder',path:'Example.mp4',title:'Example',favorite:true,watched:true,collections:['Test']}]}]};
+  const backup={format:'marmaladeum-library-backup',version:1,libraries:[{id:'audit-catalog',name:'Audit Recovery',kind:'movie',folders:[{id:'audit-folder',name:'Films'}],items:[{folderId:'audit-folder',path:'Example.mp4',title:'Example',size:12345,favorite:true,watched:true,collections:['Test']}]}]};
   const file={name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))};
   await page.locator('#mlCatalogBackupInput').setInputFiles(file);
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.id==='audit-catalog'&&l.count===1));
@@ -47,6 +47,20 @@ try{
   await page.locator('#mlCatalogBackupInput').setInputFiles({...file,buffer:Buffer.from(JSON.stringify(backup))});
   await page.waitForFunction(()=>document.querySelector('#mlStatus').textContent.includes('Invalid media path'));
   assert.equal(await page.evaluate(()=>window.MarmaladeMediaLibrary.getLibraries().some(l=>l.id==='invalid-audit-catalog')),false);
+  await page.evaluate(()=>{
+    localStorage.setItem('marmalade:watch-progress:v1',JSON.stringify({'file:example.mp4|12345':{time:60,duration:120,updated:Date.now()}}));
+    window.MarmaladeMediaLibrary.show(true);
+    window.MarmaladeMediaLibrary.select('audit-catalog');
+    const filter=document.querySelector('#mlKindFilter');filter.value='continue';filter.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+  await page.waitForFunction(()=>document.querySelector('#mlCurrentShelf').textContent==='Continue Watching');
+  assert.equal(await page.locator('#mlCards .ml-card-progress').getAttribute('aria-valuenow'),'50');
+  assert.equal(await page.locator('#mlCards .ml-card').count(),1);
+  await page.evaluate(()=>{
+    localStorage.removeItem('marmalade:watch-progress:v1');
+    window.dispatchEvent(new Event('marmalade:watch-progress'));
+  });
+  await page.waitForFunction(()=>document.querySelectorAll('#mlCards .ml-card-progress').length===0);
   const stage=await page.locator('#dropZone').boundingBox();
   assert.ok(stage&&stage.x>=-1&&stage.x+stage.width<=viewport.width+1,'Video stage exceeds viewport');
   assert.deepEqual(errors,[],'Unexpected browser JavaScript errors');
