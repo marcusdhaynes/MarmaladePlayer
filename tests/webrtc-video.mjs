@@ -16,7 +16,7 @@ const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const server=createServer((req,res)=>{
   const pathname=new URL(req.url,'http://localhost').pathname;
   if(['/games.js','/games.css','/updates-ui.css',
-      '/assets/onlyframes-logo.svg','/assets/onlyframes-poster.svg'].includes(pathname)){
+      '/assets/onlyframes-logo.svg','/assets/onlyframes-poster.svg','/rolling-buffer.js'].includes(pathname)){
     const contentType=pathname.endsWith('.js')?'application/javascript':
       pathname.endsWith('.css')?'text/css':'image/svg+xml';
     res.writeHead(200,{'content-type':contentType});
@@ -69,7 +69,7 @@ const server=createServer((req,res)=>{
     res.writeHead(200,{'content-type':'application/javascript'});
     res.end(readFileSync(new URL('../public-movie-info.js',import.meta.url)));
   }else if(req.url?.startsWith('/movie-info.js') || req.url?.startsWith('/movie-info.css')){
-    const css=req.url.endsWith('.css');
+    const css=pathname.endsWith('.css');
     res.writeHead(200,{'content-type':css?'text/css':'application/javascript'});
     res.end(readFileSync(new URL('..'+req.url,import.meta.url)));
   }else if(req.url?.startsWith('/media-library.js') || req.url?.startsWith('/media-library.css')){
