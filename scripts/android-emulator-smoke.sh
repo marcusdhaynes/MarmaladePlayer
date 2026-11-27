@@ -3,6 +3,10 @@ set -euo pipefail
 package=app.marmaladeplayer.mobile
 # One shell owns the variables and trap for the entire test.
 # Stream logs from before launch, so a disappearing emulator cannot erase evidence.
+timeout 30 adb shell getprop sys.boot_completed | grep -q '^1'
+timeout 30 adb shell dumpsys webviewupdate | tee marmalade-webview.txt
+# Allow first-boot initialization to settle before launching the app.
+sleep 20
 adb logcat -c
 adb logcat -v threadtime > marmalade-logcat.txt 2>&1 &
 log_pid=$!
@@ -19,9 +23,11 @@ grep -F 'Status: ok' marmalade-launch.txt
 timeout 15 adb exec-out screencap -p > marmalade-startup.png
 for i in 1 2 3; do
   sleep 4
-  if ! timeout 15 adb shell pidof "$package" | grep -Eq '[0-9]'; then
+  if ! timeout 30 adb shell pidof "$package" | grep -Eq '[0-9]'; then
     echo "Application process unavailable; checking emulator transport" >&2
     timeout 10 adb devices -l || true
+    timeout 10 adb shell getprop sys.boot_completed || true
+    tail -80 marmalade-logcat.txt || true
     exit 1
   fi
 done

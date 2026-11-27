@@ -21,7 +21,7 @@
     menu:$('mlContextMenu'),itemDialog:$('mlItemDialog'),itemBody:$('mlItemDialogBody'),
     itemTitle:$('mlItemDialogTitle'),itemSave:$('mlItemDialogSave')
   };
-  const PAGE_SIZE=120,MAX_POSTER_QUEUE=120;
+  const PAGE_SIZE=120;
   const KEY='marmalade:media-library:visible';
   const DB='marmalade:local-library:v1';
   const VIDEO=/\.(3g2|3gp|amv|asf|avi|divx|drc|f4v|flv|gifv|m1v|m2p|m2t|m2ts|m2v|m4v|mjpeg|mjpg|mk3d|mkv|mov|mp4|mpe|mpeg|mpg|mpv|mts|mxf|nsv|ogv|qt|rm|rmvb|roq|rv|ts|vob|webm|wmv|xvid|y4m|yuv)$/i;
@@ -51,6 +51,7 @@
   const countLabel=n=>n.toLocaleString()+(n===1?' Video':' Videos');
 
   const AUTO_POSTERS_KEY='marmalade:media-library:auto-posters';
+  const MAX_POSTER_QUEUE=120;
   const POSTER_MISSES_KEY='marmalade:media-library:poster-misses';
   const POSTER_COLUMNS_KEY='marmalade:media-library:poster-columns';
   const MIN_POSTER_COLUMNS=1,MAX_POSTER_COLUMNS=12;

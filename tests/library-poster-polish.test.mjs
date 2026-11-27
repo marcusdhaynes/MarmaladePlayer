@@ -32,9 +32,9 @@ function harness(options={}){
     setTimeout:fn=>queueMicrotask(fn)
   };
   const api=new Function(...Object.keys(deps),
-    js.slice(beginning,ending)+'\nreturn {scheduleAutoPoster,posterDisplayTitle};'
+    js.slice(beginning,ending)+'\nreturn {scheduleAutoPoster,posterDisplayTitle,queueLength:()=>posterQueue.length,limit:MAX_POSTER_QUEUE};'
   )(...Object.values(deps));
-  return {api,item,custom,storage,requests,get writes(){return writes;},
+  return {api,item,custom,storage,requests,panel:deps.panel,get writes(){return writes;},
     get renders(){return renders;}};
 }
 async function settle(){
@@ -89,4 +89,20 @@ test('Poster-only cards have no visible outer frames or boxed star/dots',()=>{
   assert.match(finalCSS,/font-size:16px!important/);
   assert.match(finalCSS,/\.ml-card \.ml-art-mark\{display:none!important\}/);
   assert.match(css,/aspect-ratio:2 \/ 3/);
+});
+
+test('Artwork queue is bounded and does not enqueue while the library is hidden',async()=>{
+  let release;
+  const pending=new Promise(resolve=>{release=resolve;});
+  const ctx=harness({lookup:()=>pending});
+  for(let i=0;i<1000;i++)ctx.api.scheduleAutoPoster({title:'Movie '+i,type:'movie'});
+  assert.equal(ctx.api.limit,120);
+  assert.equal(ctx.api.queueLength(),120);
+  assert.equal(ctx.requests.length,1,'Only one request may be in flight');
+  ctx.panel.hidden=true;
+  release({record:null});
+  await settle();
+  assert.equal(ctx.api.queueLength(),0,'Hidden panel discards pending jobs');
+  ctx.api.scheduleAutoPoster({title:'Another Movie',type:'movie'});
+  assert.equal(ctx.requests.length,1,'No new request while hidden');
 });
