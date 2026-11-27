@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+const routeSource=html.slice(html.indexOf('  const personalAudioRoutes=new WeakMap();'),html.indexOf('  function quantizeVolume('));
 import {chromium,firefox,webkit} from 'playwright';
 const engine=process.argv[2]||'chromium',launcher={chromium,firefox,webkit}[engine];
 assert.ok(launcher,'Unknown browser');
@@ -36,6 +39,7 @@ try{
    snap.checked=false;snap.dispatchEvent(new Event('change',{bubbles:true}));
    buffer.checked=false;buffer.dispatchEvent(new Event('change',{bubbles:true}));
    const night=document.querySelector('#audioNightMode');night.checked=true;night.dispatchEvent(new Event('change',{bubbles:true}));
+   const dialogue=document.querySelector('#audioDialogue');dialogue.value='strong';dialogue.dispatchEvent(new Event('change',{bubbles:true}));
    return {max:document.querySelector('#volume').max,step:document.querySelector('#volume').step,allow:window.MarmaladeAddonBridge.state.allowOriginalBuffer};
   });
   assert.deepEqual(settings,{max:'400',step:'5',allow:false});
@@ -47,6 +51,29 @@ try{
   assert.equal(await page.locator('#allowOriginalBuffer').isChecked(),false);
   assert.equal(await page.locator('#settingsPageControls #audioNightMode').count(),1);
   assert.equal(await page.locator('#audioNightMode').isChecked(),true);
+  assert.equal(await page.locator('#settingsPageControls #audioDialogue').inputValue(),'strong');
+  // Render actual Web Audio samples through the production routing function.
+  // Test relative speech-band emphasis rather than claiming vocal separation.
+  const response=await page.evaluate(async source=>{
+    const Offline=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+    const settings={checked:false},dialogue={value:'off'};
+    const route=new Function('audioProtection','audioNightMode','audioDialogue',source+';return routePersonalAudio;')(settings,{checked:false},dialogue);
+    async function measure(level,frequency){
+      const ctx=new Offline(1,24000,48000),osc=ctx.createOscillator(),gain=ctx.createGain();
+      dialogue.value=level;osc.frequency.value=frequency;gain.gain.value=.2;osc.connect(gain);route(gain,ctx);
+      osc.start();const buffer=await ctx.startRendering();const samples=buffer.getChannelData(0).subarray(4800);
+      return Math.sqrt(samples.reduce((sum,v)=>sum+v*v,0)/samples.length);
+    }
+    const offBass=await measure('off',120),offSpeech=await measure('off',2300);
+    const mildBass=await measure('mild',120),mildSpeech=await measure('mild',2300);
+    const strongBass=await measure('strong',120),strongSpeech=await measure('strong',2300);
+    return {off:offSpeech/offBass,mild:mildSpeech/mildBass,strong:strongSpeech/strongBass,speech:strongSpeech/offSpeech};
+  },routeSource);
+  assert(response.off>.95&&response.off<1.05,'Off mode is transparent');
+  assert(response.mild>response.off*1.4&&response.strong>response.mild*1.4,'Dialogue levels progressively emphasize speech');
+  assert(response.speech>.85&&response.speech<1.15,'Headroom keeps speech near original peak gain');
+  await page.evaluate(()=>{const d=document.querySelector('#audioDialogue');d.value='off';d.dispatchEvent(new Event('change',{bubbles:true}));});
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-dialogue')),'off');
   await page.evaluate(()=>{const n=document.querySelector('#audioNightMode');n.checked=false;n.dispatchEvent(new Event('change',{bubbles:true}));});
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-night-mode')),'false');
   await page.waitForFunction(()=>window.MarmaladeMediaLibrary?.ready);

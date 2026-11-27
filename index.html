@@ -710,6 +710,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <label><span>Snap Volume Every 50%</span><input type="checkbox" id="volumeSnap" checked></label>
             <label><span>Peak Protection <small>Reduce sudden loud peaks in personal audio.</small></span><input type="checkbox" id="audioProtection"></label>
             <label><span>Night Mode <small>Compress loud passages for quieter listening. Personal audio only.</small></span><input type="checkbox" id="audioNightMode"></label>
+            <label><span>Dialogue Enhancement <small>Improve speech clarity with personal frequency shaping.</small></span><select id="audioDialogue" aria-label="Dialogue Enhancement"><option value="off">Off</option><option value="mild">Mild</option><option value="strong">Strong</option></select></label>
              <label>Maximum Volume <select id="volumeMaximum"><option value="100">100%</option><option value="200" selected>200%</option><option value="300">300%</option><option value="400">400%</option><option value="500">500%</option><option value="600">600%</option></select></label>
             <label>Control Fade Delay <select id="controlFadeDelay" aria-label="Control Fade Delay"><option value="2" selected>2 Seconds</option><option value="3">3 Seconds</option><option value="5">5 Seconds</option><option value="8">8 Seconds</option><option value="10">10 Seconds</option><option value="15">15 Seconds</option></select></label>
             <label>Stability <select id="stabilityMode" aria-label="Stream stability"><option value="smooth">Smooth</option><option value="balanced">Balanced</option><option value="fast" selected>Lowest Delay</option></select></label>
@@ -1068,35 +1069,59 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   audioProtection.checked=localPreference('audio-peak-protection','false')==='true';
   const audioNightMode=$('audioNightMode');
   audioNightMode.checked=localPreference('audio-night-mode','false')==='true';
-  const personalProcessingEnabled=()=>audioProtection.checked||audioNightMode.checked;
+  const audioDialogue=$('audioDialogue');
+  const savedDialogue=localPreference('audio-dialogue','off');
+  audioDialogue.value=['off','mild','strong'].includes(savedDialogue)?savedDialogue:'off';
+  const personalProcessingEnabled=()=>audioProtection.checked||audioNightMode.checked||audioDialogue.value!=='off';
   const personalAudioRoutes=new WeakMap();
+  function detachPersonalAudio(gain,route,ctx){
+    if(!route)return;
+    try{gain.disconnect(route.nodes[0]||ctx.destination);}catch{}
+    for(const node of route.nodes)try{node.disconnect();}catch{}
+  }
   function routePersonalAudio(gain,ctx){
     if(!gain||!ctx)return;
-    let route=personalAudioRoutes.get(gain);
     const mode=audioNightMode.checked?'night':audioProtection.checked?'peak':'off';
-    if(route?.mode===mode)return;
-    if(route){
-      try{gain.disconnect(route.node||ctx.destination);}catch{}
-      try{route.node?.disconnect();}catch{}
-    }
-    let node=null;
-    if(mode!=='off'&&typeof ctx.createDynamicsCompressor==='function'){
-      try{
-        node=ctx.createDynamicsCompressor();
-        // Night Mode reduces a wider range of loud passages; Peak Protection
-        // remains the fast high-threshold limiter. The broadcast is upstream.
+    const dialogue=['mild','strong'].includes(audioDialogue.value)?audioDialogue.value:'off';
+    const signature=mode+'|'+dialogue;
+    const previous=personalAudioRoutes.get(gain);
+    if(previous?.signature===signature)return;
+    const nodes=[];
+    try{
+      if(dialogue!=='off'&&typeof ctx.createBiquadFilter==='function'){
+        const strong=dialogue==='strong';
+        const bass=ctx.createBiquadFilter();nodes.push(bass);
+        bass.type='lowshelf';bass.frequency.value=220;bass.gain.value=strong?-6:-3;
+        const speech=ctx.createBiquadFilter();nodes.push(speech);
+        speech.type='peaking';speech.frequency.value=2300;speech.Q.value=.8;speech.gain.value=strong?6:3;
+        // Headroom prevents the presence boost from overloading loud passages.
+        const headroom=ctx.createGain();nodes.push(headroom);
+        headroom.gain.value=Math.pow(10,-(strong?6:3)/20);
+      }
+      if(mode!=='off'&&typeof ctx.createDynamicsCompressor==='function'){
+        const node=ctx.createDynamicsCompressor();nodes.push(node);
         const night=mode==='night';
         node.threshold.value=night?-30:-8;node.knee.value=night?24:12;
         node.ratio.value=night?6:12;node.attack.value=night?.008:.003;
         node.release.value=night?.25:.16;
-        node.connect(ctx.destination);gain.connect(node);
-      }catch{try{node?.disconnect();}catch{}node=null;gain.connect(ctx.destination);}
-    }else gain.connect(ctx.destination);
-    personalAudioRoutes.set(gain,{node,mode});
+      }
+      for(let i=0;i<nodes.length;i++)nodes[i].connect(nodes[i+1]||ctx.destination);
+      detachPersonalAudio(gain,previous,ctx);
+      gain.connect(nodes[0]||ctx.destination);
+      personalAudioRoutes.set(gain,{nodes,signature,ctx});
+    }catch(error){
+      for(const node of nodes)try{node.disconnect();}catch{}
+      // If a browser cannot create a processing node, restore the ordinary
+      // personal speaker path rather than muting playback.
+      detachPersonalAudio(gain,previous,ctx);
+      gain.connect(ctx.destination);
+      personalAudioRoutes.set(gain,{nodes:[],signature,ctx});
+      console.debug('Personal audio processing unavailable',error);
+    }
   }
   function disposePersonalAudio(gain){
     const route=personalAudioRoutes.get(gain);
-    try{route?.node?.disconnect();}catch{}
+    if(route)detachPersonalAudio(gain,route,route.ctx);
     personalAudioRoutes.delete(gain);
   }
   function quantizeVolume(raw,step,max,snap){
@@ -6478,6 +6503,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   audioProtection.addEventListener('change',()=>{rememberPreference('audio-peak-protection',audioProtection.checked);refreshPersonalProcessing();});
   audioNightMode.addEventListener('change',()=>{rememberPreference('audio-night-mode',audioNightMode.checked);refreshPersonalProcessing();});
+  audioDialogue.addEventListener('change',()=>{rememberPreference('audio-dialogue',audioDialogue.value);refreshPersonalProcessing();});
   el.mute.addEventListener('click', () => {
     state.soundMuted = state.volumePercent>0&&!state.soundMuted;
     if (!state.soundMuted && !state.volumePercent) state.volumePercent = Math.min(volumeMax,Math.round(state.lastVolume*100/volumeStep)*volumeStep||100);
