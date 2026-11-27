@@ -27,3 +27,20 @@ test('timestamp-only changes preserve favorites',()=>{
  const item={...base,lastModified:21,favorite:false};
  reconcile([base],[item]);assert.equal(item.favorite,true);assert.equal(item.lastModified,21);
 });
+const groupStart=code.indexOf('  function groupItemsByFolder('),groupEnd=code.indexOf('  async function scanLibrary(',groupStart);
+assert(groupStart>=0&&groupEnd>groupStart);
+const groupItems=new Function(code.slice(groupStart,groupEnd)+'\nreturn groupItemsByFolder;')();
+test('50,000 catalog entries grouped without spread limits or item mutation',()=>{
+ const items=Array.from({length:50000},(_,i)=>({id:'item'+i,folderId:'f'+(i%100),favorite:i%2===0}));
+ const groups=groupItems(items);
+ assert.equal(groups.size,100);
+ assert.equal(groups.get('f0').length,500);
+ assert.equal([...groups.values()].flat().length,50000);
+ assert.equal(groups.get('f0')[0],items[0]);
+ assert.equal(groups.get('f0')[1],items[100]);
+});
+test('folder grouping safely preserves special identifiers and empty catalog',()=>{
+ assert.equal(groupItems([]).size,0);
+ const item={folderId:'__proto__',id:'x'};
+ assert.equal(groupItems([item]).get('__proto__')[0],item);
+});

@@ -113,11 +113,17 @@ try{
   const {state,media}=window.MarmaladeAddonBridge;
   return {clock:window.MarmaladeSubtitleClock(media.currentTime),
     text:document.querySelector('#subtitleOverlay').textContent,
-    offsets:localStorage.getItem('marmalade:subtitle-offsets:v2')};
+    offsets:JSON.parse(localStorage.getItem('marmalade:subtitle-offsets:v3')||'{}')};
  });
  assert(Math.abs(result.clock-4.2)<.051,'Align uses exactly the caption clock '+JSON.stringify(result));
  assert(result.text===full,'Aligned subtitle becomes visible immediately');
- assert(result.offsets.includes('local:scene-subtitle'),'Alignment offset saved for subtitle');
+ assert.equal(result.offsets['file:test-scene\u0000local:scene-subtitle']?.seconds,0.8,
+  'Alignment offset saved under the exact movie and subtitle identity');
+ await page.evaluate(()=>{
+  window.MarmaladeSubtitleTiming.activate('file:other-scene','local:scene-subtitle');
+  window.MarmaladeSubtitleTiming.activate('file:test-scene','local:scene-subtitle');
+ });
+ assert.equal(await page.locator('#subtitleTiming').inputValue(),'0.8','Saved alignment restored when revisiting the movie');
  console.log('PASS searchable full-length subtitle lines and exact per-video timing');
 
  await page.evaluate(()=>window.MarmaladeSubtitleTiming.set(0));

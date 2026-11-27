@@ -359,6 +359,7 @@
     if(!folder.handle)return null;
     if(!await permissions(folder,ask))return null;
     const items=[];
+    let visited=0;
     async function walk(dir,prefix){
       for await(const [name,entry] of dir.entries()){
         if(seq!==state.scanSeq)throw Error('Scan cancelled');
@@ -382,7 +383,7 @@
             console.debug('Media file indexed by name; metadata access deferred:',path,error);
           }
         }
-        if(items.length>0&&items.length%80===0){
+        if(++visited%80===0){
           ui.status.textContent='Scanning '+folder.name+' · '+countLabel(items.length);
           await new Promise(resolve=>setTimeout(resolve,0));
         }
@@ -492,6 +493,16 @@
     });
     return settled;
   }
+  // Index each folder once instead of repeatedly scanning the entire catalog.
+  function groupItemsByFolder(items){
+    const groups=new Map();
+    for(const item of items){
+      let group=groups.get(item.folderId);
+      if(!group){group=[];groups.set(item.folderId,group);}
+      group.push(item);
+    }
+    return groups;
+  }
   async function scanLibrary(lib,{ask=false}={}){
     if(!lib||state.scanning){notify('A library scan is already in progress.');return;}
     if(lib.id.startsWith('addon:')&&nativeLibraryApi()?.rescan){
@@ -505,7 +516,8 @@
     }
     state.scanning=true;
     const seq=++state.scanSeq,oldItems=(lib.items||[]).slice();
-    let items=oldItems.slice(),accessIssues=0,folderIssues=0;
+    const oldGroups=groupItemsByFolder(oldItems),nextGroups=new Map(oldGroups);
+    let accessIssues=0,folderIssues=0;
     let hiddenIds=(lib.hiddenIds||[]).slice();
     ui.rescan.disabled=true;notify('Scanning '+lib.name+'…');
     try{
@@ -521,10 +533,9 @@
           folderIssues++;console.warn('Library folder scan failed:',folder.name,error);
         }
         if(found!==null){
-          items=items.filter(item=>item.folderId!==folder.id);
-          hiddenIds=reconcileFolder(oldItems.filter(item=>item.folderId===folder.id),found,hiddenIds);
+          hiddenIds=reconcileFolder(oldGroups.get(folder.id)||[],found,hiddenIds);
           const blocked=new Set(hiddenIds);
-          items.push(...found.filter(item=>!blocked.has(item.id)));
+          nextGroups.set(folder.id,found.filter(item=>!blocked.has(item.id)));
           state.scanProblems.delete(folder.id);
         }else{
           accessIssues++;
@@ -532,6 +543,7 @@
         }
       }
       if(seq!==state.scanSeq)return;
+      const items=[...nextGroups.values()].flat();
       lib.items=items;lib.hiddenIds=hiddenIds;
       lib.lastScan=now();
       await persist(lib);
@@ -1260,9 +1272,11 @@
     if(!lib){state.folderMode=false;render();return;}
     const roots=[];
     if(!state.folder){
+      const counts=new Map();
+      for(const item of items)counts.set(item.folderId,(counts.get(item.folderId)||0)+1);
       for(const folder of lib.folders){
         roots.push({name:folder.name,title:folder.name,type:'folder',
-          detail:countLabel(items.filter(item=>item.folderId===folder.id).length),
+          detail:countLabel(counts.get(folder.id)||0),
           folderId:folder.id,path:''});
       }
     }else{
@@ -1349,12 +1363,13 @@
     visible.push(...shows.values());
     if(state.sort==='title')visible.sort((a,b)=>
       (a.kind==='show'?a.show:a.item.title).localeCompare(b.kind==='show'?b.show:b.item.title));
-    if(state.sort==='recent')visible.sort((a,b)=>
-      (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.addedAt||0),0)-
-      (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.addedAt||0),0));
-    if(state.sort==='year')visible.sort((a,b)=>
-      (b.items||[b.item]).reduce((m,i)=>Math.max(m,i.year||0),0)-
-      (a.items||[a.item]).reduce((m,i)=>Math.max(m,i.year||0),0));
+    if(state.sort==='recent'||state.sort==='year'){
+      const field=state.sort==='recent'?'addedAt':'year';
+      // Compute each series key once, not on every sort comparison.
+      for(const entity of visible)entity.sortKey=(entity.items||[entity.item])
+        .reduce((max,item)=>Math.max(max,Number(item[field])||0),0);
+      visible.sort((a,b)=>b.sortKey-a.sortKey);
+    }
     const renderEntity=entity=>{
       if(entity.kind==='show'){
         const entry={title:entity.show,type:'tv',detail:entity.items.length+' Episodes',
