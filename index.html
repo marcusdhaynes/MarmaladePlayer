@@ -1456,6 +1456,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   const STREAM_WIDTH = isMobile ? 640 : 960;
   const STREAM_HEIGHT = isMobile ? 360 : 540;
   const STREAM_FPS = 24;
+  // A lost presentation callback should not leave an encoder starved for
+  // several source frames. The watchdog is a fallback, not a second cadence.
+  const CAPTURE_WATCHDOG_MS = Math.round(1000/STREAM_FPS*1.5);
+  const CAPTURE_WATCHDOG_TICK = Math.round(1000/STREAM_FPS/2);
   // Base capture remains lightweight. Native/full-resolution capture is lazy and
   // only started when somebody explicitly requests >540p or Original.
   const LEVELS = [
@@ -4033,8 +4037,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         const onFrame=now=>{
           if(state.highCanvas!==canvas)return;
           lastDecodedCallback=performance.now();
-          if(!state.highPaintIdle)paint(now,true);
           state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
+          if(!state.highPaintIdle)paint(now,true);
         };
         state.highFrameHandle=media.requestVideoFrameCallback(onFrame);
       }
@@ -4042,8 +4046,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       // while the capture track remains live, starving the encoder.
       state.highTimer=setInterval(()=>{
         const now=performance.now();
-        if(state.highCanvas===canvas&&!state.highPaintIdle&&!media.paused&&now-lastDecodedCallback>100)paint(now);
-      },Math.round(1000/STREAM_FPS));
+        if(state.highCanvas===canvas&&!state.highPaintIdle&&!media.paused&&now-lastDecodedCallback>CAPTURE_WATCHDOG_MS)paint(now);
+      },manualCapture?CAPTURE_WATCHDOG_TICK:Math.round(1000/STREAM_FPS));
       state.highTierHeight=height;
       if(state.highTrack && 'contentHint' in state.highTrack)
         try{state.highTrack.contentHint='motion';}catch{}
@@ -4202,6 +4206,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }catch{track?.stop();return null;}
     if(!track)return null;
     let disposed=false,frameHandle=null,timer=null,lastPaint=-Infinity,lastDecoded=-Infinity;
+    const record={track,height:actualHeight,width:canvas.width,decodedPaints:0,watchdogPaints:0,dispose(){
+      if(disposed)return;disposed=true;
+      if(timer!==null)clearInterval(timer);
+      if(frameHandle!==null)try{media.cancelVideoFrameCallback?.(frameHandle);}catch{}
+      track.stop();
+    }};
     const paint=(now,decoded=false)=>{
       if(disposed||track.readyState!=='live'||media.readyState<2||
         (!decoded&&now-lastPaint<1000/STREAM_FPS-2))return;
@@ -4210,29 +4220,25 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         ctx.drawImage(media,0,0,canvas.width,canvas.height);
         if(manual)track.requestFrame();
         state.baseCaptureFrames++;
+        if(decoded)record.decodedPaints++;else record.watchdogPaints++;
       }catch{}
     };
-    const record={track,height:actualHeight,width:canvas.width,dispose(){
-      if(disposed)return;disposed=true;
-      if(timer!==null)clearInterval(timer);
-      if(frameHandle!==null)try{media.cancelVideoFrameCallback?.(frameHandle);}catch{}
-      track.stop();
-    }};
     state.lowCompatCaptures.set(height,record);
     if('contentHint' in track)try{track.contentHint='motion';}catch{}
     paint(performance.now());
     if(manual&&typeof media.requestVideoFrameCallback==='function'){
       const onFrame=now=>{
         if(disposed||track.readyState!=='live')return;
-        lastDecoded=performance.now();paint(now,true);
+        lastDecoded=performance.now();
         frameHandle=media.requestVideoFrameCallback(onFrame);
+        paint(now,true);
       };
       frameHandle=media.requestVideoFrameCallback(onFrame);
     }
     timer=setInterval(()=>{
       const now=performance.now();
-      if(!media.paused&&now-lastDecoded>100)paint(now);
-    },Math.round(1000/STREAM_FPS));
+      if(!media.paused&&now-lastDecoded>CAPTURE_WATCHDOG_MS)paint(now);
+    },manual?CAPTURE_WATCHDOG_TICK:Math.round(1000/STREAM_FPS));
     return track;
   }
   function getCompatCanvasTrack(height=STREAM_HEIGHT) {
@@ -4243,7 +4249,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     let track=state.canvasStream?.getVideoTracks()[0];
     if(track?.readyState==='live'){
       state.basePaintIdle=false;
-      if(!state.interval&&state.baseTick){state.basePaint?.();state.interval=setInterval(state.baseTick,Math.round(1000/STREAM_FPS));}
+      if(!state.interval&&state.baseTick){state.basePaint?.();state.interval=setInterval(state.baseTick,CAPTURE_WATCHDOG_TICK);}
       return track;
     }
     try { track=canvasCapture(); }
@@ -4359,7 +4365,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     } catch (error) {
       console.debug('Browser cannot apply requested quality; keeping stream alive', error);
       send(entry.conn, { type: 'quality-applied', level: 'limited', message: 'Browser-limited quality; playback continues' });
-    } finally { entry.tuning = false; }
+    } finally {
+      entry.tuning = false;
+      // Retire unused tier tracks promptly rather than drawing two canvases
+      // until the next periodic quality sweep. In-flight senders are guarded.
+      refreshCaptureWork();
+    }
   }
   function refreshCaptureWork() {
     if(!state.broadcasting||state.source!=='file')return;
@@ -4384,7 +4395,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.basePaintIdle=!anyBase;
     if(anyBase&&!state.interval){
       state.basePaint();
-      state.interval=setInterval(state.baseTick,Math.round(1000/STREAM_FPS));
+      state.interval=setInterval(state.baseTick,CAPTURE_WATCHDOG_TICK);
     }else if(!anyBase&&state.interval){
       clearInterval(state.interval);state.interval=null;
     }
@@ -5416,15 +5427,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       }catch{}
     };
     state.basePaint=paint;state.basePaintIdle=false;
-    state.baseTick=()=>{const now=performance.now();if(!state.basePaintIdle&&!media.paused&&now-lastDecodedCallback>100)paint(now);};
+    state.baseTick=()=>{const now=performance.now();if(!state.basePaintIdle&&!media.paused&&now-lastDecodedCallback>CAPTURE_WATCHDOG_MS)paint(now);};
     paint(performance.now());
-    state.interval=window.setInterval(state.baseTick,Math.round(1000/STREAM_FPS));
+    state.interval=window.setInterval(state.baseTick,CAPTURE_WATCHDOG_TICK);
     if(manual&&typeof media.requestVideoFrameCallback==='function'){
       const onFrame=now=>{
         if(state.canvasStream!==stream||v.readyState!=='live')return;
         lastDecodedCallback=performance.now();
-        if(!state.basePaintIdle)paint(now,true);
         state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
+        if(!state.basePaintIdle)paint(now,true);
       };
       state.baseFrameHandle=media.requestVideoFrameCallback(onFrame);
     }

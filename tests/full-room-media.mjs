@@ -551,6 +551,7 @@ try {
           ?!![...state.connections.values()][0]?.compatCanvas:false,
         highCanvas:!!state.highCanvas,highPaintIdle:!!state.highPaintIdle,
         baseCaptureFrames:state.baseCaptureFrames||0,highCaptureFrames:state.highCaptureFrames||0,
+        exactCaptures:[...state.lowCompatCaptures.values()].map(c=>({height:c.height,decoded:c.decodedPaints,watchdog:c.watchdogPaints})),
         muted:document.querySelector('#player').muted,
         audioRelayed:!!state.guestAudioFallback &&
           state.guestAudioContext?.state==='running',
@@ -581,7 +582,10 @@ try {
       limited:hostB.limitation,videoPaused:guestB.paused,
       guestMuted:guestB.muted,hostTime:hostB.sourceTime};
     const captureFps=((Number(tier)<=540?hostB.baseCaptureFrames-hostA.baseCaptureFrames:hostB.highCaptureFrames-hostA.highCaptureFrames)*1000/(hostB.time-hostA.time));
-    console.log('SUSTAINED FRAME RATE',JSON.stringify({...metrics,captureFps,highPaintIdle:hostB.highPaintIdle}));
+    console.log('SUSTAINED FRAME RATE',JSON.stringify({...metrics,captureFps,highPaintIdle:hostB.highPaintIdle,
+      exactCaptures:hostB.exactCaptures,priorExactCaptures:hostA.exactCaptures}));
+    if(Number(tier)<540&&hostB.compatibilityCanvas)
+      assert.deepEqual(hostB.exactCaptures.map(c=>c.height),[Number(tier)],'Only the actively selected low-tier canvas should remain for one guest');
     if(Number(tier)<540&&hostB.compatibilityCanvas)
       assert.equal(hostB.senderSourceHeight,Number(tier),'Low-tier compatibility capture should match selected tier without secondary sender scaling');
     if(Number(tier)<=540&&hostB.highCanvas)assert(hostB.highPaintIdle,'Unused HD canvas must be idle at '+tier+'p');
