@@ -126,3 +126,12 @@ test('temporary range cache encrypts bytes, enforces LRU bounds and deletes on c
 test('optional disk cache degrades cleanly when unavailable',async()=>{
  assert.equal(await openDiskCache({}),null);
 });
+
+test('a seek during a decoder read or append invalidates cursors from other retained windows',()=>{
+ const {changedWindow}=require('../rolling-buffer.js');
+ const retained=ranges([[0,45],[100,285],[450,650]]);
+ for(const [from,to] of [[120,20],[15,480],[121,87],[87,115],[87,94]])
+   assert.equal(changedWindow(retained,from,to),true);
+ for(const [from,to] of [[120,150],[280,112],[90,91]])
+   assert.equal(changedWindow(retained,from,to),false);
+});

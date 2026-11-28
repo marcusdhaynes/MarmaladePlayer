@@ -15,6 +15,13 @@
      if(ranges.start(i)<=time+.08&&ranges.end(i)>time)return ranges.end(i)-time;
    return 0;
  }
+ // A host seek can land in an older retained range while a newer segment is
+ // in flight. Only reuse the decoder cursor within the same contiguous range.
+ function changedWindow(ranges,from,to){
+   if(Math.abs(to-from)<=2)return false;
+   const end=ahead(ranges,from);
+   return !end||!ahead(ranges,to)||Math.abs(from+end-to-ahead(ranges,to))>.08;
+ }
  function goal(time,duration){return Math.max(0,Math.min(TARGET+5,duration-time));}
  function playable(ranges,time,duration){return ahead(ranges,time)>=Math.min(LOW,goal(time,duration))-.05;}
  function validRange(offset,length,total){
@@ -256,7 +263,7 @@
      const chunk=reset?await s.remuxer.seek(available?time+available:time):await s.remuxer.read();
      if(!current(s))return;
      const latest=position(s);
-     if(revision!==a.state.hostSyncVersion&&Math.abs(latest-time)>2&&!ahead(s.buffer.buffered,latest)){
+     if(revision!==a.state.hostSyncVersion&&changedWindow(s.buffer.buffered,time,latest)){
        s.cursor=null;kick(s);return;
      }
      if(chunk?.data?.byteLength){
@@ -272,7 +279,11 @@
            s.cursor=null;kick(s,500);return;
          }
        }
+       if(!current(s))return;
        const ranges=s.buffer.buffered;
+       if(revision!==a.state.hostSyncVersion&&changedWindow(ranges,time,position(s))){
+         s.cursor=null;kick(s);return;
+       }
        s.cursor=latest+ahead(ranges,latest);
        if(!ahead(ranges,latest)&&ranges.length)s.cursor=ranges.end(ranges.length-1);
        s.emptyReads=0;
@@ -396,7 +407,7 @@
    if(failedKey===o.id&&Date.now()<retryAt)return;
    if(s.guestConn?.open)void start(o,s.guestConn);
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,goal,playable,validRange,openDiskCache,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,TARGET};
  if(!root)return;
  root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?{target:TARGET,capacity:session.capacity,ready:session.ready,seconds:session.buffer&&current(session)?ahead(session.buffer.buffered,position(session)):0,reconnecting:!!session.reconnecting,quotaLimited:session.capacity<TARGET+5,diskBytes:session.disk?.size||0,diskAvailable:!!session.disk}:null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});

@@ -13,6 +13,10 @@ const video=join(dir,'full-stream.webm');
 // A real moving picture is critical: a static red slide can pass a
 // resolution check while the live stream is barely moving at 0-2 FPS.
 // An animated overlay preserves the center red-pixel assertions.
+const scenario=process.argv[2]||'all';
+if(!['all','live','720','1080'].includes(scenario))throw Error('Unknown room scenario: '+scenario);
+const runLive=scenario==='all'||scenario==='live';
+function makeLiveFixture(){
 execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi',
   '-i','color=c=red:s=1920x1080:r=24','-f','lavfi',
   '-i','sine=frequency=440:sample_rate=48000','-f','lavfi',
@@ -21,7 +25,8 @@ execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi',
   '-map','[v]','-map','1:a','-t','70',
   '-c:v','libvpx','-deadline','realtime','-cpu-used','5','-crf','24','-b:v','0','-c:a','libopus',
   '-b:a','64k','-shortest','-y',video],{timeout:150000});
-const bytes=readFileSync(video);
+return readFileSync(video);
+}
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const peerLib=readFileSync(new URL('../node_modules/peerjs/dist/peerjs.min.js',import.meta.url),'utf8');
 const shim=[
@@ -155,6 +160,8 @@ try {
       body:'window.MediaInfo=async()=>({analyzeData:async()=>({media:{track:[]}})});'}));
     return page;
   };
+  if(runLive){
+  const bytes=makeLiveFixture();
   console.log('E2E host opening');
   const host=await makePage();
   await host.goto('http://127.0.0.1:'+WEB_PORT,{waitUntil:'load'});
@@ -754,9 +761,10 @@ try {
   assert.deepEqual(errors,[],'Browser runtime errors');
   console.log('PASS actual two-browser Marmalade PeerJS movie + sound');
   await guest.close();await host.close();
+  }
   // Use the same decoder assets as the published player for original-file rooms.
-  execFileSync(process.execPath,['scripts/install-mkv-decoder.mjs'],{stdio:'inherit',timeout:120000});
-  for(const height of [720,1080]){
+  if(scenario!=='live')execFileSync(process.execPath,['scripts/install-mkv-decoder.mjs'],{stdio:'inherit',timeout:120000});
+  for(const height of [720,1080].filter(h=>scenario==='all'||scenario===String(h))){
     const width=height===720?1280:1920;
     const clip=join(dir,'buffer-clip-'+height+'.mp4');
     const movie=join(dir,'buffer-movie-'+height+'.mp4');
@@ -767,7 +775,7 @@ try {
       'sine=frequency=440:sample_rate=48000','-t','2','-c:v','libx264',
       '-preset','ultrafast','-crf','36','-g','24','-pix_fmt','yuv420p',
       '-c:a','aac','-y',clip],{timeout:60000});
-    execFileSync('ffmpeg',['-v','error','-stream_loop','219','-i',clip,
+    execFileSync('ffmpeg',['-v','error','-stream_loop','359','-i',clip,
       '-c','copy','-movflags','+faststart','-y',movie],{timeout:60000});
     const sender=await makePage(),viewer=await makePage();
     try{
@@ -801,14 +809,21 @@ try {
         const bulk=Object.values(state.peer.connections).flat().find(c=>c.open&&c.label==='marmalade-buffer-v1');
         if(!bulk)throw Error('Missing active movie transfer');
         window.__lostBulk=bulk;
-        bulk.close();
+        const send=bulk.send.bind(bulk);
+        bulk.send=message=>{
+          if(message?.type!=='read')return send(message);
+          bulk.send=send;
+          window.__interruptedRange={offset:message.offset,length:message.length};
+          send(message);
+          bulk.close();
+        };
       });
+      await sender.locator('#player').evaluate(v=>{v.currentTime=475;});
       await viewer.waitForFunction(()=>{
         const state=window.MarmaladeAddonBridge.state;
-        return Object.values(state.peer.connections).flat().some(c=>c.open&&c!==window.__lostBulk&&c.label==='marmalade-buffer-v1');
+        return window.__interruptedRange&&Object.values(state.peer.connections).flat().some(c=>c.open&&c!==window.__lostBulk&&c.label==='marmalade-buffer-v1');
       },null,{timeout:30000});
-      await sender.locator('#player').evaluate(v=>{v.currentTime=5;});
-      await full('reconnect and seek back',0,125);
+      await full('in-flight disconnect and refill',473);
       assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original);
       const sample=await viewer.locator('#player').evaluate(async v=>{
         const before=v.getVideoPlaybackQuality(),start=performance.now(),initial=v.currentTime;
