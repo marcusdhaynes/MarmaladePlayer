@@ -204,3 +204,47 @@ test('PGS rejects truncated and corrupted data before display',()=>{
  assert.throws(()=>codec.decodePgs(data.subarray(0,data.length-1)),/Invalid PGS/);
  const bad=Buffer.from(data);bad[0]=0;assert.throws(()=>codec.decodePgs(bad),/Invalid PGS/);
 });
+
+test('Matroska PGS segment conversion preserves container timing and inserts duration clear',()=>{
+ const standalone=pgsFixture(),parts=[];
+ for(let pos=0;pos<standalone.length;){
+   const size=standalone.readUInt16BE(pos+11),type=standalone[pos+10];
+   if(standalone.readUInt32BE(pos+2)===90000)
+     parts.push(standalone.subarray(pos+10,pos+13+size));
+   pos+=13+size;
+ }
+ const packet=Buffer.concat(parts);
+ const raw=codec.matroskaPgsToSup([{ticks:2500,duration:2000,raw:packet}],.001);
+ const frames=codec.decodePgs(raw);
+ assert.equal(frames[0].start,2.5);assert.equal(frames[0].end,4.5);
+ assert.equal(codec.pgsFrameAt(frames,4.5),null);
+ assert.equal(codec.pgsFrameAt(frames,3).layers[0].x,1);
+ assert.throws(()=>codec.matroskaPgsToSup([{ticks:0,raw:packet.subarray(0,packet.length-1)}],.001),/Truncated/);
+});
+test('bounded EBML scan actually extracts a binary PGS track from Matroska blocks',async()=>{
+ const ebml=(id,body)=>{
+   const payload=Buffer.from(body);let width=1;while(payload.length>=2**(7*width)-1)width++;
+   const size=Buffer.alloc(width);let n=payload.length;
+   for(let i=width-1;i>=0;i--){size[i]=n&255;n=Math.floor(n/256);}
+   size[0]|=1<<(8-width);
+   return Buffer.concat([Buffer.from(id,'hex'),size,payload]);
+ };
+ const join=(...parts)=>Buffer.concat(parts);
+ const track=ebml('ae',join(ebml('d7',[3]),ebml('83',[17]),ebml('86',Buffer.from('S_HDMV/PGS')),ebml('22b59c',Buffer.from('eng'))));
+ const sup=pgsFixture(),packet=[];
+ for(let pos=0;pos<sup.length;){
+   const size=sup.readUInt16BE(pos+11);
+   if(sup.readUInt32BE(pos+2)===90000)packet.push(sup.subarray(pos+10,pos+13+size));
+   pos+=13+size;
+ }
+ const group=ebml('a0',join(ebml('a1',join(Buffer.from([0x83,0,0,0]),...packet)),ebml('9b',[7,208])));
+ const mkv=new Blob([ebml('1a45dfa3',[]),ebml('18538067',join(
+   ebml('1654ae6b',track),ebml('1f43b675',join(ebml('e7',[3,232]),group))))]);
+ const scan=await codec.matroskaText(mkv);
+ assert.equal(scan.tracks[0].codec,'S_HDMV/PGS');assert.equal(scan.tracks[0].supported,true);
+ const result=await codec.matroskaText(mkv,{trackNumber:3});
+ assert.equal(result.format,'pgs');
+ const frames=codec.decodePgs(result.raw);
+ assert.equal(frames[0].start,1);assert.equal(frames[0].end,3);
+ assert.deepEqual(Array.from(codec.pgsPixels(frames[0].layers[0])).slice(0,4),[255,255,255,255]);
+});

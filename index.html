@@ -1903,7 +1903,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(record.kind==='pgs'){
       try{
         if(!(record.bytes instanceof Blob))throw Error('Saved bitmap subtitles unavailable');
-        await loadPgsSubtitle(new File([record.bytes],record.name||'previous.sup'),{restored:true,restoreToken:ticket,mediaKey:key,id:record.id});
+        await loadPgsSubtitle(new File([record.bytes],record.name||'previous.sup'),{restored:true,restoreToken:ticket,mediaKey:key,id:record.id,lang:record.lang||''});
       }catch(error){notify('Previous bitmap subtitles could not be restored. Select the file again.');}
       return;
     }
@@ -6207,13 +6207,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(token!==subtitleRestoreSequence||key!==subtitleMediaKey())throw Error('Video changed while loading bitmap captions');
     const id=source.id||subtitleId(file,source);
     state.subtitles=[];state.pgsFrames=frames;state.subtitlesEnabled=true;
-    state.subtitlePreviewSuppressed=true;state.subtitleIdentity=id;state.subtitleLanguage='';state.subtitleRestoreKey=key;
+    state.subtitlePreviewSuppressed=true;state.subtitleIdentity=id;state.subtitleLanguage=source.lang||'';state.subtitleRestoreKey=key;
     el.subtitleName.textContent=file.name+' · '+frames.filter(f=>f.layers.length).length+' Bitmap Cues';
     window.MarmaladeSubtitleTiming?.activate(key,id);
     updateSubtitles();revealControls();
     window.dispatchEvent(new Event('marmalade:subtitles-loaded'));window.dispatchEvent(new Event('marmalade:subtitles-changed'));
     if(key&&!source.restored)try{
-      await subtitleHandleStore('put',key,{kind:'pgs',name:file.name,id,bytes:file.slice()});
+      await subtitleHandleStore('put',key,{kind:'pgs',name:file.name,id,lang:source.lang||'',bytes:file.slice()});
     }catch{notify('Bitmap captions loaded, but could not be saved on this device.');}
     return {format:'pgs',frames:frames.length};
   }
@@ -6334,7 +6334,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const result=await window.MarmaladeSubtitleCodec.matroskaText(file,{trackNumber:number,signal:controller.signal,onProgress});
       if(controller.signal.aborted||embeddedSubtitleFile()!==file||token!==subtitleRestoreSequence||key!==subtitleMediaKey())throw Error('Video or subtitle selection changed');
       const label=String(result.track.name||result.track.language||'Track '+number).replace(/[\\/:*?"<>|\x00-\x1f]/g,' ').slice(0,100);
-      await loadSelectedSubtitle(new File([result.raw],label+'.vtt',{type:'text/vtt'}),null,{
+      const bitmap=result.format==='pgs',extension=bitmap?'.sup':'.vtt';
+      await loadSelectedSubtitle(new File([result.raw],label+extension,{type:bitmap?'application/octet-stream':'text/vtt'}),null,{
         mediaKey:key,restoreToken:token,id:'mkv-track:'+number,lang:result.track.language,encoding:'utf-8'});
       return {inferred:result.inferred};
     }

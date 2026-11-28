@@ -12,15 +12,27 @@ import {chromium} from 'playwright';
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
 const tmp=mkdtempSync(join(tmpdir(),'marmalade-mkv-eac3-'));
 const source=join(tmp,'marmalade-eac3-test.mkv');
-const subA=join(tmp,'english.srt'),subB=join(tmp,'arabic.srt');
+const subA=join(tmp,'english.srt'),subB=join(tmp,'arabic.srt'),subC=join(tmp,'bitmap.sup');
+const segment=(type,pts,payload)=>{
+ const h=Buffer.alloc(13);h.write('PG');h.writeUInt32BE(pts,2);h[10]=type;h.writeUInt16BE(payload.length,11);
+ return Buffer.concat([h,Buffer.from(payload)]);
+};
+// Binary 320x180 PGS plane with a 2x2 white/transparent subtitle tile.
+writeFileSync(subC,Buffer.concat([
+ segment(0x16,90000,[1,64,0,180,0,0,1,128,0,0,1,0,1,0,0,0,160,0,160]),
+ segment(0x14,90000,[0,0,0,16,128,128,0,1,235,128,128,255]),
+ segment(0x15,90000,[0,1,0,192,0,0,14,0,2,0,2,1,0,1,0,0,0,1,1,0,0]),
+ segment(0x80,90000,[]),segment(0x16,270000,[1,64,0,180,0,0,2,0,0,0,0]),segment(0x80,270000,[])
+]));
 writeFileSync(subA,'1\n00:00:01,000 --> 00:00:03,000\nEMBEDDED EARLY\n\n2\n00:00:07,000 --> 00:00:10,000\nEMBEDDED LATE\n');
 writeFileSync(subB,'1\n00:00:01,000 --> 00:00:03,000\nمرحبا بالعالم\n');
 
 execFileSync('ffmpeg',['-hide_banner','-loglevel','error',
   '-f','lavfi','-i','color=c=blue:s=320x180:r=24',
   '-f','lavfi','-i','sine=frequency=440:sample_rate=48000',
-  '-i',subA,'-i',subB,'-map','0:v','-map','1:a','-map','2:s','-map','3:s',
-  '-metadata:s:s:0','language=eng','-metadata:s:s:1','language=ara','-c:s:0','srt','-c:s:1','ass',
+  '-i',subA,'-i',subB,'-f','sup','-i',subC,'-map','0:v','-map','1:a','-map','2:s','-map','3:s','-map','4:s',
+  '-metadata:s:s:0','language=eng','-metadata:s:s:1','language=ara','-metadata:s:s:2','language=jpn',
+  '-c:s:0','srt','-c:s:1','ass','-c:s:2','copy',
   '-t','12','-c:v','libx264','-preset','ultrafast',
   '-pix_fmt','yuv420p','-c:a','eac3','-b:a','192k','-y',source],
   {timeout:30000});
@@ -114,9 +126,9 @@ try{
     'The original 12s MKV duration must be preserved through audio remux');
   // Real FFmpeg-muxed MKV with S_TEXT/UTF8 and S_TEXT/ASS tracks.
   await page.locator('#subMkvScan').evaluate(button=>button.click());
-  await page.waitForFunction(()=>document.querySelector('#subMkvTrack').options.length===2);
+  await page.waitForFunction(()=>document.querySelector('#subMkvTrack').options.length===3);
   const tracks=await page.evaluate(()=>window.MarmaladeEmbeddedSubtitles.scan());
-  assert.deepEqual(tracks.map(t=>[t.codec,t.language,t.supported]),[['S_TEXT/UTF8','eng',true],['S_TEXT/ASS','ara',true]]);
+  assert.deepEqual(tracks.map(t=>[t.codec,t.language,t.supported]),[['S_TEXT/UTF8','eng',true],['S_TEXT/ASS','ara',true],['S_HDMV/PGS','jpn',true]]);
   await page.locator('#subMkvLoad').evaluate(button=>button.click());
   await page.waitForFunction(()=>document.querySelector('#subMkvStatus').textContent.includes('Embedded subtitles loaded.'));
   const embedded=await page.evaluate(()=>window.MarmaladeAddonBridge.state.subtitles);
@@ -125,7 +137,15 @@ try{
   await page.locator('#subMkvTrack').evaluate(select=>{select.value=select.options[1].value;select.dispatchEvent(new Event('change'));});
   await page.locator('#subMkvLoad').evaluate(button=>button.click());
   await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.subtitles[0]?.text==='مرحبا بالعالم');
-  console.log('PASS actual Matroska SRT and ASS embedded subtitle extraction');
+  await page.locator('#subMkvTrack').evaluate(select=>{select.value=select.options[2].value;select.dispatchEvent(new Event('change'));});
+  await page.locator('#subMkvLoad').evaluate(button=>button.click());
+  await page.waitForFunction(()=>document.querySelector('#subMkvStatus').textContent.includes('Embedded subtitles loaded.')&&window.MarmaladeAddonBridge.state.pgsFrames?.length);
+  await page.evaluate(()=>{document.querySelector('#player').currentTime=1.7;});
+  await page.waitForFunction(()=>!document.querySelector('#player').seeking&&!document.querySelector('#pgsSubtitleOverlay').hidden);
+  assert.deepEqual(await page.evaluate(()=>Array.from(document.querySelector('#pgsSubtitleOverlay').getContext('2d').getImageData(160,160,1,1).data)),[255,255,255,255]);
+  await page.evaluate(()=>{document.querySelector('#player').currentTime=4.5;});
+  await page.waitForFunction(()=>!document.querySelector('#player').seeking&&document.querySelector('#pgsSubtitleOverlay').hidden);
+  console.log('PASS actual Matroska SRT, ASS and PGS embedded subtitle extraction');
   await page.locator('#subtitleFile').setInputFiles({
     name:'seek-regression.vtt',mimeType:'text/vtt',
     buffer:Buffer.from('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nEARLY CUE\n\n00:00:07.000 --> 00:00:10.000\nLATE CUE\n')

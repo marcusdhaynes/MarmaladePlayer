@@ -89,7 +89,7 @@
  window.addEventListener('marmalade:media-cleared',refreshPlayerTracks);
  refreshPlayerTracks();
  const embedded=document.createElement('details');embedded.className='sub-more-filters';
- embedded.innerHTML='<summary>Embedded MKV / WebM Subtitles</summary><div class="sub-file-actions"><button type="button" id="subMkvScan">Find Tracks</button><button type="button" id="subMkvCancel" disabled>Cancel</button></div><div class="sub-file-actions"><select id="subMkvTrack" aria-label="Embedded subtitle track"></select><button type="button" id="subMkvLoad" disabled>Load Track</button></div><p class="sub-note" id="subMkvStatus" aria-live="polite">Select a local MKV or WebM file.</p><p class="sub-note">Text subtitles are extracted locally. ASS/SSA dialogue uses your chosen subtitle style. Image, encrypted and laced tracks are not supported.</p>';
+ embedded.innerHTML='<summary>Embedded MKV / WebM Subtitles</summary><div class="sub-file-actions"><button type="button" id="subMkvScan">Find Tracks</button><button type="button" id="subMkvCancel" disabled>Cancel</button></div><div class="sub-file-actions"><select id="subMkvTrack" aria-label="Embedded subtitle track"></select><button type="button" id="subMkvLoad" disabled>Load Track</button></div><p class="sub-note" id="subMkvStatus" aria-live="polite">Select a local MKV or WebM file.</p><p class="sub-note">Text and PGS bitmap subtitles are extracted locally. ASS/SSA dialogue uses your chosen subtitle style. VobSub, encrypted and laced tracks are not supported.</p>';
  playerTracks.after(embedded);
  const mkvSelect=$('subMkvTrack'),mkvStatus=$('subMkvStatus'),mkvScan=$('subMkvScan'),mkvLoad=$('subMkvLoad'),mkvCancel=$('subMkvCancel');
  let mkvOperation=0,mkvTracks=[];
@@ -112,7 +112,7 @@
     option.disabled=!track.supported;mkvSelect.append(option);
    }
    const first=tracks.find(t=>t.supported);if(first)mkvSelect.value=String(first.number);
-   mkvStatus.textContent=tracks.length?tracks.filter(t=>t.supported).length+' supported text tracks of '+tracks.length+' total.':'No embedded subtitle tracks found.';
+   mkvStatus.textContent=tracks.length?tracks.filter(t=>t.supported).length+' supported subtitle tracks of '+tracks.length+' total.':'No embedded subtitle tracks found.';
   }catch(error){if(operation===mkvOperation)mkvStatus.textContent=String(error.message||error);}
   finally{if(operation===mkvOperation)mkvBusy(false);}
  });

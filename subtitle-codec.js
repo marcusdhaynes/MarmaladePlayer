@@ -416,7 +416,7 @@
       return new TextDecoder('utf-8',{fatal:true}).decode(await read(e.start,e.end-e.start)).replace(/\0+$/,'');
     }
     const tracks=[],packets=[];let packetBytes=0;
-    const supported=new Set(['S_TEXT/UTF8','S_TEXT/ASS','S_TEXT/SSA']);
+    const supported=new Set(['S_TEXT/UTF8','S_TEXT/ASS','S_TEXT/SSA','S_HDMV/PGS']);
     async function parseTracks(e){
       await children(e.start,e.end,async entry=>{
         if(entry.type!==id.ENTRY)return;
@@ -450,8 +450,11 @@
       const relative=(h[offset]<<8|h[offset+1]);const signed=relative>=32768?relative-65536:relative;
       if(h[offset+2]&6)throw Error('Laced subtitle blocks are not supported');
       const length=n-offset-3;
-      if(length>65536||packetBytes+length>5*1024*1024||packets.length>=10000)throw Error('Embedded subtitle track exceeds caption limits');
-      const raw=new TextDecoder('utf-8',{fatal:true}).decode(await read(e.start+offset+3,length));
+      const bitmap=tracks.find(t=>t.number===trackNumber)?.codec==='S_HDMV/PGS';
+      const limit=bitmap?20*1024*1024:5*1024*1024;
+      if(length>(bitmap?1024*1024:65536)||packetBytes+length>limit||packets.length>=(bitmap?100000:10000))throw Error('Embedded subtitle track exceeds caption limits');
+      const bytes=await read(e.start+offset+3,length);
+      const raw=bitmap?bytes.slice():new TextDecoder('utf-8',{fatal:true}).decode(bytes);
       packetBytes+=length;
       packets.push({ticks:clusterTime+signed,duration,raw});
     }
@@ -498,7 +501,7 @@
         await parseTracks(e);
         if(trackNumber===null)return {tracks};
         const selected=tracks.find(t=>t.number===trackNumber);
-        if(!selected?.supported)throw Error('Selected embedded track is not supported text');
+        if(!selected?.supported)throw Error('Selected embedded subtitle track is not supported');
       }else if(e.type===id.CLUSTER){
         if(!tracks.length&&trackNumber!==null)throw Error('Matroska tracks must precede media clusters');
         if(trackNumber===null){
@@ -509,9 +512,14 @@
     }
     if(trackNumber===null)return {tracks};
     const track=tracks.find(t=>t.number===trackNumber);
-    if(!track?.supported)throw Error('Selected embedded track is not supported text');
+    if(!track?.supported)throw Error('Selected embedded subtitle track is not supported');
     const factor=scale/1e9,rows=[];let inferred=0;
     packets.sort((a,b)=>a.ticks-b.ticks);
+    if(track.codec==='S_HDMV/PGS'){
+      const raw=matroskaPgsToSup(packets,factor);
+      check();onProgress?.(100);
+      return {tracks,track,raw,format:'pgs',inferred:0};
+    }
     for(let i=0;i<packets.length;i++){
       const packet=packets[i],start=packet.ticks*factor;
       let duration=packet.duration===null?track.defaultDuration:packet.duration*factor;
@@ -529,7 +537,57 @@
       rows.push({startTime:start,endTime:start+duration,text});
     }
     check();onProgress?.(100);
-    return {tracks,track,raw:snapshotTextTrack(rows),inferred};
+    return {tracks,track,raw:snapshotTextTrack(rows),format:'vtt',inferred};
+  }
+  // Matroska PGS blocks carry type + big-endian 16-bit segment length,
+  // without the standalone SUP PG/PTS/DTS headers. Reconstruct those headers
+  // from the container timeline. Never interpret image packets as UTF-8.
+  function matroskaPgsToSup(packets,factor){
+    const sets=[];let active=null,total=0;
+    const stamp=at=>{
+      if(!Number.isFinite(at)||at<0||at>7*86400)throw Error('Invalid embedded PGS timestamp');
+      return Math.round(at*90000)>>>0;
+    };
+    const makeSegment=(type,at,payload)=>{
+      const out=new Uint8Array(13+payload.length),view=new DataView(out.buffer);
+      out[0]=0x50;out[1]=0x47;view.setUint32(2,stamp(at));view.setUint32(6,stamp(at));
+      out[10]=type;view.setUint16(11,payload.length);out.set(payload,13);
+      total+=out.length;if(total>20*1024*1024)throw Error('Embedded PGS output exceeds 20 MB');
+      return out;
+    };
+    for(const packet of packets){
+      const at=packet.ticks*factor,bytes=packet.raw;
+      if(!(bytes instanceof Uint8Array))throw Error('Invalid PGS packet');
+      for(let pos=0;pos<bytes.length;){
+        if(pos+3>bytes.length)throw Error('Truncated embedded PGS segment');
+        const type=bytes[pos],size=bytes[pos+1]*256+bytes[pos+2];
+        if(pos+3+size>bytes.length)throw Error('Truncated embedded PGS payload');
+        const payload=bytes.subarray(pos+3,pos+3+size);pos+=3+size;
+        if(type===0x16){
+          if(active||payload.length<11)throw Error('Invalid embedded PGS composition');
+          active={at,pcs:payload.slice(),parts:[],duration:packet.duration>0?packet.duration*factor:0};
+        }
+        if(!active)throw Error('Embedded PGS segment outside a display set');
+        active.parts.push(makeSegment(type,at,payload));
+        if(type===0x80){sets.push(active);active=null;}
+      }
+    }
+    if(active||!sets.length)throw Error('Incomplete embedded PGS display sets');
+    const chunks=[];
+    for(let i=0;i<sets.length;i++){
+      const set=sets[i];chunks.push(...set.parts);
+      const end=set.at+set.duration,next=sets[i+1]?.at??Infinity;
+      // A positive BlockDuration may end a cue before the next display set.
+      // Insert an empty composition only in that gap; never overwrite an
+      // explicit clear or a newer overlapping composition.
+      if(set.pcs[10]&&set.duration>0&&end<next){
+        const clear=set.pcs.slice(0,11);clear[7]=0;clear[8]=0;clear[10]=0;
+        chunks.push(makeSegment(0x16,end,clear),makeSegment(0x80,end,new Uint8Array()));
+      }
+    }
+    const out=new Uint8Array(total);let offset=0;
+    for(const chunk of chunks){out.set(chunk,offset);offset+=chunk.length;}
+    return out;
   }
   // Blu-ray Presentation Graphics (.sup): parse display sets, palettes,
   // fragmented bitmap objects, authored coordinates and clear compositions.
@@ -658,7 +716,7 @@
     }
     return rgba;
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,decodePgs,pgsFrameAt,pgsPixels};
+  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,matroskaPgsToSup,decodePgs,pgsFrameAt,pgsPixels};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);
