@@ -345,3 +345,30 @@ test('MPEG-1 paired DVD captions render across fragmented timestamped packets',a
   assert.throws(()=>codec.extractSpuFromProgramStream(packet([0x31],0,[]),0),/truncated MPEG-1 timestamp/);
   assert.throws(()=>codec.extractSpuFromProgramStream(packet([0x20,0,1,0,1],0,spu),0),/invalid MPEG-1 PTS/);
 });
+
+test('embedded WebVTT separates track metadata and restores timed multiline captions',async()=>{
+ const ebml=(id,body)=>{
+   const payload=Buffer.from(body);let width=1;while(payload.length>=2**(7*width)-1)width++;
+   const size=Buffer.alloc(width);let n=payload.length;
+   for(let i=width-1;i>=0;i--){size[i]=n&255;n=Math.floor(n/256);}
+   size[0]|=1<<(8-width);
+   return Buffer.concat([Buffer.from(id,'hex'),size,payload]);
+ };
+ const join=(...parts)=>Buffer.concat(parts);
+
+ for(const [codecId,payload] of [
+   ['S_TEXT/WEBVTT','First line\n<00:00:01.500>Second line'],
+   ['D_WEBVTT/SUBTITLES','cue-id\r\nalign:start\r\nFirst line\n<00:00:03.500>Second line'],
+   ['D_WEBVTT/CAPTIONS','\n\nFirst line\n<00:00:03.500>Second line']
+ ]){
+   const track=ebml('ae',join(ebml('d7',[1]),ebml('83',[17]),ebml('86',Buffer.from(codecId))));
+   const group=ebml('a0',join(ebml('a1',join(Buffer.from([0x81,0,0,0]),Buffer.from(payload))),ebml('9b',[15,160])));
+   const file=new Blob([ebml('1a45dfa3',[]),ebml('18538067',join(ebml('1654ae6b',track),ebml('1f43b675',join(ebml('e7',[7,208 ]),group))))]);
+   assert.equal((await codec.matroskaText(file)).tracks[0].supported,true);
+   const result=await codec.matroskaText(file,{trackNumber:1});
+   assert.match(result.raw,/00:00:02\.000 --> 00:00:06\.000/);
+   assert.match(result.raw,/<00:00:03\.500>Second line/);
+   const cue=codec.decode(result.raw,'embedded.vtt').cues[0];
+   assert.equal(cue.text,'First line\nSecond line');
+ }
+});

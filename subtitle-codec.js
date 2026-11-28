@@ -338,19 +338,27 @@
   }
   // Convert engine-exposed text cues into a bounded, inert WebVTT snapshot.
   // Re-escape the sanitized text so it cannot create a new timing row.
-  function snapshotTextTrack(input){
+  function vttStamp(seconds){
+    const ms=Math.round(seconds*1000),h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60;
+    return [h,m,s].map(n=>String(n).padStart(2,'0')).join(':')+'.'+String(ms%1000).padStart(3,'0');
+  }
+  function snapshotTextTrack(input,preserveTiming=false){
     const rows=['WEBVTT'];let count=0,size=6;
-    const stamp=seconds=>{
-      const ms=Math.round(seconds*1000),h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60;
-      return [h,m,s].map(n=>String(n).padStart(2,'0')).join(':')+'.'+String(ms%1000).padStart(3,'0');
-    };
     for(const item of input||[]){
       const start=Number(item.startTime),end=Number(item.endTime);
       if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end>3599999||end<=start||end-start>180||typeof item.text!=='string')continue;
       const text=plain(item.text).replace(/\n\s*\n/g,'\n');
       if(!text||text.length>10000)continue;
-      const escaped=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      const row=stamp(start)+' --> '+stamp(end)+'\n'+escaped;
+      const escape=value=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      let escaped='',cursor=0;
+      if(preserveTiming){
+        for(const marker of timedMarkers(item.text,text,start,end)){
+          escaped+=escape(text.slice(cursor,marker.index))+'<'+vttStamp(marker.start)+'>';
+          cursor=marker.index;
+        }
+      }
+      escaped+=escape(text.slice(cursor));
+      const row=vttStamp(start)+' --> '+vttStamp(end)+'\n'+escaped;
       size+=new TextEncoder().encode(row).length+2;
       if(++count>10000||size>5*1024*1024)throw Error('Player subtitle track exceeds the supported caption limit');
       rows.push(row);
@@ -421,7 +429,7 @@
       return new TextDecoder('utf-8',{fatal:true}).decode(await read(e.start,e.end-e.start)).replace(/\0+$/,'');
     }
     const tracks=[],packets=[];let packetBytes=0;
-    const supported=new Set(['S_TEXT/UTF8','S_TEXT/ASS','S_TEXT/SSA','S_HDMV/PGS','S_VOBSUB']);
+    const supported=new Set(['S_TEXT/UTF8','S_TEXT/WEBVTT','D_WEBVTT/SUBTITLES','D_WEBVTT/CAPTIONS','S_TEXT/ASS','S_TEXT/SSA','S_HDMV/PGS','S_VOBSUB']);
     async function parseTracks(e){
       await children(e.start,e.end,async entry=>{
         if(entry.type!==id.ENTRY)return;
@@ -545,7 +553,16 @@
         duration=Math.min(3,next>start?next-start:3);inferred++;
       }
       let text=packet.raw;
-      if(track.codec!=='S_TEXT/UTF8'){
+      if(track.codec.startsWith('D_WEBVTT/')){
+        // WebM reserves the first two lines for the cue identifier and settings.
+        const lines=text.replace(/\r\n?/g,'\n').split('\n');
+        if(lines.length<3)throw Error('Missing embedded WebM caption headers');
+        text=lines.slice(2).join('\n');
+      }else if(track.codec==='S_TEXT/WEBVTT'){
+        // Matroska stores inline timestamps relative to this block.
+        text=text.replace(/<((?:\d{2,}:)?\d{2}:\d{2}\.\d{3})>/g,
+          (_,relative)=>'<'+vttStamp(start+time(relative))+'>');
+      }else if(track.codec!=='S_TEXT/UTF8'){
         const parts=text.split(',');if(parts.length<9)continue;
         text=parts.slice(8).join(',');
         // ASS vector drawings are not dialogue.
@@ -554,7 +571,7 @@
       rows.push({startTime:start,endTime:start+duration,text});
     }
     check();onProgress?.(100);
-    return {tracks,track,raw:snapshotTextTrack(rows),format:'vtt',inferred};
+    return {tracks,track,raw:snapshotTextTrack(rows,track.codec.includes('WEBVTT')),format:'vtt',inferred};
   }
   // Matroska PGS blocks carry type + big-endian 16-bit segment length,
   // without the standalone SUP PG/PTS/DTS headers. Reconstruct those headers

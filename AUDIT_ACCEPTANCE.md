@@ -147,3 +147,6 @@ Section 06 major follow-up: standalone paired DVD VobSub IDX/SUB import with mul
 
 
 Sections 03 and 15 — Guest recovery. Decoder reads and asynchronous appends now invalidate their cursor when a host seek moves playback into a different retained range. Twelve rolling-buffer contract tests passed locally. The real-room suite exercises 720p and 1080p independently of live transport, interrupts an actual in-flight byte request on a seek to an unread region, and checks replacement transport, the same media source, 180 contiguous playable seconds and displayed frame rate. Browser results and poor-network/device acceptance are pending.
+
+
+Section 06: Embedded WebVTT dialogue extraction supports Matroska S_TEXT/WEBVTT and WebM D_WEBVTT/SUBTITLES and CAPTIONS. Preserves multiline dialogue, container cue times and supported inline word boundaries. Identifier and placement metadata are not rendered. All 35 local codec tests passed including generated EBML fixtures for each mapping. Authored placement, commercial-file/browser rendering and full section acceptance remain open.
