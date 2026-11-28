@@ -83,6 +83,48 @@
  media.addEventListener('loadedmetadata',refreshPlayerTracks);
  window.addEventListener('marmalade:media-cleared',refreshPlayerTracks);
  refreshPlayerTracks();
+ const embedded=document.createElement('details');embedded.className='sub-more-filters';
+ embedded.innerHTML='<summary>Embedded MKV / WebM Subtitles</summary><div class="sub-file-actions"><button type="button" id="subMkvScan">Find Tracks</button><button type="button" id="subMkvCancel" disabled>Cancel</button></div><div class="sub-file-actions"><select id="subMkvTrack" aria-label="Embedded subtitle track"></select><button type="button" id="subMkvLoad" disabled>Load Track</button></div><p class="sub-note" id="subMkvStatus" aria-live="polite">Select a local MKV or WebM file.</p><p class="sub-note">Text subtitles are extracted locally. ASS/SSA dialogue uses your chosen subtitle style. Image, encrypted and laced tracks are not supported.</p>';
+ playerTracks.after(embedded);
+ const mkvSelect=$('subMkvTrack'),mkvStatus=$('subMkvStatus'),mkvScan=$('subMkvScan'),mkvLoad=$('subMkvLoad'),mkvCancel=$('subMkvCancel');
+ let mkvOperation=0,mkvTracks=[];
+ function mkvBusy(busy){
+  mkvScan.disabled=busy;mkvCancel.disabled=!busy;
+  mkvLoad.disabled=busy||!mkvTracks.some(t=>t.supported&&String(t.number)===mkvSelect.value);
+ }
+ function mkvReset(){
+  ++mkvOperation;window.MarmaladeEmbeddedSubtitles.cancel();mkvTracks=[];mkvSelect.replaceChildren();
+  mkvStatus.textContent='Find tracks in the selected local MKV or WebM video.';mkvBusy(false);
+ }
+ mkvScan.addEventListener('click',async()=>{
+  const operation=++mkvOperation;mkvTracks=[];mkvSelect.replaceChildren();mkvBusy(true);mkvStatus.textContent='Reading track metadata…';
+  try{
+   const tracks=await window.MarmaladeEmbeddedSubtitles.scan();if(operation!==mkvOperation)return;
+   mkvTracks=tracks;
+   for(const track of tracks){
+    const option=document.createElement('option');option.value=String(track.number);
+    option.textContent=(track.name||'Track '+track.number)+' · '+track.language+' · '+track.codec+(track.supported?'':' (unsupported)');
+    option.disabled=!track.supported;mkvSelect.append(option);
+   }
+   const first=tracks.find(t=>t.supported);if(first)mkvSelect.value=String(first.number);
+   mkvStatus.textContent=tracks.length?tracks.filter(t=>t.supported).length+' supported text tracks of '+tracks.length+' total.':'No embedded subtitle tracks found.';
+  }catch(error){if(operation===mkvOperation)mkvStatus.textContent=String(error.message||error);}
+  finally{if(operation===mkvOperation)mkvBusy(false);}
+ });
+ mkvSelect.addEventListener('change',()=>mkvBusy(false));
+ mkvLoad.addEventListener('click',async()=>{
+  const operation=++mkvOperation;mkvBusy(true);mkvStatus.textContent='Extracting embedded subtitles…';
+  try{
+   const result=await window.MarmaladeEmbeddedSubtitles.load(Number(mkvSelect.value),percent=>{
+    if(operation===mkvOperation)mkvStatus.textContent='Extracting embedded subtitles · '+Math.floor(percent)+'%';
+   });
+   if(operation===mkvOperation)mkvStatus.textContent='Embedded subtitles loaded.'+(result.inferred?' '+result.inferred+' cue durations estimated.':'');
+  }catch(error){if(operation===mkvOperation)mkvStatus.textContent=String(error.message||error);}
+  finally{if(operation===mkvOperation)mkvBusy(false);}
+ });
+ mkvCancel.addEventListener('click',()=>{++mkvOperation;window.MarmaladeEmbeddedSubtitles.cancel();mkvStatus.textContent='Extraction cancelled.';mkvBusy(false);});
+ for(const event of ['marmalade:media-cleared','marmalade:video-selected'])window.addEventListener(event,mkvReset);
+ mkvReset();
  // Day-to-day search = title, year, language. Advanced release/episode filters
  // remain one tap away with original select IDs and listeners intact.
  const form=$('subSearchForm');

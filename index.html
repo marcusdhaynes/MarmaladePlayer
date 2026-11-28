@@ -6257,6 +6257,39 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       }
     }
   };
+  // Independent direct Matroska import, including files played through the
+  // audio/video remuxer. Abort when the source or selected caption changes.
+  let embeddedSubtitleAbort=null;
+  function embeddedSubtitleFile(){
+    const file=state.role==='host'?state.file:state.localVerified?state.file:null;
+    return file&&/\.(mkv|webm|mka)$/i.test(file.name)?file:null;
+  }
+  function cancelEmbeddedSubtitle(){embeddedSubtitleAbort?.abort();embeddedSubtitleAbort=null;}
+  window.addEventListener('marmalade:media-cleared',cancelEmbeddedSubtitle);
+  window.addEventListener('marmalade:video-selected',cancelEmbeddedSubtitle);
+  window.MarmaladeEmbeddedSubtitles={
+    available:()=>!!embeddedSubtitleFile(),
+    cancel:cancelEmbeddedSubtitle,
+    async scan(){
+      const file=embeddedSubtitleFile();if(!file)throw Error('Select a local MKV or WebM video first');
+      cancelEmbeddedSubtitle();const controller=new AbortController();embeddedSubtitleAbort=controller;
+      const result=await window.MarmaladeSubtitleCodec.matroskaText(file,{signal:controller.signal});
+      if(controller.signal.aborted||embeddedSubtitleFile()!==file)throw Error('Video changed');
+      return result.tracks;
+    },
+    async load(number,onProgress){
+      const file=embeddedSubtitleFile(),key=subtitleMediaKey();
+      if(!file)throw Error('Select a local MKV or WebM video first');
+      cancelEmbeddedSubtitle();const controller=new AbortController();embeddedSubtitleAbort=controller;
+      const token=++subtitleRestoreSequence;
+      const result=await window.MarmaladeSubtitleCodec.matroskaText(file,{trackNumber:number,signal:controller.signal,onProgress});
+      if(controller.signal.aborted||embeddedSubtitleFile()!==file||token!==subtitleRestoreSequence||key!==subtitleMediaKey())throw Error('Video or subtitle selection changed');
+      const label=String(result.track.name||result.track.language||'Track '+number).replace(/[\\/:*?"<>|\x00-\x1f]/g,' ').slice(0,100);
+      await loadSelectedSubtitle(new File([result.raw],label+'.vtt',{type:'text/vtt'}),null,{
+        mediaKey:key,restoreToken:token,id:'mkv-track:'+number,lang:result.track.language,encoding:'utf-8'});
+      return {inferred:result.inferred};
+    }
+  };
   el.subtitleFile.addEventListener('change',async()=>{
     const file=el.subtitleFile.files?.[0];
     try{if(file)await loadSelectedSubtitle(file,null,{encoding:document.getElementById('primarySubtitleEncoding')?.value||'auto'});}

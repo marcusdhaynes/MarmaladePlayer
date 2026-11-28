@@ -2,7 +2,7 @@
 // produces audible AAC, and a held Stop never opens the OS file chooser.
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {readFileSync, mkdtempSync, rmSync} from 'node:fs';
+import {readFileSync, writeFileSync, mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, extname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -12,9 +12,15 @@ import {chromium} from 'playwright';
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
 const tmp=mkdtempSync(join(tmpdir(),'marmalade-mkv-eac3-'));
 const source=join(tmp,'marmalade-eac3-test.mkv');
+const subA=join(tmp,'english.srt'),subB=join(tmp,'arabic.srt');
+writeFileSync(subA,'1\n00:00:01,000 --> 00:00:03,000\nEMBEDDED EARLY\n\n2\n00:00:07,000 --> 00:00:10,000\nEMBEDDED LATE\n');
+writeFileSync(subB,'1\n00:00:01,000 --> 00:00:03,000\nمرحبا بالعالم\n');
+
 execFileSync('ffmpeg',['-hide_banner','-loglevel','error',
   '-f','lavfi','-i','color=c=blue:s=320x180:r=24',
   '-f','lavfi','-i','sine=frequency=440:sample_rate=48000',
+  '-i',subA,'-i',subB,'-map','0:v','-map','1:a','-map','2:s','-map','3:s',
+  '-metadata:s:s:0','language=eng','-metadata:s:s:1','language=ara','-c:s:0','srt','-c:s:1','ass',
   '-t','12','-c:v','libx264','-preset','ultrafast',
   '-pix_fmt','yuv420p','-c:a','eac3','-b:a','192k','-y',source],
   {timeout:30000});
@@ -106,6 +112,20 @@ try{
   const fullDuration=await page.evaluate(()=>document.querySelector('#player').duration);
   assert(fullDuration>=11.5&&fullDuration<=12.5,
     'The original 12s MKV duration must be preserved through audio remux');
+  // Real FFmpeg-muxed MKV with S_TEXT/UTF8 and S_TEXT/ASS tracks.
+  await page.locator('#subMkvScan').evaluate(button=>button.click());
+  await page.waitForFunction(()=>document.querySelector('#subMkvTrack').options.length===2);
+  const tracks=await page.evaluate(()=>window.MarmaladeEmbeddedSubtitles.scan());
+  assert.deepEqual(tracks.map(t=>[t.codec,t.language,t.supported]),[['S_TEXT/UTF8','eng',true],['S_TEXT/ASS','ara',true]]);
+  await page.locator('#subMkvLoad').evaluate(button=>button.click());
+  await page.waitForFunction(()=>document.querySelector('#subMkvStatus').textContent.includes('Embedded subtitles loaded.'));
+  const embedded=await page.evaluate(()=>window.MarmaladeAddonBridge.state.subtitles);
+  assert.deepEqual(embedded.map(c=>c.text),['EMBEDDED EARLY','EMBEDDED LATE']);
+  assert(Math.abs(embedded[0].start-1)<.1&&Math.abs(embedded[0].end-3)<.1);
+  await page.locator('#subMkvTrack').evaluate(select=>{select.value=select.options[1].value;select.dispatchEvent(new Event('change'));});
+  await page.locator('#subMkvLoad').evaluate(button=>button.click());
+  await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.subtitles[0]?.text==='مرحبا بالعالم');
+  console.log('PASS actual Matroska SRT and ASS embedded subtitle extraction');
   await page.locator('#subtitleFile').setInputFiles({
     name:'seek-regression.vtt',mimeType:'text/vtt',
     buffer:Buffer.from('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nEARLY CUE\n\n00:00:07.000 --> 00:00:10.000\nLATE CUE\n')
