@@ -367,7 +367,7 @@
     const id={EBML:0x1a45dfa3,SEG:0x18538067,INFO:0x1549a966,TRACKS:0x1654ae6b,CLUSTER:0x1f43b675,
       ENTRY:0xae,NUMBER:0xd7,TYPE:0x83,CODEC:0x86,NAME:0x536e,LANG:0x22b59c,IETF:0x22b59d,
       SCALE:0x2ad7b1,TIME:0xe7,GROUP:0xa0,BLOCK:0xa1,SIMPLE:0xa3,DURATION:0x9b,
-      ENCODINGS:0x6d80,TRACKSCALE:0x23314f,DEFAULTDURATION:0x23e383};
+      ENCODINGS:0x6d80,TRACKSCALE:0x23314f,DEFAULTDURATION:0x23e383,PRIVATE:0x63a2};
     const levelOne=new Set([id.INFO,id.TRACKS,id.CLUSTER,0x114d9b74,0x1c53bb6b,0x1941a469,0x1043a770,0x1254c367]);
     let windowStart=-1,windowBytes=new Uint8Array(),steps=0,scale=1000000;
     const check=()=>{if(signal?.aborted)throw Error('Subtitle extraction cancelled');};
@@ -421,7 +421,7 @@
       return new TextDecoder('utf-8',{fatal:true}).decode(await read(e.start,e.end-e.start)).replace(/\0+$/,'');
     }
     const tracks=[],packets=[];let packetBytes=0;
-    const supported=new Set(['S_TEXT/UTF8','S_TEXT/ASS','S_TEXT/SSA','S_HDMV/PGS']);
+    const supported=new Set(['S_TEXT/UTF8','S_TEXT/ASS','S_TEXT/SSA','S_HDMV/PGS','S_VOBSUB']);
     async function parseTracks(e){
       await children(e.start,e.end,async entry=>{
         if(entry.type!==id.ENTRY)return;
@@ -437,11 +437,17 @@
             case id.ENCODINGS:track.encoded=true;break;
             case id.TRACKSCALE:track.nonstandard=true;break;
             case id.DEFAULTDURATION:track.defaultDuration=await uint(field)/1e9;break;
+            case id.PRIVATE:if(field.end-field.start<=65536)track.privateField=field;break;
           }
         });
         if(track.type===17&&track.number>0){
           if(tracks.length>=128||tracks.some(t=>t.number===track.number))throw Error('Invalid Matroska subtitle track table');
           track.supported=supported.has(track.codec)&&!track.encoded&&!track.nonstandard;
+          if(track.codec==='S_VOBSUB'){
+            try{track.privateText=track.privateField?await str(track.privateField):'';vobSubInfo(track.privateText);}
+            catch{track.supported=false;}
+          }
+          delete track.privateField;
           tracks.push(track);
         }
       });
@@ -455,7 +461,7 @@
       const relative=(h[offset]<<8|h[offset+1]);const signed=relative>=32768?relative-65536:relative;
       if(h[offset+2]&6)throw Error('Laced subtitle blocks are not supported');
       const length=n-offset-3;
-      const bitmap=tracks.find(t=>t.number===trackNumber)?.codec==='S_HDMV/PGS';
+      const bitmap=['S_HDMV/PGS','S_VOBSUB'].includes(tracks.find(t=>t.number===trackNumber)?.codec);
       const limit=bitmap?20*1024*1024:5*1024*1024;
       if(length>(bitmap?1024*1024:65536)||packetBytes+length>limit||packets.length>=(bitmap?100000:10000))throw Error('Embedded subtitle track exceeds caption limits');
       const bytes=await read(e.start+offset+3,length);
@@ -520,6 +526,12 @@
     if(!track?.supported)throw Error('Selected embedded subtitle track is not supported');
     const factor=scale/1e9,rows=[];let inferred=0;
     packets.sort((a,b)=>a.ticks-b.ticks);
+    if(track.codec==='S_VOBSUB'){
+      const entries=packets.map(p=>({start:p.ticks*factor,duration:p.duration>0?p.duration*factor:0,raw:p.raw}));
+      const frames=decodeVobSub(track.privateText,entries);
+      check();onProgress?.(100);
+      return {tracks,track,entries,frames,format:'vobsub',inferred:0};
+    }
     if(track.codec==='S_HDMV/PGS'){
       const raw=matroskaPgsToSup(packets,factor);
       check();onProgress?.(100);
@@ -707,6 +719,108 @@
     // A missing final clear is bounded, rather than displaying indefinitely.
     return frames.map((frame,i)=>({...frame,end:frames[i+1]?.start??frame.start+5}));
   }
+  // DVD SPU (S_VOBSUB) packets: Matroska stores raw SPUs and the IDX
+  // size/palette in CodecPrivate, not the MPEG program-stream wrapper.
+  function vobSubInfo(text){
+    const source=String(text||'');
+    if(source.length>65536)throw Error('VobSub index too large');
+    const size=/^\s*size:\s*(\d+)\s*x\s*(\d+)\s*$/mi.exec(source);
+    const colors=/^\s*palette:\s*([0-9a-f,\s]+)$/mi.exec(source)?.[1].split(',').map(x=>x.trim());
+    const width=Number(size?.[1]),height=Number(size?.[2]);
+    if(!width||!height||width>4096||height>2160||colors?.length!==16||colors.some(x=>!/^[0-9a-f]{6}$/i.test(x)))
+      throw Error('Invalid VobSub canvas or palette');
+    if(/^\s*custom colors:\s*ON\b/mi.test(source))throw Error('VobSub custom palette overrides are unsupported');
+    return {width,height,colors:colors.map(x=>parseInt(x,16))};
+  }
+  function decodeVobSub(privateText,entries){
+    const info=vobSubInfo(privateText),frames=[];
+    if(!Array.isArray(entries)||!entries.length||entries.length>10000)throw Error('Invalid VobSub packet count');
+    let pixels=0,bytes=0;
+    const fail=msg=>{throw Error('Invalid VobSub: '+msg);};
+    const ordered=entries.slice().sort((a,b)=>a.start-b.start);
+    for(let n=0;n<ordered.length;n++){
+      const entry=ordered[n],b=entry.raw;
+      if(!(b instanceof Uint8Array)||b.length<10||b.length>65535||
+        !Number.isFinite(entry.start)||entry.start<0||entry.start>7*86400)fail('packet bounds');
+      bytes+=b.length;if(bytes>20*1024*1024)fail('packet budget');
+      const u16=i=>b[i]*256+b[i+1],size=u16(0),control=u16(2);
+      if(size!==b.length||control<4||control+4>size)fail('packet size');
+      let pos=control,previousDate=-1,paletteMap=null,alphaMap=null,area=null,offsets=null,visible=false,forced=false;
+      let last=null,cachedBitmap=null,cachedGeometry='',count=0;
+      const packetEnd=Math.min(ordered[n+1]?.start??Infinity,entry.start+(entry.duration>0?entry.duration:180));
+      function finish(at){
+        if(last){last.end=Math.min(at,packetEnd);if(last.end>last.start)frames.push(last);last=null;}
+      }
+      while(true){
+        if(++count>256||pos+4>size)fail('control sequence');
+        const date=u16(pos),next=u16(pos+2);
+        if(date<previousDate||next<control||next+4>size||(next!==pos&&next<=pos))fail('control sequence order');
+        previousDate=date;
+        let at=pos+4,terminated=false;
+        const limit=next===pos?size:next;
+        const need=n=>{if(at+n>limit)fail('truncated control command');};
+        while(at<limit){
+          const cmd=b[at++];
+          if(cmd===0xff){terminated=true;break;}
+          if(cmd===0||cmd===1){visible=true;if(cmd===0)forced=true;}
+          else if(cmd===2){visible=false;}
+          else if(cmd===3||cmd===4){need(2);const value=u16(at);at+=2;if(cmd===3)paletteMap=value;else alphaMap=value;}
+          else if(cmd===5){
+            need(6);const x=b[at]*16+(b[at+1]>>4),x2=(b[at+1]&15)*256+b[at+2];
+            const y=b[at+3]*16+(b[at+4]>>4),y2=(b[at+4]&15)*256+b[at+5];at+=6;
+            const w=x2-x+1,h=y2-y+1;
+            if(w<=0||h<=0||x+w>info.width||y+h>info.height)fail('bitmap coordinates');
+            area={x,y,w,h};
+          }else if(cmd===6){need(4);offsets=[u16(at),u16(at+2)];at+=4;}
+          else fail('unsupported dynamic control command '+cmd);
+        }
+        if(!terminated)fail('missing control terminator');
+        const when=entry.start+date*1024/90000;
+        finish(when);
+        if(visible&&when<packetEnd){
+          if(!area||!offsets||paletteMap===null||alphaMap===null)fail('missing bitmap controls');
+          const {x,y,w,h}=area,geometry=[w,h,...offsets].join(':');
+          if(geometry!==cachedGeometry){
+            if(offsets.some(o=>o<4||o>=control))fail('pixel offset');
+            pixels+=w*h;if(pixels>64*1024*1024)fail('decoded bitmap budget');
+            const bitmap=new Uint8Array(w*h);
+            for(let field=0;field<2;field++){
+              let nibble=offsets[field]*2;
+              const other=offsets[1-field],end=(other>offsets[field]?other:control)*2;
+              const get=()=>{
+                if(nibble>=end)fail('truncated RLE');
+                const v=b[nibble>>1],value=(nibble&1)?v&15:v>>4;nibble++;return value;
+              };
+              for(let row=field;row<h;row+=2){
+                let col=0;
+                while(col<w){
+                  let code=get();
+                  if(code<4){code=code*16+get();if(code<16){code=code*16+get();if(code<64)code=code*16+get();}}
+                  const run=(code>>2)||w-col,color=code&3;
+                  if(run>w-col)fail('RLE exceeds row');
+                  bitmap.fill(color,row*w+col,row*w+col+run);col+=run;
+                }
+                if(nibble&1)nibble++;
+              }
+            }
+            cachedBitmap={w,h,bitmap};cachedGeometry=geometry;
+          }
+          const palette=new Uint8ClampedArray(16);
+          for(let index=0;index<4;index++){
+            const rgb=info.colors[(paletteMap>>(index*4))&15],alpha=((alphaMap>>(index*4))&15)*17;
+            palette.set([rgb>>16&255,rgb>>8&255,rgb&255,alpha],index*4);
+          }
+          last={start:when,end:packetEnd,width:info.width,height:info.height,
+            layers:[{x,y,crop:{x:0,y:0,w,h},object:cachedBitmap,palette,forced}]};
+        }
+        if(next===pos){finish(Math.min(packetEnd,last?last.start+5:when));break;}
+        pos=next;
+        if(frames.length>10000)fail('composition count');
+      }
+    }
+    if(!frames.length||frames.length>10000)fail('no usable bitmap compositions');
+    return frames;
+  }
   function pgsFrameAt(frames,at){
     if(!frames?.length||!Number.isFinite(at))return null;
     let lo=0,hi=frames.length;
@@ -721,7 +835,7 @@
     }
     return rgba;
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,matroskaPgsToSup,decodePgs,pgsFrameAt,pgsPixels};
+  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,matroskaPgsToSup,decodePgs,vobSubInfo,decodeVobSub,pgsFrameAt,pgsPixels};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

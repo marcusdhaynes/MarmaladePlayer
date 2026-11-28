@@ -492,6 +492,18 @@ try{
   await page.locator('#subtitleFile').setInputFiles({name:'primary.srt',mimeType:'text/plain',buffer:Buffer.from('1\n00:00:00,000 --> 00:00:04,000\nPrimary captions')});
   await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('Primary captions'));
   assert.equal(await page.locator('#pgsSubtitleOverlay').getAttribute('hidden'),'');
+  // Browser verification of DVD SPU decoding and actual RGBA canvas data.
+  const dvd=await page.evaluate(()=>{
+    const codec=window.MarmaladeSubtitleCodec;
+    const first=[0,0,0,30,1,3,0,16,4,0,240,5,0,16,2,0,0,1,6,0,4,0,5,255];
+    const raw=Uint8Array.from([0,36,0,6,0x90,0x90,...first,0,176,0,30,2,255]);
+    const frames=codec.decodeVobSub('size: 4x2\npalette: 000000, ffffff, '+Array(14).fill('000000').join(', '),[{start:1,duration:5,raw}]);
+    const f=codec.pgsFrameAt(frames,2),canvas=document.createElement('canvas');canvas.width=4;canvas.height=2;
+    const ctx=canvas.getContext('2d'),image=ctx.createImageData(2,2);
+    image.data.set(codec.pgsPixels(f.layers[0]));ctx.putImageData(image,f.layers[0].x,f.layers[0].y);
+    return {white:Array.from(ctx.getImageData(1,0,1,1).data),clear:Array.from(ctx.getImageData(0,0,1,1).data),ended:codec.pgsFrameAt(frames,4)===null};
+  });
+  assert.deepEqual(dvd,{white:[255,255,255,255],clear:[0,0,0,0],ended:true});
   const driftCheck=await page.evaluate(()=>{
     const timing=window.MarmaladeSubtitleTiming;
     timing.activate('audit-drift-film','audit-drift-sub');

@@ -1900,6 +1900,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     let record;
     try{record=await subtitleHandleStore('get',key);}catch{return;}
     if(!record||ticket!==subtitleRestoreSequence||subtitleMediaKey()!==key)return;
+    if(record.kind==='vobsub'){
+      try{
+        const frames=window.MarmaladeSubtitleCodec.decodeVobSub(record.privateText,record.entries);
+        if(ticket!==subtitleRestoreSequence||subtitleMediaKey()!==key)return;
+        await applyBitmapSubtitles(frames,record.name,record.id,{mediaKey:key,lang:record.lang||'',restored:true});
+      }catch{notify('Previous VobSub captions could not be restored. Select the embedded track again.');}
+      return;
+    }
     if(record.kind==='pgs'){
       try{
         if(!(record.bytes instanceof Blob))throw Error('Saved bitmap subtitles unavailable');
@@ -6206,16 +6214,21 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const frames=window.MarmaladeSubtitleCodec.decodePgs(await file.arrayBuffer());
     if(token!==subtitleRestoreSequence||key!==subtitleMediaKey())throw Error('Video changed while loading bitmap captions');
     const id=source.id||subtitleId(file,source);
-    state.subtitles=[];state.pgsFrames=frames;state.subtitlesEnabled=true;
-    state.subtitlePreviewSuppressed=true;state.subtitleIdentity=id;state.subtitleLanguage=source.lang||'';state.subtitleRestoreKey=key;
-    el.subtitleName.textContent=file.name+' · '+frames.filter(f=>f.layers.length).length+' Bitmap Cues';
-    window.MarmaladeSubtitleTiming?.activate(key,id);
-    updateSubtitles();revealControls();
-    window.dispatchEvent(new Event('marmalade:subtitles-loaded'));window.dispatchEvent(new Event('marmalade:subtitles-changed'));
+    await applyBitmapSubtitles(frames,file.name,id,{...source,mediaKey:key});
     if(key&&!source.restored)try{
       await subtitleHandleStore('put',key,{kind:'pgs',name:file.name,id,lang:source.lang||'',bytes:file.slice()});
     }catch{notify('Bitmap captions loaded, but could not be saved on this device.');}
     return {format:'pgs',frames:frames.length};
+  }
+  async function applyBitmapSubtitles(frames,name,id,source={}){
+    const key=source.mediaKey||subtitleMediaKey();
+    state.subtitles=[];state.pgsFrames=frames;state.subtitlesEnabled=true;
+    state.subtitlePreviewSuppressed=true;state.subtitleIdentity=id;state.subtitleLanguage=source.lang||'';state.subtitleRestoreKey=key;
+    el.subtitleName.textContent=name+' · '+frames.filter(f=>f.layers.length).length+' Bitmap Cues';
+    window.MarmaladeSubtitleTiming?.activate(key,id);
+    updateSubtitles();revealControls();
+    window.dispatchEvent(new Event('marmalade:subtitles-loaded'));window.dispatchEvent(new Event('marmalade:subtitles-changed'));
+    void restoreSecondarySubtitle();
   }
   async function loadSelectedSubtitle(file,handle=null,source={}){
     if(/\.sup$/i.test(file?.name||''))return loadPgsSubtitle(file,source);
@@ -6335,6 +6348,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const result=await window.MarmaladeSubtitleCodec.matroskaText(file,{trackNumber:number,signal:controller.signal,onProgress});
       if(controller.signal.aborted||embeddedSubtitleFile()!==file||token!==subtitleRestoreSequence||key!==subtitleMediaKey())throw Error('Video or subtitle selection changed');
       const label=String(result.track.name||result.track.language||'Track '+number).replace(/[\\/:*?"<>|\x00-\x1f]/g,' ').slice(0,100);
+      if(result.format==='vobsub'){
+        const name=label+' (VobSub)',id='mkv-track:'+number,lang=result.track.language;
+        await applyBitmapSubtitles(result.frames,name,id,{mediaKey:key,lang});
+        if(key)try{
+          await subtitleHandleStore('put',key,{kind:'vobsub',name,id,lang,privateText:result.track.privateText,entries:result.entries});
+        }catch{notify('VobSub loaded, but could not be saved on this device.');}
+        return {inferred:0};
+      }
       const bitmap=result.format==='pgs',extension=bitmap?'.sup':'.vtt';
       await loadSelectedSubtitle(new File([result.raw],label+extension,{type:bitmap?'application/octet-stream':'text/vtt'}),null,{
         mediaKey:key,restoreToken:token,id:'mkv-track:'+number,lang:result.track.language,encoding:'utf-8'});

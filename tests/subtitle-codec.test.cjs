@@ -272,3 +272,39 @@ test('Matroska discovery and extraction use bounded random-access library reads'
  controller.abort();
  await assert.rejects(codec.matroskaText(source,{signal:controller.signal}),/cancelled/);
 });
+
+function dvdSpu(){
+ const first=Buffer.from([0,0,0,0,1,3,0,16,4,0,240,5,0,16,2,0,0,1,6,0,4,0,5,255]);
+ const stop=Buffer.from([0,176,0,0,2,255]);
+ const start=6,next=start+first.length;
+ first.writeUInt16BE(next,2);stop.writeUInt16BE(next,2);
+ const h=Buffer.alloc(4);h.writeUInt16BE(6+first.length+stop.length,0);h.writeUInt16BE(6,2);
+ return Buffer.concat([h,Buffer.from([0x90,0x90]),first,stop]);
+}
+const dvdPrivate='size: 4x2\npalette: 000000, ffffff, 000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000';
+test('DVD SPU decoding preserves interlaced pixels, palette, position and stop command',()=>{
+ const frames=codec.decodeVobSub(dvdPrivate,[{start:1,duration:5,raw:dvdSpu()}]);
+ assert.equal(frames.length,1);const f=frames[0];
+ assert.equal(f.start,1);assert.ok(Math.abs(f.end-(1+176*1024/90000))<1e-9);
+ assert.equal(f.layers[0].x,1);
+ assert.deepEqual(Array.from(codec.pgsPixels(f.layers[0])),Array(16).fill(255));
+ assert.equal(codec.pgsFrameAt(frames,4),null);
+ assert.throws(()=>codec.decodeVobSub(dvdPrivate,[{start:1,raw:dvdSpu().subarray(0,10)}]),/Invalid VobSub/);
+});
+test('S_VOBSUB CodecPrivate and binary SPU blocks are extracted from MKV',async()=>{
+ const ebml=(id,body)=>{
+   const payload=Buffer.from(body);let width=1;while(payload.length>=2**(7*width)-1)width++;
+   const size=Buffer.alloc(width);let n=payload.length;
+   for(let i=width-1;i>=0;i--){size[i]=n&255;n=Math.floor(n/256);}
+   size[0]|=1<<(8-width);return Buffer.concat([Buffer.from(id,'hex'),size,payload]);
+ };
+ const join=(...parts)=>Buffer.concat(parts);
+ const track=ebml('ae',join(ebml('d7',[3]),ebml('83',[17]),ebml('86',Buffer.from('S_VOBSUB')),ebml('63a2',Buffer.from(dvdPrivate))));
+ const group=ebml('a0',join(ebml('a1',join(Buffer.from([0x83,0,0,0]),dvdSpu())),ebml('9b',[19,136])));
+ const mkv=new Blob([ebml('1a45dfa3',[]),ebml('18538067',join(ebml('1654ae6b',track),ebml('1f43b675',join(ebml('e7',[3,232]),group))))]);
+ const scan=await codec.matroskaText(mkv);
+ assert.equal(scan.tracks[0].supported,true);
+ const result=await codec.matroskaText(mkv,{trackNumber:3});
+ assert.equal(result.format,'vobsub');assert.equal(result.frames[0].start,1);
+ assert.deepEqual(Array.from(codec.pgsPixels(result.frames[0].layers[0])),Array(16).fill(255));
+});
