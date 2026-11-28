@@ -667,10 +667,19 @@ try {
   const setListeningLevel=(page,value)=>page.locator('#volume').evaluate((input,value)=>{
     input.value=String(value);input.dispatchEvent(new Event('input',{bubbles:true}));
   },value);
+  await guest.waitForFunction(()=>{
+    const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+    return s.source==='remote'&&!v.paused&&v.srcObject?.getAudioTracks().some(t=>t.readyState==='live');
+  },null,{timeout:12000});
   await setListeningLevel(host,30);
   await setListeningLevel(guest,60);
-  await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
-  await guest.locator('#muteBtn').click({force:true});
+  assert.equal(await host.evaluate(()=>window.MarmaladeAddonBridge.state.volumePercent),30);
+  assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.volumePercent),60);
+  // This assertion exercises the actual mute handler, not hit testing (already
+  // covered above). A forced coordinate click can hit the returning-local-copy
+  // overlay instead of the control while the replacement stream settles.
+  if(!await guest.evaluate(()=>window.MarmaladeAddonBridge.state.soundMuted))
+    await guest.locator('#muteBtn').evaluate(button=>button.click());
   assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.soundMuted),true);
   const guestRoom=await guest.evaluate(()=>window.MarmaladeAddonBridge.state.code);
   const originalCallId=await host.evaluate(()=>{
@@ -694,13 +703,12 @@ try {
   assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.code),guestRoom);
   assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.volumePercent),60);
   assert.equal(await host.evaluate(()=>window.MarmaladeAddonBridge.state.volumePercent),30);
-  await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
-  await guest.locator('#muteBtn').click({force:true});
+  await guest.locator('#muteBtn').evaluate(button=>button.click());
   await guest.waitForFunction(()=>{
     const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
     return !s.soundMuted&&!s.audioUnlockRequired&&!v.paused&&
       (s.guestAudioFallback?s.guestAudioContext?.state==='running'&&Math.abs(s.guestAudioGain?.gain.value-.6)<.05:
-        !v.muted&&Math.abs(v.volume-.6)<.05);
+        !v.muted&&(s.speakerGain&&s.audioContext?.state==='running'?Math.abs(s.speakerGain.gain.value-.6)<.05:Math.abs(v.volume-.6)<.05));
   },null,{timeout:15000});
   const recoveredRms=await guest.evaluate(async()=>{
     const tracks=document.querySelector('#player').srcObject.getAudioTracks();

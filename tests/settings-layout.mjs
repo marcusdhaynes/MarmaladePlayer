@@ -191,9 +191,57 @@ try{
       ['performance','playback-diagnostics','true','false','diagnosticsToggle','expanded'],
       ['updates','auto-update-checks','false','true','automaticUpdateChecks','checkbox']
     ];
-    await page.evaluate(fixtures=>{for(const [,key,value] of fixtures)localStorage.setItem('marmalade:'+key,value);
-      localStorage.setItem('marmalade:watch-progress:v1','{}');},fixtures);
+    // Cover every currently allowlisted portable preference, not just one
+    // representative per category. The legacy subtitle style key is distinct
+    // from per-movie subtitle offsets and must remain independently resettable.
+    const extras={
+      video:{'fullscreen-orientation':'landscape','guest-quality':'360','adaptive-video-brightness:v1':'35'},
+      audio:{'volume-increment':'5','volume-snap':'false','volume-level':'175','audio-peak-protection':'true',
+        'audio-night-mode':'true','audio-dialogue':'strong','audio-normalize':'true','personal-audio-delay':'150',
+        'preferred-audio-language':'ar','audio-eq-preset':'custom','audio-eq-bands':'[1,2,3,4,5,6,7]'},
+      subtitles:{'marmalade-subtitle-style-v1':JSON.stringify({font:'Georgia, serif',textColor:'#ffccee',
+        textSize:32,textAlpha:80,outlineColor:'#123456',outlineSize:3,outlineAlpha:70,glowColor:'#112233',
+        glowSize:8,glowAlpha:50,shadowColor:'#222222',shadowSize:4,shadowAlpha:65,position:'top-right',alignment:'right'})},
+      party:{'stability-mode':'smooth'},buffering:{'peer-assist':'false'},
+      library:{'media-library:visible':'true','media-library:auto-posters':'false','media-library:poster-columns':'7','media-library:list':'true'},
+      controls:{'control-fade-seconds':'8','tap-video-playback':'false'},
+      appearance:{'background-theme':'cosmic02','cosmic-background':'false'}
+    };
+    const storageKey=k=>k==='marmalade-subtitle-style-v1'?k:'marmalade:'+k;
+    const groups=Object.fromEntries(fixtures.map(([category,key,value])=>
+      [category,Object.fromEntries(Object.entries({[key]:value,...extras[category]}).map(([k,v])=>[storageKey(k),v]))]));
+    const preferences=Object.assign({},...Object.values(groups));
+    const keys=Object.keys(preferences);
+    assert.equal(keys.length,36,'Explicit fixture for each portable preference');
+    // Guard against schema drift: a new portable setting must get a fixture.
+    const schemaSource=readFileSync(resolve(root,'settings-layout.js'),'utf8');
+    const schemaText=schemaSource.slice(schemaSource.indexOf(' const schema={'),schemaSource.indexOf(' const validators='));
+    const schemaKeys=[...schemaText.matchAll(/'([^']+)'\s*:/g)].map(match=>storageKey(match[1]));
+    schemaKeys.push('marmalade-subtitle-style-v1');
+    assert.deepEqual([...new Set(schemaKeys)].sort(),keys.slice().sort(),'Every allowlisted setting has a round-trip fixture');
+    // Establish clean defaults, including keys the app automatically writes
+    // on startup. Preserve unrelated private and per-movie data.
+    await page.evaluate(keys=>{
+      for(const key of keys)localStorage.removeItem(key);
+      localStorage.setItem('marmalade:watch-progress:v1','{}');
+      localStorage.setItem('marmalade:subtitle-offsets:v2','{}');
+    },keys);
     await page.reload({waitUntil:'domcontentloaded'});
+    await page.waitForFunction(()=>window.MarmaladeSettingsLayout&&document.getElementById('mlAutoNext')&&document.getElementById('gamesVisibilityToggle'));
+    const baseline=await page.evaluate(keys=>Object.fromEntries(keys.map(k=>[k,localStorage.getItem(k)])),keys);
+    await page.locator('#settingsBtn').click({force:true});
+    await page.locator('#settingsBackup > summary').click();
+    await page.locator('#settingsImportFile').setInputFiles({name:'complete-settings.json',mimeType:'application/json',
+      buffer:Buffer.from(JSON.stringify({format:'marmaladeum-settings',version:1,mode:'snapshot',preferences}))});
+    await page.waitForFunction(()=>!document.querySelector('#settingsApplyBackup').hidden);
+    await Promise.all([page.waitForEvent('load'),page.locator('#settingsApplyBackup').click()]);
+    await page.waitForFunction(()=>window.MarmaladeSettingsLayout&&document.getElementById('mlAutoNext')&&document.getElementById('gamesVisibilityToggle'));
+    await page.locator('#settingsBtn').click({force:true});
+    await page.locator('#settingsBackup > summary').click();
+    const [download]=await Promise.all([page.waitForEvent('download'),page.locator('#settingsExport').click()]);
+    const exported=JSON.parse(readFileSync(await download.path(),'utf8'));
+    assert.deepEqual(exported.preferences,preferences,'Every portable key round-trips through actual import, reload and download');
+    await page.locator('#closeSettingsPanel').click();
     async function verifyFixtures(done){
       await page.waitForFunction(()=>window.MarmaladeSettingsLayout&&document.getElementById('mlAutoNext')&&document.getElementById('gamesVisibilityToggle'));
       const actual=await page.evaluate(fixtures=>fixtures.map(([,key,,,id,type])=>{
@@ -206,7 +254,15 @@ try{
         assert.equal(actual[i].value,expected,category+' live value after '+done+' resets');
         assert(actual[i].stored===expected||(i<done&&actual[i].stored===null),category+' persisted value '+JSON.stringify(actual[i]));
       }
+      const stored=await page.evaluate(keys=>Object.fromEntries(keys.map(k=>[k,localStorage.getItem(k)])),keys);
+      for(let i=0;i<fixtures.length;i++){
+        for(const [key,value] of Object.entries(groups[fixtures[i][0]])){
+          if(i<done)assert.equal(stored[key],baseline[key],key+' restored to startup default after scoped reset');
+          else assert.equal(stored[key],value,key+' preserved by other categories');
+        }
+      }
       assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:watch-progress:v1')),'{}','Viewing history storage must not be reset');
+      assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:subtitle-offsets:v2')),'{}','Per-movie subtitle timing must not be reset');
     }
     await verifyFixtures(0);
     for(let i=0;i<fixtures.length;i++){
