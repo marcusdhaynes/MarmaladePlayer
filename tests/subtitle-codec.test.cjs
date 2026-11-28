@@ -328,3 +328,20 @@ test('paired IDX/SUB demux selects language and reassembles fragmented DVD SPU',
  const controller=new AbortController();controller.abort();
  await assert.rejects(codec.readVobSubPair(idx,file,0,{signal:controller.signal}),/cancelled/);
 });
+
+test('MPEG-1 paired DVD captions render across fragmented timestamped packets',async()=>{
+  const pack=Buffer.from([0,0,1,0xba,0x21,0,1,0,1,0x80,0,1]);
+  function packet(header,index,data){
+    const body=Buffer.from([...header,0x20+index,...data]);
+    return Buffer.concat([pack,Buffer.from([0,0,1,0xbd,body.length>>8,body.length&255]),body]);
+  }
+  const spu=dvdSpu(), pts=[0x21,0,1,0,1], both=[0x31,0,1,0,1,0x11,0,1,0,1];
+  const file=new Blob([packet([0xff,0x40,0,...pts],0,spu.subarray(0,1)),
+    packet([0x0f],1,spu),packet(both,0,spu.subarray(1))]);
+  const idx=dvdPrivate+'\nid: en, index: 0\ntimestamp: 00:00:02:000, filepos: 0';
+  const {frames}=await codec.readVobSubPair(idx,file,0);
+  assert.equal(frames[0].start,2);
+  assert.deepEqual(Array.from(codec.pgsPixels(frames[0].layers[0])),Array(16).fill(255));
+  assert.throws(()=>codec.extractSpuFromProgramStream(packet([0x31],0,[]),0),/truncated MPEG-1 timestamp/);
+  assert.throws(()=>codec.extractSpuFromProgramStream(packet([0x20,0,1,0,1],0,spu),0),/invalid MPEG-1 PTS/);
+});

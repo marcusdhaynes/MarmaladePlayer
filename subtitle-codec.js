@@ -860,15 +860,38 @@
       if(first&&code!==0xba)fail('IDX offset does not point to a pack');
       first=false;
       if(code===0xba){
-        if(pos+14>b.length||(b[pos+4]&0xc0)!==0x40)fail('unsupported MPEG pack');
-        pos+=14+(b[pos+13]&7);continue;
+        const header=b[pos+4];
+        if((header&0xf0)===0x20){
+          if(pos+12>b.length)fail('truncated MPEG-1 pack');
+          pos+=12;
+        }else if((header&0xc0)===0x40&&pos+14<=b.length){
+          pos+=14+(b[pos+13]&7);
+        }else fail('unsupported MPEG pack');
+        continue;
       }
       if(code===0xb9)break;
       const length=b[pos+4]*256+b[pos+5],end=pos+6+length;
       if(!length||end>b.length)fail('truncated PES packet');
       if(code===0xbd){
-        if(pos+9>end||(b[pos+6]&0xc0)!==0x80)fail('unsupported PES header');
-        const start=pos+9+b[pos+8];
+        let start=pos+6;
+        if((b[start]&0xc0)===0x80){
+          if(start+3>end)fail('truncated MPEG-2 PES header');
+          start+=3+b[start+2];
+        }else{
+          // MPEG-1 allows stuffing and an optional STD buffer before PTS/DTS.
+          while(start<end&&b[start]===0xff)start++;
+          if(start<end&&(b[start]&0xc0)===0x40)start+=2;
+          if(start>=end)fail('truncated MPEG-1 PES header');
+          const flag=b[start]>>4;
+          if(b[start]===0x0f)start++;
+          else if(flag===2||flag===3){
+            const length=flag===2?5:10;
+            if(start+length>end)fail('truncated MPEG-1 timestamp');
+            for(const marker of [0,2,4])if(!(b[start+marker]&1))fail('invalid MPEG-1 PTS');
+            if(flag===3&&((b[start+5]&0xf1)!==0x11||!(b[start+7]&1)||!(b[start+9]&1)))fail('invalid MPEG-1 DTS');
+            start+=length;
+          }else fail('unsupported MPEG-1 PES header');
+        }
         if(start>=end)fail('missing substream id');
         if(b[start]===0x20+index){
           const payload=b.subarray(start+1,end);
