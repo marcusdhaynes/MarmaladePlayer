@@ -2427,7 +2427,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const primary=active||(editing&&!document.getElementById('subStyleView')?.hidden&&
       state.subtitles.length?state.subtitles[0].text:'');
     // Apply the same presentation-clock correction, but independent timing.
-    const secondaryTime=subtitleTime+(Number(state.subtitleOffsetSeconds)||0)-state.secondarySubtitleOffset;
+    const unshifted=window.MarmaladeSubtitleClockBase?.(timeline)??timeline;
+    const secondaryTime=unshifted-state.secondarySubtitleOffset;
     const secondary=cueTextAt(state.secondarySubtitles,secondaryTime);
     const shown=[primary,secondary].filter(Boolean).join('\n');
     el.subtitleOverlay.hidden=!shown;
@@ -6415,14 +6416,15 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Local movies can use the browser's native cue scheduler, including when
     // the tab is backgrounded. Remote live streams need clock mapping.
     const local=state.role==='host'||state.localVerified||state.bufferedMode||state.source==='hosted-guest';
-    const signature=String(state.subtitlesEnabled)+'|'+state.subtitleIdentity+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0)+'|'+state.secondarySubtitleRevision;
+    const signature=String(state.subtitlesEnabled)+'|'+state.subtitleIdentity+'|'+state.subtitles.length+'|'+String(state.subtitleOffsetSeconds||0)+'|'+String(state.subtitleTimingScale||1)+'|'+state.secondarySubtitleRevision;
     if(local){
       if(nativePipLocalCues&&nativePipLocalSignature===signature)return;
       for(const cue of Array.from(nativePipTrack.cues||[]))nativePipTrack.removeCue(cue);
       nativePipCue=null;nativePipLocalCues=true;nativePipLocalSignature=signature;
       if(state.subtitlesEnabled&&typeof VTTCue==='function')for(const cue of state.subtitles){
         const offset=Number(state.subtitleOffsetSeconds)||0;
-        const start=Math.max(0,cue.start+offset),end=cue.end+offset;
+        const scale=Number(state.subtitleTimingScale)||1;
+        const start=Math.max(0,cue.start*scale+offset),end=cue.end*scale+offset;
         if(end<=start)continue;
         const nativeCue=new VTTCue(start,end,String(cue.text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
         nativeCue.align='center';nativePipTrack.addCue(nativeCue);

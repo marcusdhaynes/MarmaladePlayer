@@ -105,7 +105,7 @@
  const reset=document.createElement('button');
  reset.type='button';reset.className='sub-timing-action';reset.id='subTimingReset';
  reset.textContent='Reset';reset.title='Reset subtitle timing to 0.0s';
- reset.addEventListener('click',()=>{window.MarmaladeSubtitleTiming?.set?.(0);$('subtitleTiming').value='0.0';});
+ reset.addEventListener('click',()=>{window.MarmaladeSubtitleTiming?.reset?.();$('subtitleTiming').value='0.0';});
  // Center the Reset button itself in the space between the label and timing controls.
  timingRow.insertBefore(reset,timingRow.querySelector('.subtitle-timing-control'));
  // Secondary track controls live with timing so both languages can be aligned.
@@ -172,6 +172,32 @@
  message.textContent='Tap the word just spoken. Word timing is estimated if the subtitle contains only line timestamps.';
  timing.append(cueTitle,cueSearchBar,selectedDisplay,cueList,more,count,message);
  let selectedCue=-1,matches=[],rendered=0,knownCues=null,filterFrame=0;
+ let alignmentAnchor=null;
+ const drift=document.createElement('details');drift.className='sub-more-filters';
+ drift.innerHTML='<summary>Edition / Drift Alignment</summary><p class="sub-note">Pause on the start of a spoken line, select that line above, then capture the first point. Repeat at least 30 seconds later for the second point.</p><div class="sub-file-actions"><button type="button" id="subAnchorFirst">Set First Point</button><button type="button" id="subAnchorSecond">Set Second Point</button></div><p class="sub-note" id="subAnchorStatus" aria-live="polite"></p>';
+ timing.append(drift);
+ const anchorStatus=$('subAnchorStatus');
+ function refreshAnchor(){
+  const scale=window.MarmaladeSubtitleTiming?.getScale?.()||1;
+  anchorStatus.textContent=(alignmentAnchor?'First point: '+formatTime(alignmentAnchor.cue)+' → '+formatTime(alignmentAnchor.movie)+' · ':'')+'Subtitle duration: '+(scale*100).toFixed(3)+'%';
+  $('subAnchorSecond').disabled=!alignmentAnchor;
+ }
+ function selectedAnchor(){
+  const cue=state.subtitles?.[selectedCue],movie=currentBaseTime();
+  return cue&&Number.isFinite(movie)&&movie>=0?{cue:cue.start,movie}:null;
+ }
+ $('subAnchorFirst').addEventListener('click',()=>{
+  const point=selectedAnchor();if(!point){anchorStatus.textContent='Choose a subtitle line first.';return;}
+  alignmentAnchor=point;refreshAnchor();
+ });
+ $('subAnchorSecond').addEventListener('click',()=>{
+  const second=selectedAnchor();
+  if(!alignmentAnchor||!second||!window.MarmaladeSubtitleTiming.align(alignmentAnchor,second)){
+   anchorStatus.textContent='Choose a later line at least 30 seconds after the first; correction must be within 80–125%.';return;
+  }
+  alignmentAnchor=null;refreshAnchor();
+ });
+ refreshAnchor();
  const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g,' ').trim();
  function formatTime(value){
   const n=Math.max(0,Number(value)||0),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=(n%60).toFixed(1).padStart(4,'0');
@@ -222,7 +248,7 @@
   return Number.isFinite(exact?.start)&&exact.text===parts[index].text?exact.start:cue.start+(cue.end-cue.start)*elapsed/total;
  }
  function alignAt(cueTime){
-  const desired=currentBaseTime()-cueTime;
+  const desired=currentBaseTime()-cueTime*(window.MarmaladeSubtitleTiming?.getScale?.()||1);
   if(window.MarmaladeSubtitleTiming?.set?.(desired)){
    window.MarmaladeSubtitleRefresh?.();
    return true;
@@ -304,13 +330,13 @@
  function refreshCueOptions({force=false}={}){
   const cues=state.subtitles||[];
   if(!force&&knownCues===cues)return;
-  knownCues=cues;
+  knownCues=cues;alignmentAnchor=null;refreshAnchor();
   if(!cues.length){
    selectedCue=-1;cueSearch.value='';matches=[];cueList.replaceChildren();
    count.textContent='Load a subtitle file to choose a line.';
    closeList();selectedLine();showTiming();return;
   }
-  const base=currentBaseTime()-(Number(state.subtitleOffsetSeconds)||0);
+  const base=(currentBaseTime()-(Number(state.subtitleOffsetSeconds)||0))/(window.MarmaladeSubtitleTiming?.getScale?.()||1);
   let closest=0,lo=0,hi=cues.length;
   while(lo<hi){const mid=(lo+hi)>>1;if(cues[mid].start<base)lo=mid+1;else hi=mid;}
   closest=Math.min(cues.length-1,lo);
@@ -355,7 +381,7 @@
  window.addEventListener('marmalade:media-cleared',()=>{
   knownCues=null;selectedCue=-1;cueSearch.value='';refreshCueOptions({force:true});
  });
- window.addEventListener('marmalade:subtitle-timing-changed',showTiming);
+ window.addEventListener('marmalade:subtitle-timing-changed',()=>{showTiming();refreshAnchor();});
  const activeName=()=>!find.hidden?'find':!style.hidden?'style':'sync';
  function settle(which){
   timing.hidden=which!=='sync';

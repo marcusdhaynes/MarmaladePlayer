@@ -117,3 +117,12 @@ test('manual encodings decode otherwise ambiguous legacy scripts and fail safely
  assert.equal(codec.decodeBytes(Buffer.from('مرحبا'),'utf-8'),'مرحبا');
  assert.equal(codec.encodings[0][0],'auto');
 });
+
+test('two-point edition alignment computes a bounded affine timeline',()=>{
+ const fit=codec.fitTiming({cue:10,movie:12},{cue:110,movie:116});
+ assert.ok(Math.abs(fit.scale-1.04)<1e-9);
+ assert.ok(Math.abs(fit.seconds-1.6)<1e-9);
+ assert.equal(codec.fitTiming({cue:10,movie:12},{cue:20,movie:22}),null);
+ assert.equal(codec.fitTiming({cue:10,movie:12},{cue:110,movie:200}),null);
+ assert.equal(codec.fitTiming({cue:100,movie:100},{cue:50,movie:50}),null);
+});

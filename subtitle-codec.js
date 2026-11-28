@@ -240,7 +240,17 @@
     visit(1,0,size);
     return active.reverse().join('\n');
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings};
+  function fitTiming(first,second){
+    const values=[first?.cue,first?.movie,second?.cue,second?.movie];
+    if(values.some(v=>!Number.isFinite(v)||v<0))return null;
+    const span=second.cue-first.cue;
+    if(span<30||second.movie<=first.movie)return null;
+    const scale=(second.movie-first.movie)/span;
+    const seconds=first.movie-first.cue*scale;
+    if(scale<.8||scale>1.25||Math.abs(seconds)>3600)return null;
+    return {scale,seconds};
+  }
+  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -464,7 +464,7 @@
       if(!savedV3)localStorage.setItem(timingStoreKey,JSON.stringify(timingOffsets));
     }
   }catch{}
-  let timingMedia='',timingSubtitle='';
+  let timingMedia='',timingSubtitle='',timingScale=1;
   const timingText=subStyle.querySelector('#subtitleTiming');
   const tenths=value=>clamp(Math.round(Number(value)*10)/10,-3600,3600);
   function formatTiming(){
@@ -474,7 +474,7 @@
   function writeTimingOffset(){
     if(!timingMedia||!timingSubtitle)return;
     timingOffsets[timingMedia+'\u0000'+timingSubtitle]={
-      seconds:Number(prefs.timing),updated:Date.now()
+      seconds:Number(prefs.timing),scale:timingScale,updated:Date.now()
     };
     const latest=Object.entries(timingOffsets)
       .filter(([,entry])=>Number.isFinite(entry?.seconds))
@@ -482,14 +482,16 @@
     timingOffsets=Object.fromEntries(latest);
     try{localStorage.setItem(timingStoreKey,JSON.stringify(timingOffsets));}catch{}
   }
-  function setTiming(seconds){
-    if(!Number.isFinite(Number(seconds)))return false;
+  function setTiming(seconds,scale=timingScale){
+    if(!Number.isFinite(Number(seconds))||!Number.isFinite(scale)||scale<.8||scale>1.25)return false;
+    timingScale=scale;
     prefs.timing=tenths(seconds);
     state.subtitleOffsetSeconds=prefs.timing;
+    state.subtitleTimingScale=timingScale;
     writeTimingOffset();saveStyle();formatTiming();
     window.MarmaladeSubtitleRefresh?.();
     window.dispatchEvent(new CustomEvent('marmalade:subtitle-timing-changed',
-      {detail:{seconds:prefs.timing,media:timingMedia,subtitle:timingSubtitle}}));
+      {detail:{seconds:prefs.timing,scale:timingScale,media:timingMedia,subtitle:timingSubtitle}}));
     return true;
   }
   function commitTiming(){
@@ -535,13 +537,21 @@
       timingSubtitle=String(subtitleId||'');
       const entry=timingOffsets[timingMedia+'\u0000'+timingSubtitle];
       const previous=entry&&Number.isFinite(Number(entry.seconds))?entry.seconds:0;
+      timingScale=Number.isFinite(entry?.scale)&&entry.scale>=.8&&entry.scale<=1.25?entry.scale:1;
       prefs.timing=tenths(previous);
       state.subtitleOffsetSeconds=prefs.timing;
+      state.subtitleTimingScale=timingScale;
       timingText.value=prefs.timing.toFixed(1);
       window.MarmaladeSubtitleRefresh?.();
     },
     get:()=>Number(prefs.timing),
-    set:setTiming
+    getScale:()=>timingScale,
+    set:setTiming,
+    align:(first,second)=>{
+      const fit=window.MarmaladeSubtitleCodec?.fitTiming(first,second);
+      return !!fit&&setTiming(fit.seconds,fit.scale);
+    },
+    reset:()=>setTiming(0,1)
   };
   prefs.timing=0;
   timingText.value='0.0';
@@ -566,7 +576,7 @@
     return (Number.isFinite(base)?base:0)-remoteCorrection;
   };
   window.MarmaladeSubtitleClock=(time)=>
-    window.MarmaladeSubtitleClockBase(time)-Number(prefs.timing||0); // negative pre-roll must not display a cue at time zero
+    (window.MarmaladeSubtitleClockBase(time)-Number(prefs.timing||0))/timingScale; // negative pre-roll must not display a cue at time zero
   applySubtitleStyle();
 })();
 

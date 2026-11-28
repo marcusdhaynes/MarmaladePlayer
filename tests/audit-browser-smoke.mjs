@@ -412,6 +412,24 @@ try{
   await page.locator('#secondarySubtitleEncoding').evaluate(select=>{select.value='auto';});
   await page.locator('#secondarySubtitleFile').setInputFiles({name:'secondary.sbv',mimeType:'text/plain',buffer:Buffer.from('0:00:00.000,0:00:04.000\nمرحبا بالعالم')});
   await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('مرحبا بالعالم'));
+  const driftCheck=await page.evaluate(()=>{
+    const timing=window.MarmaladeSubtitleTiming;
+    timing.activate('audit-drift-film','audit-drift-sub');
+    const ok=timing.align({cue:10,movie:12},{cue:110,movie:116});
+    const mapped=window.MarmaladeSubtitleClock(116);
+    const saved=timing.getScale();
+    timing.activate('another-film','another-sub');
+    const isolated=timing.getScale();
+    timing.activate('audit-drift-film','audit-drift-sub');
+    const restored=timing.getScale();
+    timing.reset();timing.activate('','');
+    return {ok,mapped,saved,isolated,restored};
+  });
+  assert(driftCheck.ok);
+  assert(Math.abs(driftCheck.mapped-110)<.1);
+  assert(Math.abs(driftCheck.saved-1.04)<1e-9);
+  assert.equal(driftCheck.isolated,1);
+  assert.equal(driftCheck.restored,driftCheck.saved);
   await page.evaluate(()=>window.MarmaladeSecondarySubtitle.setOffset(5));
   assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions');
   await page.evaluate(()=>{window.MarmaladeSecondarySubtitle.setOffset(0);window.MarmaladeSubtitleTiming.set(5);});
