@@ -77,3 +77,27 @@ test('binary files remain invalid and oversized input is rejected',()=>{
  assert.equal(codec.decode(codec.decodeBytes(raw),'bitmap.sub').cues.length,0);
  assert.throws(()=>codec.decodeBytes(new Uint8Array(5*1024*1024+1)),/Too Large/);
 });
+
+test('WebVTT identifiers, headers, styles and NOTE blocks never leak into dialogue',()=>{
+ const source='WEBVTT - movie\nKind: captions\nLanguage: en\n\nSTYLE\n::cue { color: lime; }\n\nintro-id\n00:01.000 --> 00:03.000\nFirst\n\nNOTE private comment\nNever render this\n00:02.000 --> 00:02.500\nNor this\n\nnext-id\n00:03.000 --> 00:04.000\nSecond\n';
+ assert.deepEqual(codec.decode(source,'film.vtt').cues,[{start:1,end:3,text:'First'},{start:3,end:4,text:'Second'}]);
+});
+test('standard comma-delimited SubViewer timing and line breaks',()=>{
+ const source='[INFORMATION]\n[TITLE]Film\n[SUBTITLE]\n00:00:01.00,00:00:02.50\nOne[br]Two\n\n00:00:03.00,00:00:04.00\nNext';
+ assert.deepEqual(codec.decode(source,'film.sub').cues,[{start:1,end:2.5,text:'One\nTwo'},{start:3,end:4,text:'Next'}]);
+});
+test('active intervals survive >32 expired intervening captions and arbitrary seeks',()=>{
+ const cues=[{start:0,end:100,text:'Long running sign'},...Array.from({length:64},(_,i)=>({start:i+1,end:i+1.2,text:'Line '+i})),{start:80,end:81,text:'Dialogue'}];
+ assert.equal(codec.activeText(cues,80.5),'Long running sign\nDialogue');
+ assert.equal(codec.activeText(cues,81),'Long running sign');
+ assert.equal(codec.activeText(cues,1.1),'Long running sign\nLine 0');
+ assert.equal(codec.activeText(cues,100),'');
+ assert.equal(codec.activeText(cues,-1),'');
+ assert.equal(codec.activeText([{start:0,end:4,text:'New file'}],1),'New file');
+});
+test('simultaneous cues are ordered, deduplicated and bounded',()=>{
+ const cues=Array.from({length:12},(_,i)=>({start:i,end:20,text:'Line '+i}));
+ cues.push({start:12,end:20,text:'Line 11'});
+ const shown=codec.activeText(cues,13).split('\n');
+ assert.equal(shown.length,8);assert.equal(shown[0],'Line 4');assert.equal(shown[7],'Line 11');
+});

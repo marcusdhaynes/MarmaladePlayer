@@ -2392,11 +2392,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       window.dispatchEvent(new Event('marmalade:secondary-subtitle-changed'));return true;
     }
   };
-  function cueAt(cues,time){
-    let low=0,high=cues.length;
-    while(low<high){const mid=(low+high)>>1;if(cues[mid].start<=time)low=mid+1;else high=mid;}
-    for(let index=low-1;index>=Math.max(0,low-32);index--)if(cues[index].end>time)return cues[index];
-    return null;
+  function cueTextAt(cues,time){
+    return window.MarmaladeSubtitleCodec?.activeText(cues,time)||'';
   }
   function updateSubtitles() {
     if(!el.stage.classList.contains('has-video')){
@@ -2424,14 +2421,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       window.MarmaladeSubtitleClock(timeline):timeline;
     // Cues are ordered: logarithmic lookup instead of scanning thousands of cues
     // on every displayed frame. End is exclusive to avoid adjacent overlap.
-    const cue=cueAt(state.subtitles,subtitleTime);
+    const active=cueTextAt(state.subtitles,subtitleTime);
     // A sample cue can be inspected live while the editor is open—even when
     // playback is paused or seeking outside subtitle dialogue.
-    const primary=cue?.text||(editing&&!document.getElementById('subStyleView')?.hidden&&
+    const primary=active||(editing&&!document.getElementById('subStyleView')?.hidden&&
       state.subtitles.length?state.subtitles[0].text:'');
     // Apply the same presentation-clock correction, but independent timing.
     const secondaryTime=subtitleTime+(Number(state.subtitleOffsetSeconds)||0)-state.secondarySubtitleOffset;
-    const secondary=cueAt(state.secondarySubtitles,secondaryTime)?.text||'';
+    const secondary=cueTextAt(state.secondarySubtitles,secondaryTime);
     const shown=[primary,secondary].filter(Boolean).join('\n');
     el.subtitleOverlay.hidden=!shown;
     const naturalText=shown.normalize('NFC');

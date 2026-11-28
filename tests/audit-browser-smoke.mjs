@@ -391,6 +391,16 @@ try{
   await page.locator('#secondarySubtitleFile').setInputFiles({name:'secondary.srt',mimeType:'text/plain',buffer:Buffer.from('1\n00:00:00,000 --> 00:00:04,000\nمرحبا بالعالم\n','utf16le')});
   await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('مرحبا بالعالم'));
   assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions\nمرحبا بالعالم');
+  await page.evaluate(()=>{
+    const {state}=window.MarmaladeAddonBridge;
+    state.subtitles=[{start:0,end:4,text:'Primary captions'},{start:0,end:2,text:'Overlapping caption'}];
+    window.MarmaladeSubtitleRefresh();
+  });
+  assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions\nOverlapping caption\nمرحبا بالعالم');
+  await page.evaluate(()=>{
+    window.MarmaladeAddonBridge.state.subtitles=[{start:0,end:4,text:'Primary captions'}];
+    window.MarmaladeSubtitleRefresh();
+  });
   await page.evaluate(()=>window.MarmaladeSecondarySubtitle.setOffset(5));
   assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions');
   await page.evaluate(()=>{window.MarmaladeSecondarySubtitle.setOffset(0);window.MarmaladeSubtitleTiming.set(5);});

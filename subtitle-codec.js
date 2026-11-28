@@ -55,12 +55,29 @@
     }
     flush();
   }
+  // WebVTT has block-level metadata, comments and optional arbitrary cue
+  // identifiers. Treat them as structure, never as spoken dialogue.
+  function parseVtt(source,cues){
+    const blocks=source.trimStart().split(/\n[ \t]*\n(?:[ \t]*\n)*/);
+    for(let i=0;i<blocks.length;i++){
+      const lines=blocks[i].split('\n');
+      const first=lines[0].trim();
+      if(i===0&&/^WEBVTT(?:[ \t]|$)/.test(first))continue;
+      if(/^(?:NOTE(?:[ \t]|$)|STYLE$|REGION$)/.test(first))continue;
+      const timing=lines.findIndex((line,index)=>index<2&&line.includes('-->'));
+      if(timing<0)continue;
+      // The normal block has one timing row; retain tolerant parsing of
+      // consecutive timing rows if a release omitted separating blank lines.
+      parseArrow(lines.slice(timing).join('\n'),cues);
+    }
+  }
   function parseSubViewer(source,cues){
     const lines=source.split('\n');
     let active=null;
     const flush=()=>{if(active)cue(cues,active.start,active.end,active.body.join('\n'));};
     for(const line of lines){
-      const m=line.match(/^\s*\[(\d{1,2}:\d{2}:\d{2}[.,]\d+)\]\s*\[(\d{1,2}:\d{2}:\d{2}[.,]\d+)\]/);
+      const m=line.match(/^\s*\[(\d{1,2}:\d{2}:\d{2}[.,]\d+)\]\s*\[(\d{1,2}:\d{2}:\d{2}[.,]\d+)\]/)||
+        line.match(/^\s*(\d{1,2}:\d{2}:\d{2}\.\d+)\s*,\s*(\d{1,2}:\d{2}:\d{2}\.\d+)\s*$/);
       if(m){flush();active={start:time(m[1]),end:time(m[2]),body:[]};}
       else if(active&&!/^\s*\[(?:INFORMATION|TITLE|AUTHOR|SOURCE|END)\]/i.test(line))active.body.push(line);
     }
@@ -119,14 +136,16 @@
     const ext=String(filename).toLowerCase().split('.').pop();
     const isAss=/^\s*\[Script Info\]/mi.test(source)&&/^\s*\[Events\]/mi.test(source);
     const isMicroDVD=/^\s*\{\d+\}\{\d+\}/m.test(source);
-    const isSubViewer=/^\s*\[\d{1,2}:\d{2}:\d{2}[.,]\d+\]\s*\[/m.test(source);
+    const isSubViewer=/^\s*\[\d{1,2}:\d{2}:\d{2}[.,]\d+\]\s*\[/m.test(source)||
+      /^\s*\d{1,2}:\d{2}:\d{2}\.\d+\s*,\s*\d{1,2}:\d{2}:\d{2}\.\d+\s*$/m.test(source);
     let format='srt',fps=null,warning='';
     if(isAss||ext==='ass'||ext==='ssa'){format='ass';parseAss(source,cues);}
     else if(isMicroDVD){format='microdvd';const data=parseMicroDVD(source,cues,{...options,filename});
       fps=data.fps;
       if(data.assumed)warning='MicroDVD file has no frame-rate header. Using 23.976 FPS; adjust or choose a matching release if timing drifts.';}
     else if(isSubViewer){format='subviewer';parseSubViewer(source,cues);}
-    else{format=/^\s*WEBVTT/i.test(source)||ext==='vtt'?'vtt':'srt';parseArrow(source,cues);}
+    else{format=/^\s*WEBVTT/i.test(source)||ext==='vtt'?'vtt':'srt';
+      if(format==='vtt')parseVtt(source,cues);else parseArrow(source,cues);}
     cues.sort((a,b)=>a.start-b.start);
     return {cues,format,fps,warning,error:cues.length?'':'No readable text subtitle cues found.'};
   }
@@ -162,7 +181,41 @@
     const arabicLetters=arabicWords.reduce((sum,word)=>sum+word.length,0);
     return arabicLetters>=4?arabic:western;
   }
-  const api={time,plain,decode,decodeBytes};
+  // Immutable, sorted cue arrays are replaced as a whole on each file load.
+  // Cache an end-time interval tree by array identity. A lookup prunes every
+  // subtree whose latest end is already expired; no arbitrary 32-cue window.
+  const cueIndexes=new WeakMap();
+  function activeText(cues,at){
+    if(!Array.isArray(cues)||!cues.length||!Number.isFinite(at))return '';
+    let low=0,high=cues.length;
+    while(low<high){const mid=(low+high)>>1;if(cues[mid].start<=at)low=mid+1;else high=mid;}
+    if(!low)return '';
+    let index=cueIndexes.get(cues);
+    if(!index||index.length!==cues.length){
+      let size=1;while(size<cues.length)size*=2;
+      const ends=new Float64Array(size*2);ends.fill(-Infinity);
+      for(let i=0;i<cues.length;i++)ends[size+i]=Number(cues[i].end)||-Infinity;
+      for(let i=size-1;i>0;i--)ends[i]=Math.max(ends[i*2],ends[i*2+1]);
+      index={size,ends,length:cues.length};cueIndexes.set(cues,index);
+    }
+    const active=[],{size,ends}=index;
+    // Protect the overlay against malicious thousands of overlapping lines.
+    // Prefer the latest eight distinct cues, then display in timeline order.
+    const seen=new Set();
+    function visit(node,left,right){
+      if(left>=low||ends[node]<=at||active.length>=8)return;
+      if(right-left===1){
+        const text=cues[left]?.text;
+        if(text&&!seen.has(text)){seen.add(text);active.push(text);}
+        return;
+      }
+      const mid=(left+right)>>1;
+      visit(node*2+1,mid,right);visit(node*2,left,mid);
+    }
+    visit(1,0,size);
+    return active.reverse().join('\n');
+  }
+  const api={time,plain,decode,decodeBytes,activeText};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);
