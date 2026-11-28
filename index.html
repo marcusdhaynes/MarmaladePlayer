@@ -3378,6 +3378,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     send(state.guestConn,{type:'buffer-status',ready});
   }
   function closeConnections() {
+    stopHostRecovery();
     window.MarmaladeRollingBuffer?.stop();window.MarmaladeRollingBuffer?.closeHost();
     window.MarmaladeHostSyncCleanup?.();
     clearTimeout(state.joinTimeout);
@@ -3391,9 +3392,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       try { entry.call?.close(); entry.conn.close(); } catch { /* already closed */ }
     }
     state.connections.clear();
-    try { state.guestCall?.close(); state.guestConn?.close(); state.peer?.destroy(); }
-    catch { /* already closed */ }
+    const oldPeer=state.peer,oldGuestConn=state.guestConn,oldGuestCall=state.guestCall;
     state.guestConn = state.guestCall = state.peer = null;
+    // Detach first so deliberate teardown cannot schedule a recovery.
+    for(const resource of [oldGuestCall,oldGuestConn])try{resource?.close();}catch{}
+    try{oldPeer?.destroy();}catch{}
     state.guestQualitySample = null;
     state.remoteVideoConnectedAt = 0;
     state.remoteLastFrameAt = 0;
@@ -3839,7 +3842,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         applied: '', lastTuneAt: 0, requestedLevel: DEFAULT_LEVEL, trackType: 'base' };
       state.connections.set(conn.peer, entry);
       conn.on('open', () => {
-        if (state.peer !== peer) return;
+        if (state.peer !== peer || state.connections.get(conn.peer)!==entry) return;
         renderCount();
         send(conn, hostStatus());
         send(conn, { type: 'movie-info', payload: window.MarmaladeInfoShare?.() || null });
@@ -3848,7 +3851,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         notify('A guest joined your room.');
       });
       conn.on('data', (data) => {
-        if (!data || typeof data !== 'object') return;
+        if (state.peer!==peer||state.connections.get(conn.peer)!==entry||!conn.open||!data||typeof data!=='object') return;
         if(data.type==='ping'){
           const receivedAt=performance.now();
           send(conn,{type:'pong',at:data.at,hostReceivedAt:receivedAt,hostSentAt:performance.now()});
@@ -4604,12 +4607,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       }, 14000);
     } catch (error) { console.error(error); notify('Unable to establish the video call.'); }
   }
-  let hostRecoveryTimer=null,hostRecoveryAttempt=0;
+  let hostRecoveryTimer=null,hostRecoveryAttempt=0,hostRecoveryStarted=null,hostRegistrationTimer=null;
   function stopHostRecovery(){
-    clearTimeout(hostRecoveryTimer);hostRecoveryTimer=null;hostRecoveryAttempt=0;
+    clearTimeout(hostRecoveryTimer);clearTimeout(hostRegistrationTimer);
+    hostRecoveryTimer=hostRegistrationTimer=null;hostRecoveryAttempt=0;hostRecoveryStarted=null;
   }
   function recoverHost(peer,code){
     if(state.peer!==peer||state.role!=='host'||hostRecoveryTimer)return;
+    if(hostRecoveryStarted===null)hostRecoveryStarted=performance.now();
     configureIce();
     connection('Restoring room service…','error');
     updateRoomActions();
@@ -4617,10 +4622,20 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       hostRecoveryTimer=null;
       if(state.peer!==peer||state.role!=='host')return;
       if(peer.open&&!peer.disconnected){stopHostRecovery();connection('Room is ready','online');updateRoomActions();return;}
+      if(navigator.onLine===false){recoverHost(peer,code);return;}
       if(peer.destroyed){
-        const replacement=new window.Peer(PEER_PREFIX+code,PEER_OPTIONS);
-        state.peer=replacement;
-        configureHostPeer(replacement,code);
+        try{
+          const replacement=new window.Peer(PEER_PREFIX+code,PEER_OPTIONS);
+          state.peer=replacement;
+          configureHostPeer(replacement,code);
+          clearTimeout(hostRegistrationTimer);
+          hostRegistrationTimer=setTimeout(()=>{
+            if(state.peer===replacement&&!replacement.open){
+              try{replacement.destroy();}catch{}
+              recoverHost(replacement,code);
+            }
+          },13500);
+        }catch{recoverHost(peer,code);}
       }else{
         try{if(peer.disconnected)peer.reconnect();}catch{}
         recoverHost(peer,code);
@@ -4642,6 +4657,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       connection('Room is ready','online');
       autoStartIfPlaying();
     });
+    peer.on('close',()=>{
+      if(state.peer===peer&&state.role==='host')recoverHost(peer,code);
+    });
     peer.on('disconnected',()=>{
       if(state.peer===peer){
         updateRoomActions();
@@ -4652,10 +4670,17 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(state.peer!==peer)return;
       console.warn('Host signaling error',error);
       if(error?.type==='unavailable-id'||error?.type==='invalid-id'){
+        // An old signaling registration may briefly outlive a destroyed peer.
+        // Keep the existing invitation during the recovery grace period.
+        if(error.type==='unavailable-id'&&hostRecoveryStarted!==null&&performance.now()-hostRecoveryStarted<60000){
+          try{peer.destroy();}catch{}
+          recoverHost(peer,code);return;
+        }
         stopHostRecovery();
         // Preserve the stream; only the old room code is no longer ours.
         const fresh=newCode();
         rememberHostCode(fresh);
+        state.peer=null;
         try{peer.destroy();}catch{}
         state.code=fresh;
         const replacement=new window.Peer(PEER_PREFIX+fresh,PEER_OPTIONS);

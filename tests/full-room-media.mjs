@@ -849,6 +849,25 @@ try {
       },null,{timeout:45000});
       assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original,'Destroyed peer replacement must preserve the MSE source');
       console.log('PASS destroyed PeerJS instance replaced without resetting movie',height);
+      // The host's entire signaling object can also be destroyed. Its
+      // invitation, file, capture and original-file offer must survive.
+      await sender.evaluate(()=>{
+        const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+        window.__hostBeforeDestroy={peer:s.peer,code:s.code,file:s.file,offer:window.MarmaladeRollingBuffer.offer().id,src:v.currentSrc,time:v.currentTime};
+        s.peer.destroy();
+      });
+      await sender.waitForFunction(()=>{
+        const s=window.MarmaladeAddonBridge.state,old=window.__hostBeforeDestroy;
+        return old.peer.destroyed&&s.peer!==old.peer&&s.peer?.open&&s.code===old.code&&s.broadcasting&&s.file===old.file&&window.MarmaladeRollingBuffer.offer()?.id===old.offer;
+      },null,{timeout:45000});
+      await viewer.waitForFunction(()=>{
+        const s=window.MarmaladeAddonBridge.state;
+        return s.guestConn?.open&&s.source==='buffered-guest'&&window.MarmaladeRollingBuffer.getStatus()?.ready&&!window.MarmaladeRollingBuffer.getStatus()?.reconnecting&&
+          Object.values(s.peer.connections).flat().some(c=>c.open&&c.label==='marmalade-buffer-v1');
+      },null,{timeout:45000});
+      assert.equal(await sender.evaluate(()=>{const v=document.querySelector('#player'),old=window.__hostBeforeDestroy;return v.currentSrc===old.src&&!v.paused&&v.currentTime>=old.time;}),true,'Host media must keep playing after registration recovery');
+      assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original,'Host peer replacement must retain guest MSE source');
+      console.log('PASS destroyed host peer replaced with same invitation and media offer',height);
       began=Date.now();
       await viewer.evaluate(()=>{
          const state=window.MarmaladeAddonBridge.state;
