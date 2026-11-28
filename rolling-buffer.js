@@ -407,9 +407,16 @@
    if(failedKey===o.id&&Date.now()<retryAt)return;
    if(s.guestConn?.open)void start(o,s.guestConn);
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,TARGET};
+ function bufferStatus(s,time){
+   const remaining=Number.isFinite(s.duration)?Math.max(0,s.duration-time):TARGET;
+   const target=Math.min(TARGET,remaining);
+   return {target,capacity:s.capacity,ready:s.ready,seconds:s.buffer?ahead(s.buffer.buffered,time):0,
+     reconnecting:!!s.reconnecting,quotaLimited:s.capacity<Math.min(TARGET+5,remaining),
+     diskBytes:s.disk?.size||0,diskAvailable:!!s.disk};
+ }
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,TARGET};
  if(!root)return;
- root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?{target:TARGET,capacity:session.capacity,ready:session.ready,seconds:session.buffer&&current(session)?ahead(session.buffer.buffered,position(session)):0,reconnecting:!!session.reconnecting,quotaLimited:session.capacity<TARGET+5,diskBytes:session.disk?.size||0,diskAvailable:!!session.disk}:null};
+ root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?bufferStatus(session,session.buffer&&current(session)?position(session):0):null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});
  const media=bridge()?.media;
  for(const event of ['play','pause','seeking','seeked','waiting','stalled','loadeddata','canplay','progress','timeupdate','suspend','ended'])media?.addEventListener(event,()=>{if(session)kick(session);});

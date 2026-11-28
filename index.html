@@ -2824,7 +2824,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }else if(state.source)assessment='Waiting for decoded media.';
     const values={resolution:active&&media.videoWidth&&media.videoHeight?media.videoWidth+' × '+media.videoHeight:'—',
       fps:active&&media.paused?'Paused':num(diagnosticFps,1,' fps'),decoded:r?num(r.fps,1,' fps'):'—',dropped:num(dropped),
-      buffer:active&&seekable?num(bufferAhead(),1,' s')+(rolling?' / '+rolling.target+' s':''):'—',
+      buffer:active&&seekable?num(bufferAhead(),1,' s')+(rolling?' / '+num(rolling.target,1,' s'):''):'—',
       drift:sync?num((expectedHostTime()-media.currentTime)*1000,0,' ms'):'—',
       bandwidth:r?num(r.incomingBitrate/1e6,2,' Mbps'):'—',loss:r?num(r.loss*100,1,'%'):'—',
       jitter:r?num(r.packetJitterMs,0,' ms'):'—',rtt:l?num(l.rttMs,0,' ms'):'—',

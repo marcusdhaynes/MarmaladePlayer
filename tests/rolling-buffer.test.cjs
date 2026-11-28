@@ -135,3 +135,14 @@ test('a seek during a decoder read or append invalidates cursors from other reta
  for(const [from,to] of [[120,150],[280,112],[90,91]])
    assert.equal(changedWindow(retained,from,to),false);
 });
+
+test('diagnostics report an attainable target in the final minutes',()=>{
+ const {bufferStatus}=require('../rolling-buffer.js');
+ const s={duration:300,capacity:90,ready:true,buffer:{buffered:ranges([[250,300]])}};
+ assert.equal(bufferStatus(s,20).target,180);
+ assert.equal(bufferStatus(s,20).quotaLimited,true);
+ assert.equal(bufferStatus(s,260).target,40);
+ assert.equal(bufferStatus(s,260).seconds,40);
+ assert.equal(bufferStatus(s,260).quotaLimited,false);
+ assert.equal(bufferStatus(s,301).target,0);
+});

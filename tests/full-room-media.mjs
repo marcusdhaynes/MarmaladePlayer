@@ -844,6 +844,25 @@ try {
       });
       console.log('Buffered guest playback',height,JSON.stringify(sample));
       assert(sample.advanced>=9&&sample.displayedFPS>=23.5,'24 FPS source must sustain playback within half a frame/s');
+      await sender.locator('#playPause').click({force:true});
+      await viewer.waitForFunction(()=>document.querySelector('#player').paused);
+      began=Date.now();
+      await sender.locator('#player').evaluate(v=>{v.currentTime=30;});
+      await full('paused rewind',29,32);
+      assert(await viewer.locator('#player').evaluate(v=>v.paused),'Refilling must preserve the deliberate pause');
+      await sender.locator('#playPause').click({force:true});
+      await viewer.waitForFunction(()=>!document.querySelector('#player').paused&&document.querySelector('#player').currentTime>31);
+      await sender.locator('#player').evaluate(v=>{v.currentTime=v.duration-20;});
+      await viewer.waitForFunction(()=>{
+        const v=document.querySelector('#player'),status=window.MarmaladeRollingBuffer.getStatus();
+        if(!status||v.duration-v.currentTime>22||v.ended||status.target<=0||status.target>22)return false;
+        for(let i=0;i<v.buffered.length;i++){
+          if(v.buffered.start(i)<=v.currentTime&&v.buffered.end(i)>=v.duration-.25)return true;
+        }
+        return false;
+      },null,{timeout:15000});
+      assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original);
+      console.log('PASS paused rewind, resumed playback and contiguous buffer to end',height);
     }finally{await viewer.close();await sender.close();}
   }
   assert.deepEqual(errors,[],'Buffered room runtime errors');
