@@ -39,6 +39,8 @@ jobs:
             cd ../../..
           done
           cp dist/extension-packages/marmalade-library-firefox.zip dist/extension-packages/marmalade-library-firefox-unsigned.xpi
+          cp dist/extension-packages/marmalade-library-minternet.zip dist/extension-packages/Marmalade-Library.mext
+          python3 -c "import zipfile; z=zipfile.ZipFile('dist/extension-packages/Marmalade-Library.mext'); assert z.testzip() is None; assert set(z.namelist())=={'manifest.json','background.js','content.js','library.html','library.js'}"
           python3 -c "import glob,zipfile; files=glob.glob('dist/extension-packages/*.zip'); assert len(files)==8; assert all(len([n for n in zipfile.ZipFile(f).namelist() if not n.endswith('/')])==5 for f in files)"
           node --input-type=module --check < dist/media-extensions/chrome/library.js
           node --input-type=module --check < dist/media-extensions/firefox/library.js
