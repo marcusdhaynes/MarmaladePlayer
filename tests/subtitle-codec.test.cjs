@@ -126,3 +126,17 @@ test('two-point edition alignment computes a bounded affine timeline',()=>{
  assert.equal(codec.fitTiming({cue:10,movie:12},{cue:110,movie:200}),null);
  assert.equal(codec.fitTiming({cue:100,movie:100},{cue:50,movie:50}),null);
 });
+
+test('reference alignment recovers offset and drift despite an outlier',()=>{
+ const source=Array.from({length:12},(_,i)=>({start:i*20,end:i*20+2,text:'A distinctive phrase number '+i}));
+ const fit=codec.referenceAlignment(source,source.map((c,i)=>({...c,start:c.start*1.04+2+(i===5?4:0)})));
+ assert.ok(fit);assert.equal(fit.matched,11);assert.equal(fit.total,12);
+ assert.ok(Math.abs(fit.scale-1.04)<1e-9);assert.ok(Math.abs(fit.seconds-2)<1e-9);
+});
+test('reference alignment refuses ambiguous and nonlinear dialogue matches',()=>{
+ const source=Array.from({length:12},(_,i)=>({start:i*20,end:i*20+2,text:'A distinctive phrase number '+i}));
+ assert.equal(codec.referenceAlignment(source,source.map(c=>({...c,text:'Unrelated dialogue'}))),null);
+ assert.equal(codec.referenceAlignment(source.map(c=>({...c,text:'A repeated dialogue line'})),source),null);
+ assert.equal(codec.referenceAlignment(source,source.map((c,i)=>({...c,start:c.start+(i<6?0:25)}))),null);
+ assert.equal(codec.referenceAlignment(source.slice(0,3),source),null);
+});

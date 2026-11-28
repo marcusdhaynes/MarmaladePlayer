@@ -250,7 +250,44 @@
     if(scale<.8||scale>1.25||Math.abs(seconds)>3600)return null;
     return {scale,seconds};
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming};
+  // Estimate only from unique dialogue shared by both subtitle files.
+  function referenceAlignment(source,reference){
+    if(!Array.isArray(source)||!Array.isArray(reference))return null;
+    const key=text=>String(text||'').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}\p{M}]+/gu,' ').trim();
+    function unique(cues){
+      const map=new Map();
+      for(const cue of cues.slice(0,10000)){
+        if(!Number.isFinite(cue.start)||cue.start<0)continue;
+        const text=key(cue.text);
+        if(text.length>=16&&text.length<=500)map.set(text,map.has(text)?null:cue.start);
+      }
+      return map;
+    }
+    const left=unique(source),right=unique(reference),pairs=[];
+    for(const [text,cue] of left){const movie=right.get(text);if(Number.isFinite(cue)&&Number.isFinite(movie))pairs.push({cue,movie});}
+    pairs.sort((a,b)=>a.cue-b.cue);
+    if(pairs.length<5||pairs.at(-1).cue-pairs[0].cue<60)return null;
+    const n=Math.min(24,pairs.length),sample=Array.from({length:n},(_,i)=>pairs[Math.round(i*(pairs.length-1)/(n-1))]);
+    const inliers=fit=>pairs.filter(p=>Math.abs(p.cue*fit.scale+fit.seconds-p.movie)<=.65);
+    let best=null;
+    for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+      const fit=fitTiming(sample[i],sample[j]);if(!fit)continue;
+      const hits=inliers(fit),error=hits.reduce((sum,p)=>sum+Math.abs(p.cue*fit.scale+fit.seconds-p.movie),0);
+      if(!best||hits.length>best.hits.length||(hits.length===best.hits.length&&error<best.error))best={fit,hits,error};
+    }
+    const required=Math.max(5,Math.ceil(pairs.length*.85));
+    if(!best||best.hits.length<required)return null;
+    const hits=best.hits,span=hits.at(-1).cue-hits[0].cue;
+    if(span<60||span<(pairs.at(-1).cue-pairs[0].cue)*.8)return null;
+    const x=hits.reduce((sum,p)=>sum+p.cue,0)/hits.length,y=hits.reduce((sum,p)=>sum+p.movie,0)/hits.length;
+    const scale=hits.reduce((sum,p)=>sum+(p.cue-x)*(p.movie-y),0)/hits.reduce((sum,p)=>sum+(p.cue-x)**2,0);
+    const seconds=y-x*scale;
+    if(!Number.isFinite(scale)||scale<.8||scale>1.25||Math.abs(seconds)>3600)return null;
+    const confirmed=inliers({scale,seconds});
+    if(confirmed.length<required)return null;
+    return {scale,seconds,matched:confirmed.length,total:pairs.length,span};
+  }
+  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

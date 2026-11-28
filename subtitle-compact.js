@@ -176,6 +176,36 @@
  const drift=document.createElement('details');drift.className='sub-more-filters';
  drift.innerHTML='<summary>Edition / Drift Alignment</summary><p class="sub-note">Pause on the start of a spoken line, select that line above, then capture the first point. Repeat at least 30 seconds later for the second point.</p><div class="sub-file-actions"><button type="button" id="subAnchorFirst">Set First Point</button><button type="button" id="subAnchorSecond">Set Second Point</button></div><p class="sub-note" id="subAnchorStatus" aria-live="polite"></p>';
  timing.append(drift);
+ const reference=document.createElement('details');reference.className='sub-more-filters';
+ reference.innerHTML='<summary>Align From Reference Subtitles</summary><p class="sub-note">Choose a same-language subtitle file already synchronized to this video. Review the suggested correction before applying.</p><div class="sub-file-actions"><button type="button" id="subReferenceChoose">Choose Reference</button><button type="button" id="subReferenceApply" disabled>Apply Correction</button></div><input type="file" id="subReferenceFile" accept=".srt,.vtt,.sub,.ass,.ssa,.sbv" hidden><p class="sub-note" id="subReferenceStatus" aria-live="polite"></p>';
+ timing.append(reference);
+ let referenceFit=null,referenceSequence=0;
+ const referenceStatus=$('subReferenceStatus'),referenceApply=$('subReferenceApply');
+ function clearReference(){referenceFit=null;++referenceSequence;referenceApply.disabled=true;referenceStatus.textContent='';}
+ $('subReferenceChoose').addEventListener('click',()=>$('subReferenceFile').click());
+ $('subReferenceFile').addEventListener('change',async()=>{
+  const file=$('subReferenceFile').files?.[0];$('subReferenceFile').value='';
+  clearReference();if(!file)return;
+  const sequence=referenceSequence,cues=state.subtitles;
+  if(!cues?.length){referenceStatus.textContent='Load primary subtitles first.';return;}
+  try{
+   if(file.size>5*1024*1024)throw Error('Reference file exceeds 5 MB.');
+   const codec=window.MarmaladeSubtitleCodec;
+   const decoded=codec.decode(codec.decodeBytes(await file.arrayBuffer()),file.name);
+   if(!decoded.cues.length)throw Error(decoded.error||'No readable reference captions.');
+   if(sequence!==referenceSequence||state.subtitles!==cues)return;
+   const fit=codec.referenceAlignment(cues,decoded.cues);
+   if(!fit){referenceStatus.textContent='Not enough consistent dialogue. Try another reference or two-point alignment.';return;}
+   referenceFit={...fit,cues};referenceApply.disabled=false;
+   referenceStatus.textContent=fit.matched+' of '+fit.total+' matching lines agree over '+Math.round(fit.span)+' seconds. Delay '+fit.seconds.toFixed(1)+' s · Duration '+(fit.scale*100).toFixed(3)+'%. Review before applying.';
+  }catch(error){if(sequence===referenceSequence)referenceStatus.textContent=String(error.message||error);}
+ });
+ referenceApply.addEventListener('click',()=>{
+  if(!referenceFit||referenceFit.cues!==state.subtitles)return clearReference();
+  if(window.MarmaladeSubtitleTiming.set(referenceFit.seconds,referenceFit.scale)){
+   referenceFit=null;referenceApply.disabled=true;referenceStatus.textContent='Correction applied. Check movie dialogue; Reset restores original timing.';
+  }
+ });
  const anchorStatus=$('subAnchorStatus');
  function refreshAnchor(){
   const scale=window.MarmaladeSubtitleTiming?.getScale?.()||1;
@@ -330,7 +360,7 @@
  function refreshCueOptions({force=false}={}){
   const cues=state.subtitles||[];
   if(!force&&knownCues===cues)return;
-  knownCues=cues;alignmentAnchor=null;refreshAnchor();
+  knownCues=cues;alignmentAnchor=null;refreshAnchor();clearReference();
   if(!cues.length){
    selectedCue=-1;cueSearch.value='';matches=[];cueList.replaceChildren();
    count.textContent='Load a subtitle file to choose a line.';
