@@ -225,6 +225,10 @@
    try{Promise.resolve(s.remuxer?.destroy?.()).catch(()=>{});}catch{}
    if(s.url)URL.revokeObjectURL(s.url);
  }
+ function retryBufferDelay(reason,wasReady){
+   if(/codec unavailable|unknown movie duration|decoder unavailable|no playable tracks|no longer available/i.test(String(reason)))return 60000;
+   return wasReady?5000:15000;
+ }
  function stop(fallback=false,reason=''){
    const s=session;if(!s)return;
    session=null;cancel(s);
@@ -236,10 +240,10 @@
      a.state.source=null;
    }
    if(fallback&&a.state.role==='guest'&&a.state.guestConn===s.control&&!a.state.localVerified){
-     failedKey=s.offer.id;retryAt=Date.now()+60000;
+     failedKey=s.offer.id;retryAt=Date.now()+retryBufferDelay(reason,s.ready);
      send(s,{type:'buffered-file-active',id:s.offer.id,active:false});
-     send(s,{type:'requestmedia',reason:'buffered-file-fallback'});
-     a.notify?.('Buffered movie unavailable; using live stream. '+String(reason).slice(0,100));
+     if(!a.state.activateGuestLive?.())send(s,{type:'requestmedia',reason:'buffered-file-fallback'});
+     a.notify?.('Original-file buffer recovering; live standby used when connected. '+String(reason).slice(0,100));
    }
  }
  // A healthy-looking RTC channel can silently stop delivering data.
@@ -513,7 +517,7 @@
        if(!s.ready&&playable(ranges,latest,s.duration)){
          s.ready=true;send(s,{type:'buffered-file-active',id:s.offer.id,active:true});
          send(s,{type:'buffer-status',ready:playable(ranges,latest,s.duration)});
-         const call=a.state.guestCall;a.state.guestCall=null;try{call?.close();}catch{}
+         // Keep live media transport connected without a second audio sink.
        }
        a.updateBufferDisplay();a.recoveryCheck();a.updateQualityHint?.();void a.syncSeekablePlayback();
      }else if(++s.emptyReads>6&&goal(latest,s.duration)>.5&&ahead(s.buffer.buffered,latest)<.1){
@@ -642,7 +646,7 @@
      reconnecting:!!s.reconnecting,quotaLimited:s.capacity<Math.min(TARGET+5,remaining),
      diskBytes:s.disk?.size||0,diskAvailable:!!s.disk,transferLanes:(s.conn?.open?1:0)+[...(s.aux?.values()||[])].filter(c=>c.open).length,...transferHealth(s,root?.performance?.now?.()??Date.now())};
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,resumeRange,interruptedRange,transferHealth,splitRange,readParallel,recordBlockGoodput,rejectChannelRequests,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,resumeRange,interruptedRange,transferHealth,splitRange,readParallel,recordBlockGoodput,rejectChannelRequests,retryBufferDelay,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
  if(!root)return;
  root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?bufferStatus(session,session.buffer&&current(session)?position(session):0):null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});

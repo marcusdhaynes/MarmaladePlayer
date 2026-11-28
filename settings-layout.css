@@ -445,3 +445,11 @@ html[data-window-theme="glass"] #gamesPanel .game-score-card.delete-armed .game-
  :root :is(.ml-menu-action,.settings-tab,.popover-actions button,.settings-search-result){min-height:44px}
  :root .settings-popover .settings-row{min-height:44px}
 }
+
+/* ID-specific override wins over older floating/docked studio rules. */
+:root[data-reduce-transparency="true"] #settingsPanel,
+:root[data-reduce-transparency="true"] #subtitlePanel,
+:root[data-reduce-transparency="true"] #brightnessPopover{
+ background:#211e29!important;background-image:none!important;
+ backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+}

@@ -332,3 +332,10 @@ test('retiring a lane immediately rejects only its own pending reads and retains
  rejectChannelRequests(s,a);assert.equal(s.requests.size,1);assert(s.requests.has(2));
  assert.equal(errors.length,1);assert.deepEqual([...errors[0].prefix],[1,2]);
 });
+
+test('recoverable buffer errors retry quickly without spinning on unsupported codecs',()=>{
+ const {retryBufferDelay}=require('../rolling-buffer.js');
+ assert.equal(retryBufferDelay('Media transfer could not reconnect',true),5000);
+ assert.equal(retryBufferDelay('MediaSource open timed out',false),15000);
+ assert.equal(retryBufferDelay('Source codec unavailable in this browser',true),60000);
+});

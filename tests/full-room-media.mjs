@@ -831,6 +831,25 @@ try {
         console.log('PASS contiguous guest buffer',height,label,'elapsed ms',Date.now()-began);
       };
       await full('join',0);
+      await viewer.waitForFunction(()=>{
+        const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+        return s.source==='buffered-guest'&&s.guestCall?.open&&s.guestLiveStream?.getVideoTracks().some(t=>t.readyState==='live')&&v.srcObject===null&&!!v.currentSrc;
+      },null,{timeout:30000});
+      await sender.waitForFunction(()=>[...window.MarmaladeAddonBridge.state.connections.values()].some(e=>e.bufferedFile&&e.call?.open));
+      console.log('PASS simultaneous original-file buffer and live standby without duplicate media output',height);
+      if(scenario!=='network'){
+        await viewer.evaluate(()=>{
+          const s=window.MarmaladeAddonBridge.state;window.__warmCall=s.guestCall;window.__warmControl=s.guestConn;
+          window.MarmaladeRollingBuffer.stop(true,'Injected recoverable buffered playback failure');
+        });
+        await viewer.waitForFunction(()=>{
+          const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+          return s.source==='remote'&&s.guestCall===window.__warmCall&&s.guestConn===window.__warmControl&&v.srcObject===s.guestLiveStream;
+        },null,{timeout:10000});
+        await full('automatic original-quality restoration from live standby',0);
+        assert.equal(await viewer.evaluate(()=>{const s=window.MarmaladeAddonBridge.state;return s.guestCall===window.__warmCall&&s.guestConn===window.__warmControl;}),true);
+        console.log('PASS live standby used temporarily and original-file buffering automatically restored',height);
+      }
       const original=await viewer.locator('#player').evaluate(v=>v.currentSrc);
       if(scenario==='network'){
         // Require the selected data-channel transport to use UDP before

@@ -2105,7 +2105,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       return;
     }
     if(state.source==='buffered-guest'){
-      el.qualityHint.textContent='Buffered original movie · '+(media.videoHeight?media.videoHeight+'p · ':'')+'180-second forward target · live quality setting applies to fallback only.';
+      el.qualityHint.textContent='Buffered original movie · '+(media.videoHeight?media.videoHeight+'p · ':'')+'180-second forward target · '+(state.guestLiveStream?.getVideoTracks().some(t=>t.readyState==='live')?'Live standby connected.':'Live standby connecting…');
       return;
     }
     const rec = recommendedLevel(state.recommendation);
@@ -3414,6 +3414,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.connections.clear();
     const oldPeer=state.peer,oldGuestConn=state.guestConn,oldGuestCall=state.guestCall;
     state.guestConn = state.guestCall = state.peer = null;
+    state.guestLiveStream=null;state.activateGuestLive=null;
     // Detach first so deliberate teardown cannot schedule a recovery.
     for(const resource of [oldGuestCall,oldGuestConn])try{resource?.close();}catch{}
     try{oldPeer?.destroy();}catch{}
@@ -3918,8 +3919,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           if(data.active&&window.MarmaladeRollingBuffer?.offer()?.id!==data.id)return;
           entry.bufferedFile=data.active;
           entry.bufferReady=null;
-          if(data.active){const call=entry.call;entry.call=null;try{call?.close();}catch{}void tuneAllGuests();}
-          else if(state.outgoing&&!entry.localMirror)callGuest(conn.peer);
+          // Keep the live call available during original-file playback.
+          if(state.outgoing&&!entry.localMirror&&!entry.call)callGuest(conn.peer);
+          else if(data.active)void tuneAllGuests();
         }
         if (data.type === 'buffer-status' && typeof data.ready==='boolean') {
           entry.bufferReady=data.ready;entry.lastBufferReport=performance.now();
@@ -4576,7 +4578,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function callGuest(peerId) {
     if (!state.peer || !state.outgoing || state.source==='hosted') return;
     const entry = state.connections.get(peerId);
-    if (!entry?.conn.open || entry.localMirror || entry.bufferedFile) return;
+    if (!entry?.conn.open || entry.localMirror) return;
     // First offer uses reliable base capture; revive painter until the new
     // sender has been replaced with its preferred high-tier track.
     if (state.basePaintIdle && state.basePaint) {
@@ -4738,12 +4740,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     peer.on('call', (call) => {
       if (state.peer !== peer || state.role !== 'guest' ||
           (state.localVerified && !state.localReturnPending) ||
-          (state.bufferedMode && !state.localVerified) ||
+          (state.bufferedMode && !state.localVerified && state.source!=='buffered-guest') ||
           call.peer !== PEER_PREFIX + state.code) { call.close(); return; }
       const previousCall=state.guestCall;
       state.guestCall=call; // Ignore the old call's close callback during replacement.
+      state.guestLiveStream=null;state.activateGuestLive=null;
       try { previousCall?.close(); } catch { /* no-op */ }
-      call.on('stream', async (stream) => {
+      const presentLive=async stream=>{
         if (state.guestCall !== call || (state.localVerified && !state.localReturnPending) || (state.bufferedMode&&!state.localVerified)) return;
         const hadLocal=state.localVerified && state.localReturnPending;
         const oldLocalUrl=hadLocal?state.localFileUrl:null;
@@ -4835,14 +4838,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         }
         try {
           await media.play(); // Native video and audio, independent of Web Audio.
-          if (state.guestCall !== call) return;
+          if (state.guestCall !== call || state.source!=='remote' || media.srcObject!==stream) return;
           if(state.audioSourceNode&&state.audioContext?.state!=='running'&&!state.guestAudioFallback){
             needsTapToPlay(true);recoverGuestSound();
           }else needsTapToPlay(false);
           recoverGuestSound();
           connection('Watching live','online');
         } catch (error) {
-          if (state.guestCall !== call) return;
+          if (state.guestCall !== call || state.source!=='remote' || media.srcObject!==stream) return;
           // First try the audio output activated by the original Join gesture.
           // WebRTC keeps A/V timestamps on its tracks; the browser can render
           // the picture muted while the pre-unlocked output plays movie audio.
@@ -4850,33 +4853,49 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           media.muted=true;
           try {
             await media.play();
-            if (state.guestCall !== call) return;
+            if (state.guestCall !== call || state.source!=='remote' || media.srcObject!==stream) return;
             needsTapToPlay(false);
             state.audioUnlockRequired=!relayed&&!state.soundMuted&&state.volumePercent>0;
             connection('Watching live','online');
             if(!relayed){primeGuestAudioFromGesture(true);recoverGuestSound();}
           } catch {
-            if (state.guestCall !== call) return;
+            if (state.guestCall !== call || state.source!=='remote' || media.srcObject!==stream) return;
             needsTapToPlay(true);
             connection('Tap Play to start video','error');
             notify('Tap Play to start the movie on this device.');
           }
         }
+      };
+      call.on('stream',stream=>{
+        if(state.guestCall!==call||(state.localVerified&&!state.localReturnPending))return;
+        if(state.bufferedMode&&state.source!=='buffered-guest')return;
+        state.guestLiveStream=stream;
+        state.activateGuestLive=()=>{
+          if(state.guestCall!==call||!stream.getVideoTracks().some(track=>track.readyState==='live'))return false;
+          if(state.bufferedMode||state.localVerified)return false;
+          void presentLive(stream);return true;
+        };
+        send(state.guestConn,{type:'media-received',id:call.metadata?.mediaId});
+        if(state.source==='buffered-guest'){updateQualityHint();return;}
+        void presentLive(stream);
       });
       call.on('error',error=>{
         if(state.guestCall!==call)return;
         console.error('Guest media receive error',error);
-        connection('Reconnecting video…','error');
+        if(state.source!=='buffered-guest')connection('Reconnecting video…','error');
         setTimeout(()=>requestMissingMedia('guest-call-error'),600);
       });
       call.on('close', () => {
         if (state.guestCall !== call) return;
         state.guestQualitySample = null;
-        state.guestCall = null;
+        state.guestCall = null;state.guestLiveStream=null;state.activateGuestLive=null;
         state.remoteVideoConnectedAt = 0;
         state.remoteLastFrameAt = 0;
         state.remoteFramesAvailable = false;
-        if(state.localVerified || state.bufferedMode) return;
+        if(state.localVerified || state.bufferedMode){
+          if(state.source==='buffered-guest')setTimeout(()=>requestMissingMedia('standby-call-closed'),400);
+          return;
+        }
         state.source = null;
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
@@ -4894,8 +4913,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     });
   }
   function requestMissingMedia(reason = 'waiting-for-video') {
-    if (state.role !== 'guest' || state.localVerified || state.bufferedMode ||
-        state.source === 'remote' || !state.guestConn?.open) return;
+    if (state.role !== 'guest' || state.localVerified || !state.guestConn?.open) return;
+    const buffered=state.source==='buffered-guest';
+    if((state.bufferedMode&&!buffered)||state.source==='remote')return;
+    if(buffered&&state.guestCall&&state.guestLiveStream?.getVideoTracks().some(t=>t.readyState==='live'))return;
     const now=performance.now();
     if (now - state.mediaRequestAt < 3000) return;
     state.mediaRequestAt = now;
@@ -4957,6 +4978,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       }
     }
     if(!waitingForAck&&data.type==='state')window.MarmaladeRollingBuffer?.observe(data.bufferedMovie);
+    if(data.live&&state.source==='buffered-guest'&&!state.guestLiveStream?.getVideoTracks().some(t=>t.readyState==='live'))
+      requestMissingMedia('maintain-live-standby');
     if (Number.isFinite(data.sourceHeight) && data.sourceHeight >= 0 && data.sourceHeight <= 16384 &&
         Number.isFinite(data.sourceWidth) && data.sourceWidth >= 0 && data.sourceWidth <= 16384 &&
         (state.sourceHeight !== data.sourceHeight || state.sourceWidth !== data.sourceWidth)) {
@@ -7077,7 +7100,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       for(const [peerId,entry] of state.connections){
         if(!entry.bufferedFile)continue;
         entry.bufferedFile=false;entry.bufferReady=null;
-        if(state.outgoing&&!entry.localMirror)callGuest(peerId);
+        if(state.outgoing&&!entry.localMirror&&!entry.call)callGuest(peerId);
       }
     }
     syncState();
