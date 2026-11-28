@@ -309,3 +309,26 @@ test('parallel range requests reconstruct exact bytes and retry only failed slic
  assert.deepEqual(new Uint8Array(result),raw.slice(7,600007));
  assert.equal(calls.length,3);assert.deepEqual(retries,['b']);
 });
+
+test('weighted lanes assign more bytes to faster channels without gaps or starvation',()=>{
+ const {splitRange}=require('../rolling-buffer.js');
+ const parts=splitRange(123,1048576,3,[100,400,200]);
+ assert.equal(parts.length,3);assert.equal(parts[0].offset,123);
+ assert(parts[1].length>parts[2].length&&parts[2].length>parts[0].length);
+ assert(parts.every(p=>p.length>=131072));
+ for(let i=1;i<parts.length;i++)assert.equal(parts[i].offset,parts[i-1].offset+parts[i-1].length);
+ assert.equal(parts.at(-1).offset+parts.at(-1).length,123+1048576);
+ assert.deepEqual(splitRange(2,100,3),[{offset:2,length:100}]);
+});
+test('aggregate goodput measures completed block wall time rather than averaging individual lanes',()=>{
+ const {recordBlockGoodput}=require('../rolling-buffer.js'),s={};
+ recordBlockGoodput(s,1000000,1000);assert.equal(s.goodputBps,8000000);
+ recordBlockGoodput(s,500000,1000);assert.equal(s.goodputBps,6600000);
+ recordBlockGoodput(s,0,1000);assert.equal(s.goodputBps,6600000);
+});
+test('retiring a lane immediately rejects only its own pending reads and retains validated prefix',()=>{
+ const {rejectChannelRequests}=require('../rolling-buffer.js'),a={},b={},errors=[];
+ const s={requests:new Map([[1,{channel:a,bytes:new Uint8Array([1,2,3]),received:2,reject:e=>errors.push(e)}],[2,{channel:b,bytes:new Uint8Array(3),received:0,reject:e=>errors.push(e)}]])};
+ rejectChannelRequests(s,a);assert.equal(s.requests.size,1);assert(s.requests.has(2));
+ assert.equal(errors.length,1);assert.deepEqual([...errors[0].prefix],[1,2]);
+});

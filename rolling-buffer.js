@@ -298,15 +298,21 @@
  }
  function receive(s,m,channel){
    const req=s.requests.get(m?.id);if(!req||req.channel!==channel)return;
-   const finish=(error)=>{clearTimeout(req.timer);s.requests.delete(m.id);error?req.reject(error):req.resolve(req.bytes.buffer);};
+   const finish=(error)=>{
+     clearTimeout(req.timer);s.requests.delete(m.id);
+     if(error){req.reject(error);return;}
+     const elapsed=Math.max(1,(root?.performance?.now?.()??Date.now())-req.started);
+     if(!s.laneRates)s.laneRates=new WeakMap();
+     const rate=req.received*8000/elapsed,prior=s.laneRates.get(channel);
+     s.laneRates.set(channel,prior==null?rate:prior*.65+rate*.35);
+     req.resolve(req.bytes.buffer);
+   };
    if(m.type==='part'){
      const b=m.bytes instanceof ArrayBuffer?new Uint8Array(m.bytes):ArrayBuffer.isView(m.bytes)?new Uint8Array(m.bytes.buffer,m.bytes.byteOffset,m.bytes.byteLength):null;
      if(!b||!b.length||b.length>PART||m.offset!==req.received||req.received+b.length>req.bytes.length){finish(Error('Invalid movie range'));return;}
      req.bytes.set(b,req.received);req.received+=b.length;
      s.receivedBytes=(s.receivedBytes||0)+b.length;
      s.lastTransferAt=root?.performance?.now?.()??Date.now();
-     const elapsed=s.lastTransferAt-req.started;
-     if(elapsed>=250){const rate=req.received*8000/elapsed;s.goodputBps=s.goodputBps==null?rate:s.goodputBps*.8+rate*.2;}
      req.arm();
    }else if(m.type==='done'){finish(req.received===req.bytes.length?null:Error('Incomplete movie range'));}
    else if(m.type==='failed')finish(Error('Host could not read movie range'));
@@ -322,14 +328,29 @@
      s.rangeRetries=(s.rangeRetries||0)+1;await reconnect(s);
    });
  }
- function splitRange(offset,length,lanes){
-   const n=Math.max(1,Math.min(lanes,Math.ceil(length/(128*1024))));
-   const step=Math.ceil(length/n),parts=[];
-   for(let pos=0;pos<length;pos+=step)parts.push({offset:offset+pos,length:Math.min(step,length-pos)});
+ // Assign more bytes to a faster lane, while leaving a bounded probe on
+ // each slower lane. Avoid a single slow transport holding an equal third.
+ function splitRange(offset,length,lanes,rates=[]){
+   const min=128*1024,n=Math.max(1,Math.min(lanes,Math.max(1,Math.floor(length/min))));
+   const known=rates.slice(0,n).filter(x=>Number.isFinite(x)&&x>0);
+   const baseline=known.length?Math.min(...known):1;
+   const weights=Array.from({length:n},(_,i)=>Math.max(1,Math.min(4,(Number.isFinite(rates[i])&&rates[i]>0?rates[i]:baseline)/baseline)));
+   const total=weights.reduce((sum,x)=>sum+x,0),reserve=Math.min(min,length),extra=length-reserve*n;
+   const parts=[];let pos=0,allocated=0;
+   for(let i=0;i<n;i++){
+     allocated+=weights[i];
+     const end=i===n-1?length:reserve*(i+1)+Math.floor(extra*allocated/total);
+     parts.push({offset:offset+pos,length:end-pos});pos=end;
+   }
    return parts;
  }
- async function readParallel(offset,length,lanes,request,recover){
-   const pieces=splitRange(offset,length,lanes.length),out=new Uint8Array(length);
+ function recordBlockGoodput(s,length,elapsed){
+   if(length<=0||!Number.isFinite(elapsed)||elapsed<=0)return;
+   const rate=length*8000/Math.max(1,elapsed);
+   s.goodputBps=s.goodputBps==null?rate:s.goodputBps*.65+rate*.35;
+ }
+ async function readParallel(offset,length,lanes,request,recover,rates=[]){
+   const pieces=splitRange(offset,length,lanes.length,rates),out=new Uint8Array(length);
    const results=await Promise.allSettled(pieces.map((p,i)=>request(p.offset,p.length,lanes[i])));
    for(let i=0;i<pieces.length;i++){
      const p=pieces[i],result=results[i];
@@ -339,9 +360,15 @@
    }
    return out.buffer;
  }
+ function rejectChannelRequests(s,conn){
+   for(const [id,req] of s.requests)if(req.channel===conn){
+     clearTimeout(req.timer);s.requests.delete(id);
+     req.reject(interruptedRange(Error('Movie transfer disconnected'),req));
+   }
+ }
  function closeAux(s){
-   for(const c of s.aux?.values()||[])try{c.close();}catch{}
-   s.aux?.clear();
+   const channels=[...(s.aux?.values()||[])];s.aux?.clear();
+   for(const c of channels){rejectChannelRequests(s,c);try{c.close();}catch{}}
  }
  async function chooseLanes(s){
    const now=Date.now();
@@ -351,18 +378,29 @@
    // Healthy LAN transfers retain the ordinary single-channel protocol.
    if(cap>1&&s.ready&&s.receivedBytes>=2*BLOCK&&s.goodputBps>0&&s.goodputBps<6e6&&now>=(s.nextLaneAttempt||0)){
      s.nextLaneAttempt=now+15000;
-     for(let lane=1;lane<cap;lane++){
-       if(s.aux?.get(lane)?.open)continue;
-       try{await openChannel(s,lane);}catch{const c=s.aux?.get(lane);s.aux?.delete(lane);try{c?.close();}catch{}}
-       if(!current(s)||s.reconnecting)break;
+     // Setup must not block the primary range or accumulate duplicate opens.
+     if(!s.laneSetup){
+       const primary=s.conn;
+       s.laneSetup=(async()=>{
+         for(let lane=1;lane<cap;lane++){
+           if(!current(s)||s.reconnecting||s.conn!==primary)break;
+           if(s.aux?.get(lane)?.open)continue;
+           try{await openChannel(s,lane);}catch{
+             if(s.conn!==primary)break;
+             const c=s.aux?.get(lane);s.aux?.delete(lane);
+             if(c){rejectChannelRequests(s,c);try{c.close();}catch{}}
+           }
+         }
+       })().finally(()=>{s.laneSetup=null;});
      }
    }
    return [s.conn,...(s.aux?.values()||[])].filter(c=>c?.open);
  }
  async function fetchBlock(s,offset,length){
-   const lanes=await chooseLanes(s);
-   if(lanes.length<2||length<256*1024)return requestRecoverable(s,offset,length);
-   return readParallel(offset,length,lanes,(at,count,c)=>request(s,at,count,c),async(p,error,c)=>{
+   if(s.reconnectTask)await s.reconnectTask;
+   const lanes=await chooseLanes(s),start=root?.performance?.now?.()??Date.now();
+   const result=lanes.length<2||length<256*1024?await requestRecoverable(s,offset,length):
+     await readParallel(offset,length,lanes,(at,count,c)=>request(s,at,count,c),async(p,error,c)=>{
      if(!current(s)||!recoverableRangeFailure(error,c,c===s.conn?s.conn:(c.open?c:null),s.reconnecting))throw error;
      if(c===s.conn&&error.code==='RANGE_TIMEOUT'){await reconnect(s);}
      else if(c!==s.conn){try{c.close();}catch{}}
@@ -373,13 +411,15 @@
      result.set(prefix.subarray(0,used));
      result.set(new Uint8Array(await requestRecoverable(s,p.offset+used,p.length-used)),used);
      return result.buffer;
-   });
+   },lanes.map(c=>s.laneRates?.get(c)));
+   recordBlockGoodput(s,length,(root?.performance?.now?.()??Date.now())-start);
+   return result;
  }
  async function read(s,offset,size){
    if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(size)||offset<0||size<0||size>16*BLOCK)throw Error('Invalid decoder read');
    const length=Math.max(0,Math.min(size,s.offer.size-offset));
    const out=new Uint8Array(length);let written=0;
-   // Serialize decoder requests; host allows one outstanding block per viewer.
+   // Serialize decoder requests; each admitted lane permits one outstanding range.
    while(written<length){
      if(!current(s))throw Error('Buffer session cancelled');
      const pos=offset+written,start=Math.floor(pos/BLOCK)*BLOCK;
@@ -492,7 +532,7 @@
    conn.on('data',m=>{if(active())receive(s,m,conn);});
    const lost=()=>{
      if(!current(s)||!active())return;
-     for(const [id,req] of s.requests)if(req.channel===conn){clearTimeout(req.timer);s.requests.delete(id);req.reject(interruptedRange(Error('Movie transfer disconnected'),req));}
+     rejectChannelRequests(s,conn);
      if(lane!==0){s.aux.delete(lane);return;}
      if(s.buffer)void reconnect(s);
    };
@@ -516,7 +556,8 @@
    const deadline=Date.now()+150000;
    for(let attempt=0;attempt<5&&current(s);attempt++){
      try{
-       closeAux(s);const old=s.conn;s.conn=null;try{old?.close();}catch{}
+       closeAux(s);const old=s.conn;s.conn=null;
+       if(old){rejectChannelRequests(s,old);try{old.close();}catch{}}
        await delay(attempt?Math.min(3000,400*2**attempt):0);
        if(!current(s))return;
        // Do not spend attempts while signaling or room registration is down.
@@ -601,7 +642,7 @@
      reconnecting:!!s.reconnecting,quotaLimited:s.capacity<Math.min(TARGET+5,remaining),
      diskBytes:s.disk?.size||0,diskAvailable:!!s.disk,transferLanes:(s.conn?.open?1:0)+[...(s.aux?.values()||[])].filter(c=>c.open).length,...transferHealth(s,root?.performance?.now?.()??Date.now())};
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,resumeRange,interruptedRange,transferHealth,splitRange,readParallel,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,resumeRange,interruptedRange,transferHealth,splitRange,readParallel,recordBlockGoodput,rejectChannelRequests,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
  if(!root)return;
  root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?bufferStatus(session,session.buffer&&current(session)?position(session):0):null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});
