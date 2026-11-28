@@ -137,7 +137,7 @@
    if(hostChannels.size>=MAX_BULK_GUESTS){conn.close();return true;}
    hostChannels.add(conn);
    let busy=false,invalid=0,lastId=0;
-   const authorized=()=>conn.open&&a.state.connections.get(conn.peer)?.conn.open&&hostSource(a.state)===file&&offer()?.id===o.id;
+   const authorized=()=>conn.open&&a.state.connections.get(conn.peer)===entry&&entry.conn.open&&hostSource(a.state)===file&&offer()?.id===o.id;
    const reply=m=>{if(authorized())conn.send(m);};
    conn.on('data',async m=>{
      if(!authorized()){conn.close();return;}

@@ -206,3 +206,17 @@ test('a stalled open transport is recoverable, but invalid data on a healthy cha
  assert.equal(recoverableRangeFailure(Error('Disconnected'),{open:false},channel,false),true);
  assert.equal(recoverableRangeFailure(Error('Disconnected'),channel,channel,true),true);
 });
+
+test('superseded control connections cannot authorize old bulk channels',async()=>{
+ const {api,state,channel}=hostFixture(),offer=api.offer();
+ const old=channel('guest',offer.id);api.hostChannel(old);
+ const prior=state.connections.get('guest');
+ state.connections.set('guest',{conn:{open:true}});
+ assert.equal(prior.conn.open,true);
+ await old.data({type:'read',id:1,offset:0,length:8});
+ assert.equal(old.open,false);
+ assert.equal(old.sent.length,0);
+ const fresh=channel('guest',offer.id);api.hostChannel(fresh);
+ await fresh.data({type:'read',id:1,offset:0,length:8});
+ assert.equal(fresh.sent.at(-1).type,'done');
+});

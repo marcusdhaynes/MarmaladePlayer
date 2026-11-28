@@ -14,7 +14,7 @@ const video=join(dir,'full-stream.webm');
 // resolution check while the live stream is barely moving at 0-2 FPS.
 // An animated overlay preserves the center red-pixel assertions.
 const scenario=process.argv[2]||'all';
-if(!['all','live','720','1080'].includes(scenario))throw Error('Unknown room scenario: '+scenario);
+if(!['all','live','720','1080','multi'].includes(scenario))throw Error('Unknown room scenario: '+scenario);
 const runLive=scenario==='all'||scenario==='live';
 function makeLiveFixture(){
 execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi',
@@ -942,6 +942,83 @@ try {
       assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original);
       console.log('PASS paused rewind, resumed playback and contiguous buffer to end',height);
     }finally{await viewer.close();await sender.close();}
+  }
+  if(scenario==='all'||scenario==='multi'){
+    const height=720,clip=join(dir,'multi-clip.webm'),movie=join(dir,'multi-movie.webm');
+    execFileSync('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=size=1280x720:rate=24','-f','lavfi','-i','sine=frequency=440:sample_rate=48000',
+      '-t','2','-c:v','libvpx-vp9','-deadline','realtime','-cpu-used','8','-crf','42','-b:v','0','-g','24','-pix_fmt','yuv420p','-c:a','libopus','-y',clip],{timeout:60000});
+    execFileSync('ffmpeg',['-v','error','-stream_loop','359','-i',clip,'-c','copy','-y',movie],{timeout:60000});
+    const sender=await makePage(),guests=await Promise.all([1,2,3].map(()=>makePage()));
+    try{
+      await sender.goto('http://127.0.0.1:'+WEB_PORT);
+      await sender.locator('#fileInput').setInputFiles(movie);
+      await sender.waitForFunction(()=>!document.querySelector('#hostActive').hidden&&!document.querySelector('#playPause').disabled);
+      // Independent recovery is an explicitly supported host policy, not a
+      // change to the default coordinated-pause behavior.
+      await sender.locator('#strictSync').evaluate(el=>{el.checked=false;el.dispatchEvent(new Event('change',{bubbles:true}));});
+      await sender.locator('#playPause').click({force:true});
+      await sender.waitForFunction(()=>!!window.MarmaladeRollingBuffer?.offer());
+      const invite=await sender.locator('#inviteLink').inputValue();
+      const full=async(page,min=0)=>page.waitForFunction(min=>{
+        const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+        if(s.source!=='buffered-guest'||!s.guestConn?.open||v.videoHeight!==720||v.currentTime<min||v.paused)return false;
+        for(let i=0;i<v.buffered.length;i++)if(v.buffered.start(i)<=v.currentTime&&v.buffered.end(i)-v.currentTime>=180)return true;
+        return false;
+      },min,{timeout:120000});
+      const joined=Date.now();
+      await Promise.all(guests.map(page=>page.goto(invite)));
+      await Promise.all(guests.map(page=>full(page)));
+      await sender.waitForFunction(()=>{
+        const s=window.MarmaladeAddonBridge.state;
+        return [...s.connections.values()].filter(e=>e.conn.open&&e.bufferedFile).length===3;
+      });
+      console.log('PASS three concurrent guests each buffered 180 seconds at 720p',Date.now()-joined,'ms');
+      await Promise.all(guests.map(page=>page.evaluate(()=>{
+        const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+        window.__multiOriginal={src:v.currentSrc,control:s.guestConn,room:s.code,peer:s.peer};
+      })));
+      const [faulty,...healthy]=guests;
+      await sender.evaluate(()=>{
+        const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+        window.__multiHost={src:v.currentSrc,offer:window.MarmaladeRollingBuffer.offer().id,pauses:0};
+        v.addEventListener('pause',()=>window.__multiHost.pauses++);
+      });
+      await faulty.evaluate(()=>{
+        const s=window.MarmaladeAddonBridge.state;
+        const bulk=Object.values(s.peer.connections).flat().find(c=>c.open&&c.label==='marmalade-buffer-v1');
+        if(!bulk)throw Error('Missing active bulk connection');
+        window.__multiFault=bulk;window.__multiDropped=0;
+        const send=bulk.send.bind(bulk);
+        bulk.send=m=>{if(m?.type==='read'){window.__multiDropped++;return;}return send(m);};
+      });
+      await sender.locator('#player').evaluate(v=>{v.currentTime=220;});
+      await faulty.waitForFunction(()=>window.__multiDropped>0);
+      await Promise.all(healthy.map(page=>full(page,218)));
+      assert.equal(await sender.evaluate(()=>!document.querySelector('#player').paused&&window.__multiHost.pauses===0),true,'Faulty guest must not pause independent-mode host');
+      const healthySamples=await Promise.all(healthy.map(page=>page.evaluate(async()=>{
+        const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player'),old=window.__multiOriginal;
+        const start=v.currentTime,at=performance.now(),q=v.getVideoPlaybackQuality();
+        await new Promise(resolve=>setTimeout(resolve,5000));
+        const end=v.getVideoPlaybackQuality();
+        return {advanced:v.currentTime-start,fps:(end.totalVideoFrames-q.totalVideoFrames-end.droppedVideoFrames+q.droppedVideoFrames)/((performance.now()-at)/1000),
+          unchanged:s.peer===old.peer&&s.guestConn===old.control&&v.currentSrc===old.src&&s.code===old.room};
+      })));
+      for(const sample of healthySamples){assert(sample.unchanged,'Healthy guest connection and source must not be replaced');assert(sample.advanced>=4,'Healthy guest playback must keep advancing');}
+      console.log('Healthy guest playback samples during isolated failure',JSON.stringify(healthySamples));
+      await faulty.evaluate(()=>{if(window.__multiFault.open)window.__multiFault.close();});
+      await full(faulty,218);
+      assert.equal(await faulty.evaluate(()=>{
+        const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player'),old=window.__multiOriginal;
+        return s.guestConn===old.control&&s.code===old.room&&v.currentSrc===old.src&&!window.__multiFault.open&&
+          Object.values(s.peer.connections).flat().some(c=>c.open&&c!==window.__multiFault&&c.label==='marmalade-buffer-v1');
+      }),true,'Failed guest must recover its original source and room control');
+      assert.equal(await sender.evaluate(()=>{
+        const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player'),old=window.__multiHost;
+        return !v.paused&&old.pauses===0&&v.currentSrc===old.src&&window.MarmaladeRollingBuffer.offer()?.id===old.offer&&
+          [...s.connections.values()].filter(e=>e.conn.open&&e.bufferedFile).length===3;
+      }),true,'Host and all three original-file guests must remain in the room');
+      console.log('PASS isolated guest bulk failure and full refill without interrupting host or healthy guests');
+    }finally{await Promise.allSettled([...guests,sender].map(page=>page.close()));}
   }
   assert.deepEqual(errors,[],'Buffered room runtime errors');
 } catch(error) {

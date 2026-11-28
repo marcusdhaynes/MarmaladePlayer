@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [live, '720', '1080']
+        scenario: [live, '720', '1080', multi]
     name: Room playback • ${{ matrix.scenario }}
     runs-on: ubuntu-22.04
     timeout-minutes: 12
