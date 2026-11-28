@@ -2815,6 +2815,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(media.paused)assessment='Paused. Frame-rate sampling resumes with playback.';
       else if(rolling?.quotaLimited)assessment='Browser buffer quota reached. Free device storage or use a verified local copy.';
       else if(rolling?.reconnecting)assessment='Reconnecting. Previously downloaded data is retained where available.';
+      else if(rolling?.pendingRanges&&rolling.transferIdleMs>5000)assessment='Movie transfer is waiting for data; connection watchdog is monitoring progress.';
+      else if(rolling?.pendingRanges&&rolling.goodputBps!=null&&rolling.seconds<3)assessment='Original-file transfer is active but the playable buffer is low. Check connection throughput.';
       else if(diagnosis)assessment=diagnosis;
       else if(media.readyState<3&&seekable)assessment='Waiting for media data. Check source access or throughput.';
       else if(sync&&Math.abs(expectedHostTime()-media.currentTime)>.25)assessment='Playback clock is out of sync. Allow recovery or check the verified file and connection.';
@@ -2826,7 +2828,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       fps:active&&media.paused?'Paused':num(diagnosticFps,1,' fps'),decoded:r?num(r.fps,1,' fps'):'—',dropped:num(dropped),
       buffer:active&&seekable?num(bufferAhead(),1,' s')+(rolling?' / '+num(rolling.target,1,' s'):''):'—',
       drift:sync?num((expectedHostTime()-media.currentTime)*1000,0,' ms'):'—',
-      bandwidth:r?num(r.incomingBitrate/1e6,2,' Mbps'):'—',loss:r?num(r.loss*100,1,'%'):'—',
+      bandwidth:r?num(r.incomingBitrate/1e6,2,' Mbps'):rolling?.goodputBps!=null?num(rolling.goodputBps/1e6,2,' Mbps payload'):'—',loss:r?num(r.loss*100,1,'%'):'—',
       jitter:r?num(r.packetJitterMs,0,' ms'):'—',rtt:l?num(l.rttMs,0,' ms'):'—',
       decoder:l?.decoder&&l.decoder!=='unknown'?l.decoder+(l.powerEfficient===true?' · power-efficient':l.powerEfficient===false?' · not power-efficient':''):'Not Reported',route:state.source==='remote'?l?.route||'Not Reported':'—',mode,
       cache:rolling?.diskAvailable?num(rolling.diskBytes/1048576,1,' MiB'):'—',

@@ -853,7 +853,15 @@ try {
           await sender.locator('#strictSync').evaluate(el=>{el.checked=false;el.dispatchEvent(new Event('change',{bubbles:true}));});
           began=Date.now();
           await sender.locator('#player').evaluate(v=>{v.currentTime=220;});
-          await full('UDP latency, jitter, loss and rate-limited seek',218);
+          try{await full('UDP latency, jitter, loss and rate-limited seek',218);}catch(error){
+            const diagnostic=await viewer.evaluate(()=>{
+              const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+              return {source:s.source,roomOpen:s.guestConn?.open,waiting:s.waitingForBuffer,hostTime:s.sharedTime,guestTime:v.currentTime,paused:v.paused,readyState:v.readyState,
+                mediaError:v.error?.message,buffer:[...Array(v.buffered.length)].map((_,i)=>[v.buffered.start(i),v.buffered.end(i)]),rolling:window.MarmaladeRollingBuffer.getStatus()};
+            });
+            console.error('NETEM seek timeout diagnostic',JSON.stringify({diagnostic,transport:await transport().catch(e=>({error:e.message})),queue:netemStats()}));
+            throw error;
+          }
           const after=await transport(),countersAfter=netemStats();
           assert.equal(after.local,'udp');assert.equal(after.remote,'udp');
           assert(countersAfter.packets-countersBefore.packets>100,'The shaped UDP queue must carry real traffic');

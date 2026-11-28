@@ -238,17 +238,45 @@
  function recoverableRangeFailure(error,channel,currentChannel,reconnecting){
    return error?.code==='RANGE_TIMEOUT'||channel!==currentChannel||!channel?.open||reconnecting;
  }
+ // Preserve validated contiguous bytes across a recoverable range failure.
+ function interruptedRange(error,req){
+   error.prefix=req.bytes.slice(0,Math.min(req.received,req.bytes.length-1));
+   return error;
+ }
+ async function resumeRange(offset,length,request,canRetry,restore){
+   const result=new Uint8Array(length);let written=0;
+   for(let attempt=0;;attempt++){
+     try{
+       const remaining=new Uint8Array(await request(offset+written,length-written));
+       if(remaining.length!==length-written)throw Error('Incomplete movie range');
+       result.set(remaining,written);return result.buffer;
+     }catch(error){
+       if(attempt>=2||!canRetry(error))throw error;
+       const prefix=error.prefix;
+       if(prefix instanceof Uint8Array&&prefix.length<length-written){result.set(prefix,written);written+=prefix.length;}
+       await restore();
+     }
+   }
+ }
+ function transferHealth(s,time){
+   const elapsed=Math.max(0,time-(s.lastTransferAt??time));
+   const pending=s.requests?.size||0;
+   return {receivedBytes:s.receivedBytes||0,rangeRetries:s.rangeRetries||0,
+     pendingRanges:pending,transferIdleMs:pending?elapsed:0,
+     goodputBps:pending||elapsed<5000?(s.goodputBps??null):null};
+ }
  function request(s,offset,length){
    if(!current(s)||!s.conn?.open||!validRange(offset,length,s.offer.size))return Promise.reject(Error('Invalid or disconnected range'));
    return new Promise((resolve,reject)=>{
      const now=()=>root?.performance?.now?.()??Date.now();
      const id=++s.sequence,req={bytes:new Uint8Array(length),received:0,resolve,reject,timer:0,started:now()};
+     s.lastTransferAt=req.started;
      req.arm=()=>{
        clearTimeout(req.timer);
        const deadline=rangeDeadline(req.started,now());
        req.timer=setTimeout(()=>{
          if(s.requests.get(id)!==req)return;
-         s.requests.delete(id);reject(rangeTimeoutError());
+         s.requests.delete(id);reject(interruptedRange(rangeTimeoutError(),req));
        },Math.max(0,deadline-now()));
      };
      req.arm();
@@ -262,23 +290,25 @@
    if(m.type==='part'){
      const b=m.bytes instanceof ArrayBuffer?new Uint8Array(m.bytes):ArrayBuffer.isView(m.bytes)?new Uint8Array(m.bytes.buffer,m.bytes.byteOffset,m.bytes.byteLength):null;
      if(!b||!b.length||b.length>PART||m.offset!==req.received||req.received+b.length>req.bytes.length){finish(Error('Invalid movie range'));return;}
-     req.bytes.set(b,req.received);req.received+=b.length;req.arm();
+     req.bytes.set(b,req.received);req.received+=b.length;
+     s.receivedBytes=(s.receivedBytes||0)+b.length;
+     s.lastTransferAt=root?.performance?.now?.()??Date.now();
+     const elapsed=s.lastTransferAt-req.started;
+     if(elapsed>=250){const rate=req.received*8000/elapsed;s.goodputBps=s.goodputBps==null?rate:s.goodputBps*.8+rate*.2;}
+     req.arm();
    }else if(m.type==='done'){finish(req.received===req.bytes.length?null:Error('Incomplete movie range'));}
    else if(m.type==='failed')finish(Error('Host could not read movie range'));
  }
  // Keep an in-flight decoder read alive while its transport is replaced.
  // Rejecting a read here can permanently fault the worker even if MSE survived.
  async function requestRecoverable(s,offset,length){
-   for(let attempt=0;;attempt++){
+   let channel;
+   return resumeRange(offset,length,(at,count)=>{
      if(!current(s))throw Error('Buffer session cancelled');
-     const channel=s.conn;
-     try{return await request(s,offset,length);}
-     catch(error){
-       if(!current(s)||attempt>=2||
-          !recoverableRangeFailure(error,channel,s.conn,s.reconnecting))throw error;
-       await reconnect(s);
-     }
-   }
+     channel=s.conn;return request(s,at,count);
+   },error=>current(s)&&recoverableRangeFailure(error,channel,s.conn,s.reconnecting),async()=>{
+     s.rangeRetries=(s.rangeRetries||0)+1;await reconnect(s);
+   });
  }
  async function read(s,offset,size){
    if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(size)||offset<0||size<0||size>16*BLOCK)throw Error('Invalid decoder read');
@@ -395,7 +425,7 @@
    conn.on('data',m=>{if(s.conn===conn)receive(s,m);});
    const lost=()=>{
      if(!current(s)||s.conn!==conn)return;
-     for(const req of s.requests.values()){clearTimeout(req.timer);req.reject(Error('Movie transfer disconnected'));}
+     for(const req of s.requests.values()){clearTimeout(req.timer);req.reject(interruptedRange(Error('Movie transfer disconnected'),req));}
      s.requests.clear();
      if(s.buffer)void reconnect(s);
    };
@@ -502,9 +532,9 @@
    const target=Math.min(TARGET,remaining);
    return {target,capacity:s.capacity,ready:s.ready,seconds:s.buffer?ahead(s.buffer.buffered,time):0,
      reconnecting:!!s.reconnecting,quotaLimited:s.capacity<Math.min(TARGET+5,remaining),
-     diskBytes:s.disk?.size||0,diskAvailable:!!s.disk};
+     diskBytes:s.disk?.size||0,diskAvailable:!!s.disk,...transferHealth(s,root?.performance?.now?.()??Date.now())};
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,resumeRange,interruptedRange,transferHealth,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
  if(!root)return;
  root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?bufferStatus(session,session.buffer&&current(session)?position(session):0):null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});

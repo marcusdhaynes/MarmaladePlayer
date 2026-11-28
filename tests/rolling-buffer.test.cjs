@@ -259,3 +259,30 @@ test('queue watchdog fails a stalled channel and stops promptly after permission
  assert.equal(await waitTransferCapacity(conn,w,()=>clock<12,opts),false);
  assert.equal(clock,12);
 });
+
+test('interrupted range resumes from validated prefix rather than redownloading it',async()=>{
+ const {resumeRange,interruptedRange}=require('../rolling-buffer.js');
+ const calls=[];let restores=0;
+ const bytes=new Uint8Array([10,11,12,13,14,15,16,17]);
+ const result=await resumeRange(100,8,async(offset,length)=>{
+   calls.push([offset,length]);
+   if(calls.length===1)throw interruptedRange(Error('connection'),{bytes,received:3});
+   return bytes.slice(offset-100,offset-100+length).buffer;
+ },()=>true,async()=>{restores++;});
+ assert.deepEqual(calls,[[100,8],[103,5]]);assert.equal(restores,1);assert.deepEqual(new Uint8Array(result),bytes);
+});
+test('range retry never accepts invalid data or loops indefinitely',async()=>{
+ const {resumeRange,interruptedRange}=require('../rolling-buffer.js');
+ let attempts=0;
+ await assert.rejects(resumeRange(0,8,async()=>{attempts++;throw Error('Invalid range');},()=>false,async()=>{}),/Invalid range/);
+ assert.equal(attempts,1);attempts=0;
+ await assert.rejects(resumeRange(0,8,async()=>{attempts++;throw interruptedRange(Error('stall'),{bytes:new Uint8Array(8),received:0});},()=>true,async()=>{}),/stall/);
+ assert.equal(attempts,3);
+ assert.equal(interruptedRange(Error('missing done'),{bytes:new Uint8Array(8),received:8}).prefix.length,7);
+});
+test('transfer telemetry reports active progress and expires idle throughput',()=>{
+ const {transferHealth}=require('../rolling-buffer.js');
+ const s={requests:new Map([[1,{}]]),lastTransferAt:1000,receivedBytes:4096,rangeRetries:2,goodputBps:500000};
+ assert.deepEqual(transferHealth(s,2500),{receivedBytes:4096,rangeRetries:2,pendingRanges:1,transferIdleMs:1500,goodputBps:500000});
+ s.requests.clear();assert.equal(transferHealth(s,7000).goodputBps,null);assert.equal(transferHealth(s,7000).transferIdleMs,0);
+});
