@@ -109,3 +109,5 @@ until a platform-specific feed is implemented, the update UI reports that it
 cannot check rather than claiming an outdated native package is current.
 
 Native installer discovery now uses recent main-branch commits and commit-pinned backup releases, checks exact platform filenames and GitHub download URLs, and requires proven descendant ancestry before offering a download. Android packages are debug previews, not production updates; iOS simulator ZIPs are never offered as iPhone installers. The UI opens the download only after playback/room safety checks, and does not reload an installed app as if it had been updated. Package architecture compatibility, signing continuity, and native download/installation on physical devices still require verification. Feed errors do not claim the app is current.
+
+Native build workflows now trigger for shared root HTML, JS, CSS, JSON and build-script changes, so independent runtime changes no longer silently miss a native package rebuild. Documentation-only changes still do not force native rebuilds.

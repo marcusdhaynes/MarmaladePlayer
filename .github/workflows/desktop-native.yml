@@ -4,7 +4,12 @@ on:
     branches: [main]
     paths:
       - 'desktop/**'
-      - 'index.html'
+      # Shared runtime changes must rebuild native packages, even when index.html is unchanged.
+      - '*.html'
+      - '*.js'
+      - '*.css'
+      - '*.json'
+      - 'scripts/**'
       - 'standalone-pip.js'
       - 'adaptive-brightness.js'
       - 'tests/standalone-pip.test.mjs'
