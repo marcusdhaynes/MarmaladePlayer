@@ -33,12 +33,14 @@ try{
   await page.locator('#automaticUpdateChecks').uncheck();
   await page.waitForFunction(()=>document.querySelector('#updatesSection').textContent.includes('Automatic checks off.'));
   await page.locator('#settingsBackup > summary').click();
-  await page.evaluate(()=>{localStorage.setItem('marmalade:volume-maximum','400');localStorage.setItem('marmalade:skip-interval-seconds','30');});
+  await page.evaluate(()=>{localStorage.setItem('marmalade:volume-maximum','400');localStorage.setItem('marmalade:skip-interval-seconds','30');localStorage.setItem('marmalade-subtitle-style-v1',JSON.stringify({textSize:32,textColor:'#ffcc00',timing:17.5}));});
   const [download]=await Promise.all([page.waitForEvent('download'),page.locator('#settingsExport').click()]);
   assert.equal(download.suggestedFilename(),'Marmaladeum-Settings.json');
   const exported=JSON.parse(readFileSync(await download.path(),'utf8'));
   assert.equal(exported.format,'marmaladeum-settings');
   assert.equal(exported.version,1);
+  assert.equal(exported.mode,'snapshot');
+  assert.deepEqual(JSON.parse(exported.preferences['marmalade-subtitle-style-v1']),{textSize:32,textColor:'#ffcc00'});
   assert.equal(exported.preferences['marmalade:window-theme'],'glass');
   assert.equal(exported.preferences['marmalade:preferred-subtitle-language'],'ar');
   assert.equal(exported.preferences['marmalade:mini-player-fade'],'8');
@@ -58,6 +60,9 @@ try{
   await upload(envelope({'marmalade:skip-interval-seconds':'20','marmalade:volume-maximum':'999999'}));
   await page.waitForFunction(()=>document.querySelector('#settingsBackupStatus').textContent.includes('Unknown or invalid'));
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:skip-interval-seconds')),'30','Invalid import must be atomic');
+  await upload(envelope({'marmalade-subtitle-style-v1':JSON.stringify({textColor:'red',textSize:200})}));
+  await page.waitForFunction(()=>document.querySelector('#settingsBackupStatus').textContent.includes('Unknown or invalid'));
+  assert.equal(await page.locator('#settingsApplyBackup').isVisible(),false);
   await upload(envelope({'marmalade:skip-interval-seconds':'20'}));
   await page.waitForFunction(()=>!document.querySelector('#settingsApplyBackup').hidden);
   await Promise.all([page.waitForEvent('load'),page.locator('#settingsApplyBackup').click()]);
@@ -83,7 +88,35 @@ try{
   assert.equal(await page.locator('#preferredSubtitleLanguage').inputValue(),'ar','Controls reset must preserve subtitle settings');
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:window-theme')),'glass');
   assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:last-joined-room-code')),'PRIVATE-ROOM');
-  await page.evaluate(()=>{localStorage.removeItem('marmalade:last-joined-room-code');localStorage.removeItem('marmalade:window-theme');localStorage.removeItem('marmalade:volume-maximum');localStorage.removeItem('marmalade:preferred-subtitle-language');localStorage.removeItem('marmalade:mini-player-fade');localStorage.removeItem('marmalade:playback-diagnostics');localStorage.removeItem('marmalade:auto-update-checks');localStorage.removeItem('marmalade:remember-last-room');});
+  // A snapshot restores explicit preferences and removes newer preferences
+  // absent from the backup, without resetting history or room credentials.
+  await page.evaluate(()=>{
+    localStorage.setItem('marmalade:audio-night-mode','true');
+    localStorage.setItem('marmalade:subtitle-offsets:v2','{}');
+  });
+  await page.locator('#settingsBtn').click({force:true});
+  await page.locator('#settingsBackup > summary').click();
+  await upload(exported);
+  await page.waitForFunction(()=>document.querySelector('#settingsBackupStatus').textContent.includes('Validated full restore'));
+  await Promise.all([page.waitForEvent('load'),page.locator('#settingsApplyBackup').click()]);
+  await page.waitForFunction(()=>window.MarmaladeSettingsLayout);
+  assert.equal(await page.locator('#skipInterval').inputValue(),'30');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:audio-night-mode')),null);
+  assert.equal(await page.locator('[data-sub-key="textSize"]').inputValue(),'32');
+  assert.equal(await page.locator('[data-sub-key="textColor"]').inputValue(),'#ffcc00');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:subtitle-offsets:v2')),'{}');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:last-joined-room-code')),'PRIVATE-ROOM');
+  await page.locator('#settingsBtn').click({force:true});
+  await page.locator('#settingsBackup > summary').click();
+  await page.locator('#settingsResetCategory').selectOption('subtitles');
+  await page.locator('#settingsReset').click();
+  await Promise.all([page.waitForEvent('load'),page.locator('#settingsApplyBackup').click()]);
+  await page.waitForFunction(()=>window.MarmaladeSettingsLayout);
+  assert.equal(await page.locator('[data-sub-key="textSize"]').inputValue(),'24');
+  assert.equal(await page.locator('[data-sub-key="textColor"]').inputValue(),'#ffffff');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('marmalade:subtitle-offsets:v2')),'{}');
+  assert.equal(await page.locator('#volumeMaximum').inputValue(),'400');
+  await page.evaluate(()=>{localStorage.removeItem('marmalade:skip-interval-seconds');localStorage.removeItem('marmalade:last-joined-room-code');localStorage.removeItem('marmalade:window-theme');localStorage.removeItem('marmalade:volume-maximum');localStorage.removeItem('marmalade:preferred-subtitle-language');localStorage.removeItem('marmalade:mini-player-fade');localStorage.removeItem('marmalade:playback-diagnostics');localStorage.removeItem('marmalade:auto-update-checks');localStorage.removeItem('marmalade:remember-last-room');});
   await page.reload({waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.MarmaladeSettingsLayout&&window.MarmaladeRollingBuffer);
   await page.locator('#settingsBtn').click({force:true});

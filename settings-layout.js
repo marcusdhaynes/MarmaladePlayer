@@ -217,12 +217,41 @@
  });
  panel.appendChild(updatePreference);
  const backup=document.createElement('details');backup.id='settingsBackup';backup.className='settings-advanced';
- backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. Import or reset takes effect after reloading. Movie files and library data are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="subtitles">Subtitles</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="miniPlayer">Mini-Player</option><option value="appearance">Appearance</option><option value="privacy">Privacy</option><option value="performance">Performance</option><option value="updates">Updates</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
+ backup.innerHTML='<summary>Settings Backup &amp; Reset</summary><div class="settings-stack"><p class="settings-hint">Personal preferences only. New backups restore saved preferences and defaults; older backups merge supplied preferences. Movie files, credentials, library data and viewing history are not changed.</p><button type="button" id="settingsExport">Export Settings</button><button type="button" id="settingsImport">Import Settings</button><input type="file" accept=".json,application/json" id="settingsImportFile" hidden><label>Reset Category <select id="settingsResetCategory"><option value="video">Video</option><option value="audio">Audio</option><option value="subtitles">Subtitles</option><option value="party">Party</option><option value="buffering">Buffering</option><option value="library">Library</option><option value="games">Games</option><option value="controls">Controls</option><option value="miniPlayer">Mini-Player</option><option value="appearance">Appearance</option><option value="privacy">Privacy</option><option value="performance">Performance</option><option value="updates">Updates</option></select></label><button type="button" id="settingsReset">Reset Selected Category</button><button type="button" id="settingsApplyBackup" hidden>Apply &amp; Reload</button><p id="settingsBackupStatus" class="settings-hint" role="status"></p></div>';
  panel.appendChild(backup);
  const backupStatus=$('settingsBackupStatus'),applyBackup=$('settingsApplyBackup');
  const bool=v=>v==='true'||v==='false';
  const choices=(...values)=>v=>values.includes(v);
  const numeric=(min,max)=>v=>v.trim()!==''&&Number.isFinite(Number(v))&&Number(v)>=min&&Number(v)<=max;
+ // Subtitle appearance predates the marmalade: namespace. Preserve that
+ // storage contract while excluding per-movie timing from portable backups.
+ const subtitleStyleKey='marmalade-subtitle-style-v1';
+ const subtitleFonts=[
+  'Arial, Helvetica, sans-serif','Verdana, Geneva, sans-serif','Tahoma, Geneva, sans-serif',
+  'Georgia, serif','Times New Roman, serif','Trebuchet MS, sans-serif','Courier New, monospace',
+  'system-ui, sans-serif','Noto Sans, Noto Sans Arabic, Noto Sans Devanagari, Noto Sans Thai, Noto Sans CJK SC, Arial, sans-serif',
+  'Noto Naskh Arabic, Noto Sans Arabic, Tahoma, Arial, sans-serif','Noto Sans Arabic, Tahoma, Arial, sans-serif'
+ ];
+ function portableSubtitleStyle(raw){
+  let data;try{data=JSON.parse(raw);}catch{return null;}
+  if(!data||typeof data!=='object'||Array.isArray(data))return null;
+  const out={};
+  for(const [key,value] of Object.entries(data)){
+   if(key==='timing')continue;
+   if(key==='font'){if(!subtitleFonts.includes(value))return null;}
+   else if(key==='position'){if(!/^(top|middle|bottom)-(left|center|right)$/.test(value)||typeof value!=='string')return null;}
+   else if(key==='alignment'){if(!['left','center','right','justify'].includes(value))return null;}
+   else if(/^(text|outline|glow|shadow)Color$/.test(key)){if(typeof value!=='string'||!/^#[0-9a-f]{6}$/i.test(value))return null;}
+   else if(/^(text|outline|glow|shadow)Alpha$/.test(key)){if(!Number.isInteger(value)||value<0||value>100)return null;}
+   else if(/^(text|outline|glow|shadow)Size$/.test(key)){
+    const limits={textSize:[12,64],outlineSize:[0,8],glowSize:[0,36],shadowSize:[0,30]}[key];
+    if(!Number.isInteger(value)||value<limits[0]||value>limits[1])return null;
+   }else return null;
+   out[key]=value;
+  }
+  return JSON.stringify(out);
+ }
+ const storageKey=key=>key===subtitleStyleKey?key:'marmalade:'+key;
  const schema={
   appearance:{'background-theme':choices('cosmic01','cosmic02','none'),'cosmic-background':bool,'window-theme':choices('classic','glass')},
   video:{
@@ -242,33 +271,35 @@
    'audio-eq-preset':choices('flat','cinema','speech','music','soft','custom'),
    'audio-eq-bands':v=>{try{const a=JSON.parse(v);return Array.isArray(a)&&a.length===7&&a.every(n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=12);}catch{return false;}}
   },
-  subtitles:{'preferred-subtitle-language':choices(...subtitleLanguages.map(([value])=>value))},
+  subtitles:{'preferred-subtitle-language':choices(...subtitleLanguages.map(([value])=>value)),[subtitleStyleKey]:v=>portableSubtitleStyle(v)!==null},
   party:{'stability-mode':choices('fast','balanced','smooth'),'strict-sync':bool},
   buffering:{'original-file-buffer':bool,'peer-assist':bool},
-  library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':numeric(1,20),'media-library:list':bool},
+  library:{'media-library:visible':bool,'media-library:auto-next':bool,'media-library:auto-posters':bool,'media-library:poster-columns':v=>numeric(1,12)(v)&&Number.isInteger(Number(v)),'media-library:list':bool},
   games:{'games:visible:v1':bool},
   miniPlayer:{'mini-player-fade':choices('follow','2','3','5','8','10','15')},
   performance:{'playback-diagnostics':bool},
   privacy:{'remember-last-room':bool},
   updates:{'auto-update-checks':bool}
  };
- const validators=new Map(Object.values(schema).flatMap(group=>Object.entries(group)).map(([key,validate])=>['marmalade:'+key,validate]));
+ const validators=new Map(Object.values(schema).flatMap(group=>Object.entries(group)).map(([key,validate])=>[storageKey(key),validate]));
  let pending=null,backupRevision=0;
  function exportPreferences(){
   const preferences=Object.create(null);
   for(const [key,validate] of validators){
    const value=localStorage.getItem(key);
-   if(value!==null&&value.length<=2048&&validate(value))preferences[key]=value;
+   if(value!==null&&value.length<=2048&&validate(value))preferences[key]=key===subtitleStyleKey?portableSubtitleStyle(value):value;
   }
-  return {format:'marmaladeum-settings',version:1,preferences};
+  return {format:'marmaladeum-settings',version:1,mode:'snapshot',preferences};
  }
  function validateImport(data){
   if(data?.format!=='marmaladeum-settings'||data.version!==1||!data.preferences||typeof data.preferences!=='object'||Array.isArray(data.preferences))throw Error('Unsupported settings backup format.');
+  if(data.mode!==undefined&&data.mode!=='snapshot')throw Error('Unsupported settings restore mode.');
   const changes=new Map();
   for(const [key,value] of Object.entries(data.preferences)){
    if(!validators.has(key)||typeof value!=='string'||value.length>2048||!validators.get(key)(value))throw Error('Unknown or invalid preference: '+key.slice(0,100));
-   changes.set(key,value);
+   changes.set(key,key===subtitleStyleKey?portableSubtitleStyle(value):value);
   }
+  if(data.mode==='snapshot')for(const key of validators.keys())if(!changes.has(key)&&localStorage.getItem(key)!==null)changes.set(key,null);
   return changes;
  }
  function stageChanges(changes,message){
@@ -293,7 +324,8 @@
    if(file.size>65536)throw Error('Settings backup exceeds 64 KiB.');
    const text=await file.text();
    if(revision!==backupRevision)return;
-   stageChanges(validateImport(JSON.parse(text)),'Validated import:');
+   const data=JSON.parse(text);
+   stageChanges(validateImport(data),data.mode==='snapshot'?'Validated full restore (missing preferences return to defaults):':'Validated import:');
   }catch(error){if(revision===backupRevision)backupStatus.textContent=String(error.message||error);}
  });
  $('settingsReset').addEventListener('click',()=>{
@@ -301,7 +333,7 @@
   try{
    const group=schema[$('settingsResetCategory').value];
    if(!group)return;
-   const changes=new Map(Object.keys(group).map(key=>'marmalade:'+key).filter(key=>localStorage.getItem(key)!==null).map(key=>[key,null]));
+   const changes=new Map(Object.keys(group).map(storageKey).filter(key=>localStorage.getItem(key)!==null).map(key=>[key,null]));
    stageChanges(changes,'Reset selected preferences to defaults:');
   }catch{backupStatus.textContent='Settings storage unavailable.';}
  });
