@@ -4988,21 +4988,37 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     updateRoomPanel();
     notify(message);
   }
-  function startGuestJoinAttempt(code, attempt) {
-    if (!state.connecting || state.role !== 'guest' || state.code !== code) return;
+  function startGuestJoinAttempt(code, attempt, recoveryStarted=null) {
+    const replacing=recoveryStarted!==null;
+    if ((!replacing&&!state.connecting) || state.role !== 'guest' || state.code !== code) return;
+    const previousPeer=state.peer;
+    if(replacing&&(state.source!=='buffered-guest'||!window.MarmaladeRollingBuffer?.getStatus()?.ready))return;
     configureIce();
     state.joinAttempt = attempt;
     el.joinProgressText.textContent = `Connecting · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`;
     connection(attempt === 1 ? 'Connecting…' : `Connecting · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`);
     let peer;
     try { peer = new window.Peer(PEER_OPTIONS); }
-    catch { joinFailed('Could not start the connection service. Check your internet and try again.',true); return; }
+    catch {
+      if(replacing){
+        if(performance.now()-recoveryStarted<120000){
+          setTimeout(()=>{if(state.peer===previousPeer&&state.role==='guest'&&state.code===code)startGuestJoinAttempt(code,attempt+1,recoveryStarted);},Math.min(5000,500*2**Math.min(attempt,4)));
+        }else{
+          closeConnections();state.role='guest';el.joinInput.value=code;
+          notify('Connection could not be restored. Rejoin the room to continue.');
+        }
+      }else joinFailed('Could not start the connection service. Check your internet and try again.',true);
+      return;
+    }
     state.peer = peer;
+    clearTimeout(state.joinTimeout);
     state.joinTimeout = setTimeout(() => {
-      joinFailed('The host has not appeared on the room service. The host must show "Room online" and keep their app open.',false,peer);
+      if(state.peer!==peer)return;
+      if(replacing){if(!peer.open)try{peer.destroy();}catch{}}
+      else joinFailed('The host has not appeared on the room service. The host must show "Room online" and keep their app open.',false,peer);
     },JOIN_TIMEOUT_MS);
     setupGuestCallHandler(peer);
-    let controlRetries=0,controlRecoveryStarted=null,signalingTimer=0,signalingAttempt=0;
+    let controlRetries=0,controlRecoveryStarted=recoveryStarted,signalingTimer=0,signalingAttempt=0;
     const activeGuest=()=>state.peer===peer&&state.role==='guest'&&state.code===code;
     const SIGNALING_GRACE_MS=120000;
     function retrySignaling(){
@@ -5155,13 +5171,20 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(!activeGuest()||state.guestConn!==conn||controlRetryTimer)return;
       if(controlRecoveryStarted===null)controlRecoveryStarted=performance.now();
       if(state.source==='buffered-guest'&&window.MarmaladeRollingBuffer?.getStatus()?.ready&&
-          performance.now()-controlRecoveryStarted<SIGNALING_GRACE_MS&&!peer.destroyed){
+          performance.now()-controlRecoveryStarted<SIGNALING_GRACE_MS){
         connection('Reconnecting · using buffered movie','error');
         if(!peer.open||peer.disconnected)retrySignaling();
         controlRetryTimer=setTimeout(()=>{
           controlRetryTimer=0;
           if(!activeGuest()||state.guestConn!==conn)return;
-          if(!peer.open||peer.disconnected||navigator.onLine===false){recoverControl(conn);return;}
+          if(navigator.onLine===false){recoverControl(conn);return;}
+          if(peer.destroyed){
+            // Keep the old control reference until rebind installs a new one.
+            // This preserves the decoder, MediaSource and encrypted cache.
+            startGuestJoinAttempt(code,Math.min(attempt+1,8),controlRecoveryStarted);
+            return;
+          }
+          if(!peer.open||peer.disconnected){recoverControl(conn);return;}
           controlRetries++;
           connectControl(true);
         },Math.min(5000,500*2**Math.min(controlRetries,4)));
@@ -5171,7 +5194,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       if(!activeGuest())return;
       clearTimeout(signalingTimer);signalingTimer=0;signalingAttempt=0;
       if(state.connecting)connectControl();
-      else if(state.guestConn?.open)connection('Watching with host','online');
+      else if(replacing&&controlRecoveryStarted!==null){
+        clearTimeout(state.joinTimeout);state.joinTimeout=null;
+        if(!controlRetryTimer)connectControl(true);
+      }else if(state.guestConn?.open)connection('Watching with host','online');
     });
     peer.on('error', (error) => {
       if (state.peer !== peer) return;
@@ -5186,6 +5212,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         connection('Signaling interrupted','error');
         retrySignaling();
       }
+    });
+    peer.on('close',()=>{
+      if(!activeGuest())return;
+      if(state.connecting){joinFailed('The connection service closed before joining.',false,peer);return;}
+      recoverControl(state.guestConn);
     });
     peer.on('disconnected', () => {
       if (state.peer !== peer) return;

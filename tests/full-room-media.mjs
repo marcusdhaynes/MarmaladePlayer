@@ -834,6 +834,21 @@ try {
       },null,{timeout:30000});
       assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original,'Control replacement must preserve buffered source');
       console.log('PASS signaling retry and room-control replacement retain buffered movie',height);
+      // Destruction of the entire PeerJS object is more severe than a
+      // signaling disconnect. Require a new peer ID with the same movie.
+      await viewer.evaluate(()=>{
+        const s=window.MarmaladeAddonBridge.state;
+        window.__destroyedPeer=s.peer;window.__destroyedPeerId=s.peer.id;window.__roomBeforeDestroy=s.code;
+        s.peer.destroy();
+      });
+      await viewer.waitForFunction(()=>{
+        const s=window.MarmaladeAddonBridge.state,old=window.__destroyedPeer;
+        return old.destroyed&&s.peer!==old&&s.peer?.open&&s.peer.id!==window.__destroyedPeerId&&s.code===window.__roomBeforeDestroy&&
+          s.guestConn?.open&&s.source==='buffered-guest'&&window.MarmaladeRollingBuffer.getStatus()?.ready&&
+          Object.values(s.peer.connections).flat().some(c=>c.open&&c.label==='marmalade-buffer-v1');
+      },null,{timeout:45000});
+      assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original,'Destroyed peer replacement must preserve the MSE source');
+      console.log('PASS destroyed PeerJS instance replaced without resetting movie',height);
       began=Date.now();
       await viewer.evaluate(()=>{
          const state=window.MarmaladeAddonBridge.state;
