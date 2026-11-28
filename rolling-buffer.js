@@ -236,7 +236,7 @@
    if(!a)return;
    if(s.attached&&a.state.source==='buffered-guest'){
      a.state.bufferedMode=false;a.state.waitingForBuffer=false;
-     a.media.pause();a.media.removeAttribute('src');a.media.srcObject=null;a.media.load();
+     a.holdGuestPicture?.();a.media.pause();a.media.removeAttribute('src');a.media.srcObject=null;a.media.load();
      a.state.source=null;
    }
    if(fallback&&a.state.role==='guest'&&a.state.guestConn===s.control&&!a.state.localVerified){
@@ -608,7 +608,8 @@
      const ms=new MediaSource();s.ms=ms;s.url=URL.createObjectURL(ms);
      const opened=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('MediaSource open timed out')),8000);ms.addEventListener('sourceopen',()=>{clearTimeout(timer);resolve();},{once:true});});
      s.attached=true;a.state.bufferedMode=true;a.state.waitingForBuffer=true;a.state.source='buffered-guest';
-     a.stopGuestAudioRelay(false);a.media.pause();a.media.srcObject=null;a.media.src=s.url;a.media.preload='auto';a.media.load();a.applyVolume();
+     a.holdGuestPicture?.();a.stopGuestAudioRelay(false);a.media.pause();a.media.srcObject=null;a.media.src=s.url;a.media.preload='auto';a.media.load();a.applyVolume();
+     a.armGuestPictureRelease?.();
      a.showStage(true);a.badge('BUFFERED MOVIE');
      clearTimeout(a.state.streamWaitTimer);a.state.streamWaitTimer=null;
      await opened;if(!current(s))return;

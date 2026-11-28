@@ -2129,6 +2129,53 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     el.fpsOverlay.hidden = el.fpsToggle.getAttribute('aria-pressed') !== 'true';
     if (!el.fpsOverlay.hidden) el.fpsOverlay.textContent = '— FPS';
   }
+  // Keep a single private last-presented frame during source changes.
+  // The canvas is never transmitted, stored on disk or used to judge whether
+  // a legitimately dark scene is black. Release only on a presented frame.
+  let pictureGuard=null,pictureGuardAt=0,pictureGuardEpoch=0,pictureGuardSource=null;
+  function rememberGuestPicture(now=performance.now(),force=false){
+    if(state.role!=='guest'||!['remote','buffered-guest'].includes(state.source)||media.readyState<2||!media.videoWidth||!media.videoHeight)return false;
+    if(pictureGuard&&!pictureGuard.hidden)return false;
+    if(!force&&now-pictureGuardAt<400)return !!pictureGuard;
+    if(!pictureGuard){
+      pictureGuard=document.createElement('canvas');pictureGuard.id='guestPictureGuard';
+      pictureGuard.hidden=true;pictureGuard.setAttribute('aria-hidden','true');
+      pictureGuard.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;z-index:2;background:#050505;';
+      media.after(pictureGuard);
+    }
+    const ratio=Math.min(1,1080/media.videoHeight,1920/media.videoWidth);
+    const width=Math.max(1,Math.round(media.videoWidth*ratio)),height=Math.max(1,Math.round(media.videoHeight*ratio));
+    try{
+      if(pictureGuard.width!==width)pictureGuard.width=width;
+      if(pictureGuard.height!==height)pictureGuard.height=height;
+      pictureGuard.getContext('2d',{alpha:false}).drawImage(media,0,0,width,height);
+      pictureGuardAt=now;return true;
+    }catch{return false;}
+  }
+  function holdGuestPicture(){
+    if(state.role!=='guest')return;
+    if(!pictureGuard||pictureGuard.hidden)rememberGuestPicture(performance.now(),true);
+    if(pictureGuard&&pictureGuardAt){pictureGuard.hidden=false;pictureGuardEpoch++;pictureGuardSource=null;}
+  }
+  function armGuestPictureRelease(){
+    if(!pictureGuard||pictureGuard.hidden)return;
+    const epoch=pictureGuardEpoch,source=media.srcObject||media.getAttribute('src');
+    pictureGuardSource=source;
+    const release=()=>{
+      if(epoch!==pictureGuardEpoch||pictureGuardSource!==source||(media.srcObject||media.getAttribute('src'))!==source||media.readyState<2)return;
+      pictureGuard.hidden=true;pictureGuardSource=null;
+    };
+    if(typeof media.requestVideoFrameCallback==='function')media.requestVideoFrameCallback(release);
+    else media.addEventListener('loadeddata',release,{once:true});
+  }
+  function clearGuestPicture(){
+    pictureGuardEpoch++;pictureGuard?.remove();pictureGuard=null;pictureGuardAt=0;pictureGuardSource=null;
+  }
+  window.addEventListener('marmalade:media-cleared',clearGuestPicture);
+  window.addEventListener('marmalade:video-selected',clearGuestPicture);
+  media.addEventListener('waiting',()=>{if(state.role==='guest'&&state.source==='buffered-guest'){holdGuestPicture();armGuestPictureRelease();}});
+  media.addEventListener('seeking',()=>{if(state.role==='guest'&&state.source==='buffered-guest'){holdGuestPicture();armGuestPictureRelease();}});
+  media.addEventListener('playing',()=>{if(state.role==='guest')armGuestPictureRelease();});
   function startFpsMeasurement() {
     if (typeof media.requestVideoFrameCallback === 'function') {
       const frame = (now, metadata) => {
@@ -2152,6 +2199,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           state.remoteVideoFrameCount++;
           state.remoteFramesAvailable = true;
         }
+        if(state.role==='guest')rememberGuestPicture(now);
         // Refresh captions against presented frames, not a 500 ms polling grid.
         window.MarmaladeSubtitleRefresh?.();
         if (!el.fpsOverlay.hidden && !media.paused && media.readyState >= 2) {
@@ -3414,7 +3462,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     state.connections.clear();
     const oldPeer=state.peer,oldGuestConn=state.guestConn,oldGuestCall=state.guestCall;
     state.guestConn = state.guestCall = state.peer = null;
-    state.guestLiveStream=null;state.activateGuestLive=null;
+    state.guestLiveStream=null;state.activateGuestLive=null;clearGuestPicture();
     // Detach first so deliberate teardown cannot schedule a recovery.
     for(const resource of [oldGuestCall,oldGuestConn])try{resource?.close();}catch{}
     try{oldPeer?.destroy();}catch{}
@@ -3921,7 +3969,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           entry.bufferReady=null;
           // Keep the live call available during original-file playback.
           if(state.outgoing&&!entry.localMirror&&!entry.call)callGuest(conn.peer);
-          else if(data.active)void tuneAllGuests();
+          else {entry.applied='';void tuneAllGuests();}
         }
         if (data.type === 'buffer-status' && typeof data.ready==='boolean') {
           entry.bufferReady=data.ready;entry.lastBufferReport=performance.now();
@@ -4030,6 +4078,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   function levelForGuest(entry) {
     const available = availableLevels();
+    // The visible original-file picture has priority over hidden standby
+    // encoding. Keep the standby call warm, but restore the chosen live tier
+    // immediately when buffered-file-active becomes false.
+    if(entry.bufferedFile&&state.allowOriginalBuffer){
+      const standby=available.filter(l=>l.height<=360).at(-1);
+      if(standby)return {...standby,bitrate:Math.min(standby.bitrate,450000),fps:12};
+    }
     const target = available.find(l => l.id === entry.mode) ||
       available.filter(l => l.height <= Number(entry.mode)).at(-1) || available.at(-1) || LEVELS[2];
     return target; // Fixed until this guest explicitly selects another level.
@@ -4384,7 +4439,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       params.encodings[0].maxBitrate = bitrate;
       // Manual capture carries the source cadence. Allow scheduler jitter
       // without a second 24 fps limiter silently dropping legitimate frames.
-      const captureFpsCeiling=newTrack===state.nativeCapture?.getVideoTracks()[0]?24:30;
+      const captureFpsCeiling=entry.bufferedFile&&state.allowOriginalBuffer?12:30;
       params.encodings[0].maxFramerate = captureFpsCeiling;
       params.encodings[0].scaleResolutionDownBy = scale;
       // Preserve genuine 720p/1080p on capable networks. The original bug
@@ -4441,7 +4496,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           width: Math.round(naturalWidth / (scalingSupported ? scale : 1)),
           height: Math.round(naturalHeight / (scalingSupported ? scale : 1)),
           bitrate, limited: bitrate < current.bitrate,
-          message: entry.motionRescue
+          message: entry.bufferedFile&&state.allowOriginalBuffer?'Original-file playback prioritized; live standby remains connected.':entry.motionRescue
             ? 'Frame-rate recovery active; the browser may temporarily reduce resolution'
             : scalingSupported ? '' : 'Resolution scaling unsupported by this browser; selected quality is a target' });
       }
@@ -4780,8 +4835,10 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         if(!state.guestAudioContext && stream.getAudioTracks().length)
           primeGuestAudioFromGesture(true);
         // Preserve the same element's autoplay permission across stream replacement.
+        holdGuestPicture();
         media.removeAttribute('src');
         media.srcObject = stream;
+        armGuestPictureRelease();
         if(oldLocalUrl)URL.revokeObjectURL(oldLocalUrl);
         media.autoplay = true;
         media.playsInline = true;
@@ -4896,6 +4953,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           if(state.source==='buffered-guest')setTimeout(()=>requestMissingMedia('standby-call-closed'),400);
           return;
         }
+        holdGuestPicture();
         state.source = null;
         clearTimeout(state.streamWaitTimer);
         state.streamWaitTimer = null;
@@ -8029,7 +8087,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     });
   }
   window.MarmaladeAddonBridge={state,media,el,ensureAudioPlayback,
-    expectedHostTime,applyVolume,showStage,badge,syncSeekablePlayback,updateBufferDisplay,recoveryCheck,stopGuestAudioRelay,updateQualityHint,
+    expectedHostTime,applyVolume,showStage,badge,syncSeekablePlayback,updateBufferDisplay,recoveryCheck,stopGuestAudioRelay,updateQualityHint,holdGuestPicture,armGuestPictureRelease,
     chooseVideo:selectHostFile,chooseNativeStream,openMoviePicker,notify,
     pauseAndSeekGameFrame,stopGameVideo,setGameFrameMode,seekToTime:time=>{previousSeek={at:0,time:-1};commitSeek(time);}};
   // Offline app shell is optional; room signaling and WebRTC require connectivity.

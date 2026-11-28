@@ -485,3 +485,8 @@ html[data-reduce-transparency="true"] :is(#settingsPanel,#subtitlePanel,#mlSetti
  overflow-wrap:anywhere;text-align:center;white-space:normal;
 }
 .marmalade-ui-tooltip[hidden]{display:none!important}
+
+/* The settings panel itself is nested in the library panel; its earlier
+   inset rule has two ID selectors and must not win over the window material. */
+html[data-window-theme="glass"] #mediaLibraryPanel #mlSettingsPanel{background:var(--marmalade-glass-surface)!important;backdrop-filter:var(--marmalade-glass-blur)!important;-webkit-backdrop-filter:var(--marmalade-glass-blur)!important}
+html[data-reduce-transparency="true"] #mediaLibraryPanel #mlSettingsPanel{background:var(--marmalade-solid-surface)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}

@@ -837,16 +837,27 @@ try {
       },null,{timeout:30000});
       await sender.waitForFunction(()=>[...window.MarmaladeAddonBridge.state.connections.values()].some(e=>e.bufferedFile&&e.call?.open));
       console.log('PASS simultaneous original-file buffer and live standby without duplicate media output',height);
+      // Verify standby is warm without competing at a full HD encoder budget.
+      await sender.waitForFunction(()=>{
+        const e=[...window.MarmaladeAddonBridge.state.connections.values()].find(x=>x.bufferedFile&&x.call?.open);
+        const p=e?.call.peerConnection?.getSenders().find(x=>x.track?.kind==='video')?.getParameters().encodings?.[0];
+        return p?.maxBitrate<=450000&&p?.maxFramerate===12;
+      },null,{timeout:30000});
+      await viewer.waitForFunction(()=>{const c=document.querySelector('#guestPictureGuard');return c?.hidden&&c.width>0;});
+      console.log('PASS bounded standby encoder and private last-presented-frame guard',height);
       if(scenario!=='network'){
         await viewer.evaluate(()=>{
           const s=window.MarmaladeAddonBridge.state;window.__warmCall=s.guestCall;window.__warmControl=s.guestConn;
           window.MarmaladeRollingBuffer.stop(true,'Injected recoverable buffered playback failure');
+          if(document.querySelector('#guestPictureGuard')?.hidden!==false)throw Error('Video transition lost its retained picture');
         });
         await viewer.waitForFunction(()=>{
           const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
           return s.source==='remote'&&s.guestCall===window.__warmCall&&s.guestConn===window.__warmControl&&v.srcObject===s.guestLiveStream;
         },null,{timeout:10000});
         await full('automatic original-quality restoration from live standby',0);
+        await viewer.waitForFunction(()=>document.querySelector('#guestPictureGuard')?.hidden===true);
+        console.log('PASS retained picture cleared only after replacement frames',height);
         assert.equal(await viewer.evaluate(()=>{const s=window.MarmaladeAddonBridge.state;return s.guestCall===window.__warmCall&&s.guestConn===window.__warmControl;}),true);
         console.log('PASS live standby used temporarily and original-file buffering automatically restored',height);
       }
