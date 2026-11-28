@@ -14,8 +14,31 @@ const video=join(dir,'full-stream.webm');
 // resolution check while the live stream is barely moving at 0-2 FPS.
 // An animated overlay preserves the center red-pixel assertions.
 const scenario=process.argv[2]||'all';
-if(!['all','live','720','1080','multi'].includes(scenario))throw Error('Unknown room scenario: '+scenario);
+if(!['all','live','720','1080','multi','network'].includes(scenario))throw Error('Unknown room scenario: '+scenario);
 const runLive=scenario==='all'||scenario==='live';
+// Only run packet shaping on a dedicated, explicitly opted-in Linux CI VM.
+if(scenario==='network'&&(process.platform!=='linux'||process.env.MARMALADE_NETEM!=='1'||process.env.GITHUB_ACTIONS!=='true'))
+  throw Error('Network scenario requires an opted-in Linux GitHub Actions runner');
+let netemInstalled=false;
+function tc(...args){return execFileSync('sudo',['-n','tc',...args],{encoding:'utf8',timeout:10000});}
+function clearNetem(){
+  if(!netemInstalled)return;
+  tc('qdisc','del','dev','lo','root');netemInstalled=false;
+}
+function installNetem(){
+  // Only UDP is shaped: signaling and Playwright's TCP channels are excluded.
+  tc('qdisc','replace','dev','lo','root','handle','1:','prio','bands','3','priomap',...Array(16).fill('0'));
+  netemInstalled=true;
+  tc('qdisc','add','dev','lo','parent','1:3','handle','30:','netem','limit','10000',
+    'delay','45ms','10ms','loss','0.2%','rate','16mbit');
+  tc('filter','add','dev','lo','protocol','ip','parent','1:','prio','1','flower','ip_proto','udp','classid','1:3');
+  tc('filter','add','dev','lo','protocol','ipv6','parent','1:','prio','2','flower','ip_proto','udp','classid','1:3');
+}
+function netemStats(){
+  const raw=tc('-s','qdisc','show','dev','lo'),match=raw.match(/qdisc netem 30:[^\n]*\n\s*Sent (\d+) bytes (\d+) pkt \(dropped (\d+)/);
+  assert(match,'Expected active netem queue and packet counters: '+raw);
+  return {bytes:Number(match[1]),packets:Number(match[2]),dropped:Number(match[3])};
+}
 function makeLiveFixture(){
 execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi',
   '-i','color=c=red:s=1920x1080:r=24','-f','lavfi',
@@ -764,7 +787,7 @@ try {
   }
   // Use the same decoder assets as the published player for original-file rooms.
   if(scenario!=='live')execFileSync(process.execPath,['scripts/install-mkv-decoder.mjs'],{stdio:'inherit',timeout:120000});
-  for(const height of [720,1080].filter(h=>scenario==='all'||scenario===String(h))){
+  for(const height of [720,1080].filter(h=>scenario==='all'||scenario===String(h)||(scenario==='network'&&h===720))){
     const width=height===720?1280:1920;
     const clip=join(dir,'buffer-clip-'+height+'.webm');
     const movie=join(dir,'buffer-movie-'+height+'.webm');
@@ -809,6 +832,60 @@ try {
       };
       await full('join',0);
       const original=await viewer.locator('#player').evaluate(v=>v.currentSrc);
+      if(scenario==='network'){
+        // Require the selected data-channel transport to use UDP before
+        // applying Linux packet shaping; HTTP throttling alone misses WebRTC.
+        const transport=async()=>viewer.evaluate(async()=>{
+          const s=window.MarmaladeAddonBridge.state;
+          const bulk=Object.values(s.peer.connections).flat().find(c=>c.open&&c.label==='marmalade-buffer-v1');
+          if(!bulk?.peerConnection)throw Error('Missing active RTC data transport');
+          const stats=await bulk.peerConnection.getStats();
+          const selected=[...stats.values()].find(r=>r.type==='transport'&&r.selectedCandidatePairId);
+          const pair=selected?stats.get(selected.selectedCandidatePairId):[...stats.values()].find(r=>r.type==='candidate-pair'&&r.state==='succeeded'&&r.nominated);
+          return {local:stats.get(pair?.localCandidateId)?.protocol,remote:stats.get(pair?.remoteCandidateId)?.protocol,
+            received:pair?.bytesReceived||0};
+        });
+        const before=await transport();
+        assert.equal(before.local,'udp');assert.equal(before.remote,'udp');
+        installNetem();
+        try{
+          const countersBefore=netemStats();
+          await sender.locator('#strictSync').evaluate(el=>{el.checked=false;el.dispatchEvent(new Event('change',{bubbles:true}));});
+          began=Date.now();
+          await sender.locator('#player').evaluate(v=>{v.currentTime=220;});
+          await full('UDP latency, jitter, loss and rate-limited seek',218);
+          const after=await transport(),countersAfter=netemStats();
+          assert.equal(after.local,'udp');assert.equal(after.remote,'udp');
+          assert(countersAfter.packets-countersBefore.packets>100,'The shaped UDP queue must carry real traffic');
+          assert(countersAfter.bytes-countersBefore.bytes>100000,'The shaped queue must carry movie-scale traffic');
+          assert(after.received>before.received+100000,'Selected data transport must receive fresh media bytes');
+          console.log('NETEM profile: 16mbit, 45ms +/-10ms one-way queue delay, 0.2% random loss; queue counters',JSON.stringify(countersAfter));
+          const sample=await viewer.locator('#player').evaluate(async v=>{
+            const q=v.getVideoPlaybackQuality(),at=performance.now(),time=v.currentTime;
+            await new Promise(resolve=>setTimeout(resolve,10000));
+            const end=v.getVideoPlaybackQuality(),seconds=(performance.now()-at)/1000;
+            return {advanced:v.currentTime-time,displayedFPS:(end.totalVideoFrames-q.totalVideoFrames-end.droppedVideoFrames+q.droppedVideoFrames)/seconds,dropped:end.droppedVideoFrames-q.droppedVideoFrames};
+          });
+          console.log('NETEM buffered playback sample',JSON.stringify(sample));
+          assert(sample.advanced>=9&&sample.displayedFPS>=23.5,'Impaired-link buffered playback must sustain the 24 FPS source within tolerance');
+          await viewer.evaluate(()=>{
+            const s=window.MarmaladeAddonBridge.state;
+            const bulk=Object.values(s.peer.connections).flat().find(c=>c.open&&c.label==='marmalade-buffer-v1');
+            if(!bulk)throw Error('Missing impaired bulk transport');
+            window.__netemOldBulk=bulk;bulk.close();
+          });
+          await sender.locator('#player').evaluate(v=>{v.currentTime=475;});
+          await viewer.waitForFunction(()=>{
+            const s=window.MarmaladeAddonBridge.state;
+            return Object.values(s.peer.connections).flat().some(c=>c.open&&c!==window.__netemOldBulk&&c.label==='marmalade-buffer-v1');
+          },null,{timeout:45000});
+          began=Date.now();await full('impaired-link replacement and refill',473);
+          assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original);
+          assert.equal(await sender.locator('#player').evaluate(v=>v.paused),false);
+          console.log('PASS impaired UDP link, 180-second refill, 24 FPS tolerance and same-source recovery',JSON.stringify(netemStats()));
+        }finally{clearNetem();}
+        continue;
+      }
       // Signaling alone must not replace a healthy room control connection.
       await viewer.evaluate(()=>{
         const s=window.MarmaladeAddonBridge.state,p=s.peer;
@@ -1025,6 +1102,7 @@ try {
   console.error('MARMALADE FULL PEERJS TEST FAILED',error);
   process.exitCode=1;
 } finally {
+  if(netemInstalled)try{clearNetem();}catch(error){console.error('NETEM cleanup failed',error);process.exitCode=1;}
   await browser.close().catch(()=>{});
   try{signaling.close?.();}catch{}
   web.close();
