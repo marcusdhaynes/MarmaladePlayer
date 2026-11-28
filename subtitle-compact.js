@@ -228,7 +228,7 @@
   alignmentAnchor=null;refreshAnchor();
  });
  refreshAnchor();
- const normalize=value=>String(value??'').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g,' ').trim();
+ 
  function formatTime(value){
   const n=Math.max(0,Number(value)||0),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=(n%60).toFixed(1).padStart(4,'0');
   return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+s;
@@ -340,12 +340,7 @@
  }
  function filterCues(){
   const cues=state.subtitles||[];
-  const terms=normalize(cueSearch.value).split(' ').filter(Boolean);
-  matches=[];
-  for(let i=0;i<cues.length;i++){
-   if(!terms.length||terms.every(word=>normalize(cueText(cues[i])).includes(word)))
-    matches.push(i);
-  }
+  matches=window.MarmaladeSubtitleCodec.searchDialogue(cues,cueSearch.value);
   cueList.replaceChildren();rendered=0;
   count.textContent=matches.length+' matching line'+(matches.length===1?'':'s');
   if(!cueList.hidden)renderMore();

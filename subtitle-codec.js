@@ -287,7 +287,29 @@
     if(confirmed.length<required)return null;
     return {scale,seconds,matched:confirmed.length,total:pairs.length,span};
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment};
+  // Search normalization is deliberately separate from rendered dialogue.
+  // Remove Latin accents and optional Arabic vowel marks, not Indic vowel
+  // signs or Japanese voicing marks that distinguish different words.
+  function dialogueKey(value){
+    return String(value??'').normalize('NFKC').toLowerCase().normalize('NFD')
+      .replace(/(\p{Script=Latin})\p{M}+/gu,'$1')
+      .replace(/[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed\u0640]/g,'')
+      .normalize('NFC').replace(/[\p{P}\p{Z}\s]+/gu,' ').trim();
+  }
+  const dialogueIndexes=new WeakMap();
+  function searchDialogue(cues,query){
+    if(!Array.isArray(cues))return [];
+    const terms=dialogueKey(query).split(' ').filter(Boolean);
+    let index=dialogueIndexes.get(cues);
+    if(!index||index.length!==cues.length){
+      index=cues.map(cue=>dialogueKey(cue.text));
+      dialogueIndexes.set(cues,index);
+    }
+    const results=[];
+    for(let i=0;i<index.length;i++)if(terms.every(term=>index[i].includes(term)))results.push(i);
+    return results;
+  }
+  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

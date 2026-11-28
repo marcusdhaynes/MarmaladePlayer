@@ -140,3 +140,15 @@ test('reference alignment refuses ambiguous and nonlinear dialogue matches',()=>
  assert.equal(codec.referenceAlignment(source,source.map((c,i)=>({...c,start:c.start+(i<6?0:25)}))),null);
  assert.equal(codec.referenceAlignment(source.slice(0,3),source),null);
 });
+
+test('dialogue search tolerates Latin accents and Arabic vowel marks without altering captions',()=>{
+ const cues=[{text:'Café déjà vu'},{text:'مَرْحَبًا بِالْعَالَمِ'},{text:'カガ'},{text:'कला'},{text:'Another dialogue'}];
+ assert.deepEqual(codec.searchDialogue(cues,'CAFE deja'),[0]);
+ assert.deepEqual(codec.searchDialogue(cues,'مرحبا بالعالم'),[1]);
+ assert.deepEqual(codec.searchDialogue(cues,'カカ'),[]);
+ assert.notEqual(codec.dialogueKey('कला'),codec.dialogueKey('कल'));
+ assert.deepEqual(codec.searchDialogue(cues,'another'),[4]);
+ assert.deepEqual(codec.searchDialogue(cues,''),[0,1,2,3,4]);
+ assert.equal(cues[0].text,'Café déjà vu');
+ assert.deepEqual(codec.searchDialogue([{text:'New file'}],'cafe'),[]);
+});

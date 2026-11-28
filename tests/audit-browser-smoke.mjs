@@ -412,6 +412,43 @@ try{
   await page.locator('#secondarySubtitleEncoding').evaluate(select=>{select.value='auto';});
   await page.locator('#secondarySubtitleFile').setInputFiles({name:'secondary.sbv',mimeType:'text/plain',buffer:Buffer.from('0:00:00.000,0:00:04.000\nمرحبا بالعالم')});
   await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('مرحبا بالعالم'));
+  // Reference-file UI must propose, not silently apply, a correction.
+  await page.evaluate(()=>{
+    const {state}=window.MarmaladeAddonBridge;
+    state.subtitles=Array.from({length:6},(_,i)=>({start:i*20,end:i*20+2,text:'Distinct reference dialogue '+i}));
+    window.dispatchEvent(new Event('marmalade:subtitles-loaded'));
+  });
+  const reference=Array.from({length:6},(_,i)=>{
+    const ts=n=>String(Math.floor(n/3600)).padStart(2,'0')+':'+String(Math.floor(n/60)%60).padStart(2,'0')+':'+String(n%60).padStart(2,'0')+',000';
+    return (i+1)+'\n'+ts(i*20+2)+' --> '+ts(i*20+4)+'\nDistinct reference dialogue '+i;
+  }).join('\n\n');
+  await page.locator('#subReferenceFile').setInputFiles({name:'reference.srt',mimeType:'text/plain',buffer:Buffer.from(reference)});
+  await page.waitForFunction(()=>!document.querySelector('#subReferenceApply').disabled);
+  assert.equal(await page.evaluate(()=>window.MarmaladeSubtitleTiming.get()),0);
+  assert.match(await page.locator('#subReferenceStatus').textContent(),/6 of 6/);
+  await page.locator('#subReferenceApply').evaluate(button=>button.click());
+  assert.equal(await page.evaluate(()=>window.MarmaladeSubtitleTiming.get()),2);
+  assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.secondarySubtitleOffset),0);
+  await page.locator('#subReferenceFile').setInputFiles({name:'unrelated.srt',mimeType:'text/plain',buffer:Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nCompletely different dialogue')});
+  await page.waitForFunction(()=>document.querySelector('#subReferenceStatus').textContent.includes('Not enough'));
+  assert.equal(await page.locator('#subReferenceApply').isDisabled(),true);
+  assert.equal(await page.evaluate(()=>window.MarmaladeSubtitleTiming.get()),2);
+  await page.evaluate(()=>{
+    window.MarmaladeSubtitleTiming.reset();
+    window.MarmaladeAddonBridge.state.subtitles=[{start:0,end:4,text:'Café déjà vu'},{start:5,end:8,text:'مَرْحَبًا بِالْعَالَمِ'}];
+    window.dispatchEvent(new Event('marmalade:subtitles-loaded'));
+  });
+  await page.locator('#subTimingCueSearch').evaluate(input=>{input.value='cafe deja';input.dispatchEvent(new Event('input',{bubbles:true}));});
+  await page.waitForFunction(()=>document.querySelector('#subTimingCue')?.textContent.includes('Café déjà vu'));
+  assert.equal(await page.locator('#subTimingCue .sub-cue-option').count(),1);
+  await page.locator('#subTimingCueSearch').evaluate(input=>{input.value='مرحبا بالعالم';input.dispatchEvent(new Event('input',{bubbles:true}));});
+  await page.waitForFunction(()=>document.querySelector('#subTimingCue')?.textContent.includes('مَرْحَبًا بِالْعَالَمِ'));
+  assert.equal(await page.locator('#subTimingCue .sub-cue-option').count(),1);
+  await page.evaluate(()=>{
+    window.MarmaladeAddonBridge.state.subtitles=[{start:0,end:4,text:'Primary captions'}];
+    window.dispatchEvent(new Event('marmalade:subtitles-loaded'));
+    window.MarmaladeSubtitleRefresh();
+  });
   const driftCheck=await page.evaluate(()=>{
     const timing=window.MarmaladeSubtitleTiming;
     timing.activate('audit-drift-film','audit-drift-sub');
