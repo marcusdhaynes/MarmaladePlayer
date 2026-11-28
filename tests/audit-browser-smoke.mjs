@@ -449,6 +449,12 @@ try{
     window.dispatchEvent(new Event('marmalade:subtitles-loaded'));
     window.MarmaladeSubtitleRefresh();
   });
+  const inlineTiming=await page.evaluate(()=>{
+    const cue=window.MarmaladeSubtitleCodec.decode('WEBVTT\n\n00:01.000 --> 00:05.000\nHello <00:02.200>world <00:04.100>again','timed.vtt').cues[0];
+    const api=window.MarmaladeSubtitleWordAlignment,parts=api.wordParts(cue.text,'en');
+    return {text:cue.text,exact:api.exactWordTime(cue,parts,1),estimated:api.estimateWordTime(cue,parts,1),first:api.exactWordTime(cue,parts,0)};
+  });
+  assert.deepEqual(inlineTiming,{text:'Hello world again',exact:2.2,estimated:2.2,first:null});
   const driftCheck=await page.evaluate(()=>{
     const timing=window.MarmaladeSubtitleTiming;
     timing.activate('audit-drift-film','audit-drift-sub');

@@ -152,3 +152,16 @@ test('dialogue search tolerates Latin accents and Arabic vowel marks without alt
  assert.equal(cues[0].text,'Café déjà vu');
  assert.deepEqual(codec.searchDialogue([{text:'New file'}],'cafe'),[]);
 });
+
+test('WebVTT inline timing retains exact valid boundaries without leaking markup',()=>{
+ const source='WEBVTT\n\n00:01.000 --> 00:05.000\nHello <00:02.200><b>world</b> <00:04.100>again';
+ assert.deepEqual(codec.decode(source,'timed.vtt').cues,[{start:1,end:5,text:'Hello world again',markers:[{index:6,start:2.2},{index:12,start:4.1}]}]);
+});
+test('invalid or non-monotonic inline timestamps are not trusted',()=>{
+ const source='WEBVTT\n\n00:01.000 --> 00:05.000\nOne <00:03.000>two <00:02.000>three';
+ assert.deepEqual(codec.decode(source,'timed.vtt').cues,[{start:1,end:5,text:'One two three'}]);
+});
+test('dialogue beginning NOTE or STYLE is not discarded as metadata',()=>{
+ const source='WEBVTT\n\n00:01.000 --> 00:05.000\nNOTE this is dialogue\nSTYLE matters';
+ assert.equal(codec.decode(source,'timed.vtt').cues[0].text,'NOTE this is dialogue\nSTYLE matters');
+});

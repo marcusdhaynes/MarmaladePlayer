@@ -267,6 +267,14 @@
   const first=[...text].find(ch=>/\p{L}/u.test(ch));
   return first&&/[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Adlam}]/u.test(first)?'rtl':'ltr';
  }
+ function exactWordTime(cue,parts,index){
+  const part=parts[index];
+  if(!part)return null;
+  const word=cue.words?.[index];
+  if(Number.isFinite(word?.start)&&word.text===part.text)return word.start;
+  const marker=cue.markers?.find(m=>m.index===part.index);
+  return Number.isFinite(marker?.start)?marker.start:null;
+ }
  function estimateWordTime(cue,parts,index){
   // SRT and most other sources timestamp whole cues. Distribute word
   // starts by grapheme-weighted spoken length, not UTF-16 code units.
@@ -274,8 +282,18 @@
   const weights=parts.map(p=>Math.max(1,segmenter?[...segmenter.segment(p.text)].length:[...p.text].length));
   const total=weights.reduce((a,b)=>a+b,0)||1;
   const elapsed=weights.slice(0,index).reduce((a,b)=>a+b,0);
-  const exact=cue.words?.[index];
-  return Number.isFinite(exact?.start)&&exact.text===parts[index].text?exact.start:cue.start+(cue.end-cue.start)*elapsed/total;
+  const exact=exactWordTime(cue,parts,index);
+  if(Number.isFinite(exact))return exact;
+  // Interpolate between adjacent explicit boundaries when present, rather
+  // than estimating against the entire cue and ignoring known timings.
+  const boundaries=[{index:0,start:cue.start},...(cue.markers||[]),{index:cue.text.length,start:cue.end}];
+  const position=parts[index].index;
+  let left=boundaries[0],right=boundaries.at(-1);
+  for(const boundary of boundaries){if(boundary.index<=position)left=boundary;else{right=boundary;break;}}
+  if(cue.markers?.length&&right.index>left.index){
+   return left.start+(right.start-left.start)*(position-left.index)/(right.index-left.index);
+  }
+  return cue.start+(cue.end-cue.start)*elapsed/total;
  }
  function alignAt(cueTime){
   const desired=currentBaseTime()-cueTime*(window.MarmaladeSubtitleTiming?.getScale?.()||1);
@@ -295,7 +313,8 @@
   parts.forEach((part,index)=>{
    const word=document.createElement('button');word.type='button';word.className='sub-word';
    word.textContent=part.text;word.dir='auto';word.setAttribute('aria-pressed','false');
-   word.title='Align this word to current playback';
+   const exact=exactWordTime(cue,parts,index);
+   word.title=Number.isFinite(exact)?'Align using subtitle timestamp':'Align using estimated word timing';
    word.addEventListener('click',()=>{
     if(state.subtitles?.[selectedCue]!==cue)return;
     if(alignAt(estimateWordTime(cue,parts,index))){
@@ -305,7 +324,7 @@
    selectedDisplay.append(word);
   });
  }
- window.MarmaladeSubtitleWordAlignment={wordParts,cueDirection,estimateWordTime};
+ window.MarmaladeSubtitleWordAlignment={wordParts,cueDirection,estimateWordTime,exactWordTime};
  function closeList(){
   cueList.hidden=true;more.hidden=true;cueSearch.setAttribute('aria-expanded','false');
   expand.setAttribute('aria-expanded','false');

@@ -31,24 +31,51 @@
       .split('\n').map(x=>x.trim()).join('\n').replace(/\n{3,}/g,'\n\n').trim()
       .normalize('NFC');
   }
-  function cue(cues,start,end,body){
+  function timedMarkers(body,text,start,end){
+    // WebVTT timestamps identify the start of a following text segment.
+    // Validate monotonic times and retain only boundaries that map cleanly
+    // onto the sanitized, normalized caption text.
+    const markers=[];let previous=start;
+    for(const match of body.matchAll(/<((?:\d{2,}:)?\d{2}:\d{2}\.\d{3})>/g)){
+      const at=time(match[1]);
+      if(!Number.isFinite(at)||at<=previous||at>=end)return [];
+      previous=at;
+      const prefix=plain(body.slice(0,match.index));
+      if(!text.startsWith(prefix))return [];
+      let index=prefix.length;
+      while(index<text.length&&/\s/u.test(text[index]))index++;
+      if(index>=text.length||markers.some(marker=>marker.index===index))continue;
+      // Do not assign an exact word time to a marker inside a word.
+      if(index>0&&/[\p{L}\p{N}\p{M}]/u.test(text[index-1])&&/[\p{L}\p{N}\p{M}]/u.test(text[index]))continue;
+      markers.push({index,start:at});
+    }
+    return markers;
+  }
+  function cue(cues,start,end,body,inlineTiming=false){
     if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>180)return;
     const text=plain(body);
     // Reject unusually large cues rather than cutting a grapheme cluster in half.
-    if(text&&text.length<=10000&&cues.length<10000)cues.push({start,end,text});
+    if(text&&text.length<=10000&&cues.length<10000){
+      const item={start,end,text};
+      if(inlineTiming){
+        const markers=timedMarkers(body,text,start,end);
+        if(markers.length)item.markers=markers;
+      }
+      cues.push(item);
+    }
   }
   // Handle timestamped cues even if a SubDL release lacks blank lines.
-  function parseArrow(source,cues){
+  function parseArrow(source,cues,inlineTiming=false){
     const lines=source.replace(/^\s*WEBVTT[^\n]*\n/i,'').split('\n');
     let active=null;
-    const flush=()=>{if(active)cue(cues,active.start,active.end,active.body.join('\n'));};
+    const flush=()=>{if(active)cue(cues,active.start,active.end,active.body.join('\n'),inlineTiming);};
     for(let i=0;i<lines.length;i++){
       const line=lines[i];
       if(line.includes('-->')){
         const m=line.match(/^\s*(\d{1,3}:\d{2}:\d{2}[.,]\d+|\d{1,3}:\d{2}[.,]\d+|\d{1,3}:\d{2}:\d{2})\s*-->\s*(\d{1,3}:\d{2}:\d{2}[.,]\d+|\d{1,3}:\d{2}[.,]\d+|\d{1,3}:\d{2}:\d{2})(?:\s|$)/);
         if(m){flush();active={start:time(m[1]),end:time(m[2]),body:[]};continue;}
       }
-      if(!active||/^\s*(?:NOTE|STYLE|REGION)(?:\s|$)/i.test(line))continue;
+      if(!active)continue;
       if(/^\s*\d{1,7}\s*$/.test(line)&&lines[i+1]?.includes('-->'))continue;
       if(!line.trim()&&!active.body.length)continue;
       active.body.push(line);
@@ -68,7 +95,7 @@
       if(timing<0)continue;
       // The normal block has one timing row; retain tolerant parsing of
       // consecutive timing rows if a release omitted separating blank lines.
-      parseArrow(lines.slice(timing).join('\n'),cues);
+      parseArrow(lines.slice(timing).join('\n'),cues,true);
     }
   }
   function parseSubViewer(source,cues){
