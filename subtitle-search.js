@@ -199,6 +199,13 @@
         if((!ignoreQuality&&!matchQuality(release+' '+filename))||
            !matcher.matchesLanguage(language,lang.value)||
            !matcher.matchesEpisode(file,s,kind.value,season.value,episode.value))continue;
+        // Validate each unpacked file, even when the upstream title identity
+        // is correct. One archive may contain differently labelled releases.
+        if(kind.value!=='tv'&&year.value){
+          const requested=Number(year.value),searched=title.value.trim();
+          const years=[file.name,file.release_name].map(v=>matcher.releaseYear(v,searched)).filter(Boolean);
+          if(years.some(y=>y!==requested))continue;
+        }
         const url=dlUrl(file.url||s.url);
         if(!url)continue;
         const packaged=file===s||/\.zip(?:$|\?)/i.test(url);
@@ -219,7 +226,11 @@
     const root=document.createElement('div');root.className='sub-result';
     const info=document.createElement('div'),name=document.createElement('strong'),detail=document.createElement('small');
     name.textContent=item.name.slice(0,140);
-    detail.textContent=[item.source,String(item.lang||'').toUpperCase()].filter(Boolean).join(' · ');
+    const comparison=matcher.compareRelease(videoFilename(),item.name+' '+item.filename);
+    const hint=comparison.editionMismatch?'Different Edition':comparison.editionMatch?'Edition Label Matches':
+      comparison.sourceMismatch?'Different Source':comparison.sourceMatch?'Source Label Matches':'';
+    detail.textContent=[item.source,String(item.lang||'').toUpperCase(),hint].filter(Boolean).join(' · ');
+    if(hint)detail.title='Release-name metadata only; subtitle timing is not verified.';
     info.append(name,detail);
     const buttons=document.createElement('div');buttons.className='sub-result-actions';
     if(item.url){
@@ -274,7 +285,7 @@
       const matching=(Array.isArray(data?.subtitles)?data.subtitles:[]).filter(sub=>{
         const label=[sub.release_name,sub.name,...(sub.unpack_files||[])
           .flatMap(file=>[file.release_name,file.name])].filter(Boolean).join(' ');
-        const knownYear=matcher.releaseYear(label);
+        const knownYear=matcher.releaseYear(label,title.value.trim());
         // Existing SubDL proxy strips results[]. Unknown year does not mean
         // a different movie. Explicit mismatched years remain excluded.
         return knownYear===requested||(!identityAvailable&&knownYear===null);
@@ -287,7 +298,7 @@
           media:{name:title.value.trim(),year:requested},
           qualityFallback:!items.length&&alternatives.length>0,
           unverifiedYear:!identityAvailable&&matching.some(sub=>
-            !matcher.releaseYear([sub.release_name,sub.name].filter(Boolean).join(' ')))};
+            !matcher.releaseYear([sub.release_name,sub.name].filter(Boolean).join(' '),title.value.trim()))};
       }
       return {items:[],reason:'SubDL returned a different movie year; excluded mismatched releases.'};
     }

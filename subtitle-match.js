@@ -3,7 +3,7 @@
   'use strict';
   function normalizeTitle(value) {
     return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+      .toLowerCase().replace(/&/g, ' and ').replace(/[^\p{L}\p{N}\p{M}]+/gu, ' ').trim();
   }
   function resultYear(result) {
     const direct = String(result?.year ?? '').match(/^(18|19|20|21)\d{2}$/);
@@ -90,9 +90,19 @@
       (normalizeTitle(a.name)===normalizeTitle(searched)?1:0));
     return found[0]||null;
   }
-  function releaseYear(value) {
-    const candidates=String(value||'').match(/(?:18|19|20|21)\d{2}/g)||[];
-    return candidates.length?Number(candidates[0]):null;
+  function releaseYear(value,searched='') {
+    let text=normalizeTitle(value),title=normalizeTitle(searched);
+    // Numeric film titles are not release years (1917, 2001, etc.).
+    if(title&&(text===title||text.startsWith(title+' ')))text=text.slice(title.length).trim();
+    const candidates=text.match(/(?:^| )(?:18|19|20|21)\d{2}(?= |$)/g)||[];
+    for(const token of candidates){
+      const year=Number(token.trim());
+      // Exclude common dimension tokens (e.g. 1920 x 1080 or 2160 p).
+      if(year===1920&&/\b1920\s*x\s*1080\b/.test(text))continue;
+      if(year===2160&&/\b2160\s*p\b/.test(text))continue;
+      return year;
+    }
+    return null;
   }
   function episodeToken(text) {
     const m=String(text||'').match(/(?:^|[._\s-])s(\d{1,3})[._\s-]*e(\d{1,4})(?:\D|$)|(?:^|[._\s-])(\d{1,3})x(\d{1,4})(?:\D|$)/i);
@@ -101,18 +111,46 @@
   function matchesEpisode(file, subtitle, type, season, episode) {
     if(type!=='tv')return true;
     const specifiedSeason=Number(season||0),specifiedEpisode=Number(episode||0);
-    const named=episodeToken([file?.name,file?.release_name,subtitle?.name,subtitle?.release_name,
-      subtitle?.subtitleFileName,subtitle?.movieReleaseName].filter(Boolean).join(' '));
-    const fileSeason=Number(file?.season||subtitle?.season||named?.season||0);
-    if(specifiedSeason&&fileSeason&&specifiedSeason!==fileSeason)return false;
+    const names=[file?.name,file?.release_name,file?.subtitleFileName,file?.movieReleaseName];
+    const named=names.map(episodeToken).filter(Boolean);
+    const from=Number(subtitle?.episode_from||0),to=Number(subtitle?.episode_end||0);
+    const pack=from>0&&to>=from;
+    const distinct=file!==subtitle;
+    // A pack covering episode 5 cannot make an unpacked S02E06 file
+    // compatible. Check every concrete file identity, not the first token.
+    if(specifiedSeason&&[Number(file?.season||0),...named.map(x=>x.season)]
+      .some(n=>n&&n!==specifiedSeason))return false;
+    if(specifiedEpisode&&[Number(file?.episode||0),...named.map(x=>x.episode)]
+      .some(n=>n&&n!==specifiedEpisode)&& (distinct||!pack))return false;
+    const parent=[subtitle?.name,subtitle?.release_name,subtitle?.subtitleFileName,subtitle?.movieReleaseName].map(episodeToken).filter(Boolean);
+    if(specifiedSeason&&[Number(subtitle?.season||0),...parent.map(x=>x.season)]
+      .some(n=>n&&n!==specifiedSeason))return false;
     if(specifiedEpisode){
-      const fileEpisode=Number(file?.episode||subtitle?.episode||named?.episode||0);
-      const from=Number(subtitle?.episode_from||0),to=Number(subtitle?.episode_end||0);
-      if(fileEpisode&&fileEpisode!==specifiedEpisode&&
-          !(from&&to&&specifiedEpisode>=from&&specifiedEpisode<=to))return false;
-      if(!fileEpisode&&from&&to&&(specifiedEpisode<from||specifiedEpisode>to))return false;
+      if(pack&&(specifiedEpisode<from||specifiedEpisode>to))return false;
+      if(!pack&&[Number(subtitle?.episode||0),...parent.map(x=>x.episode)]
+        .some(n=>n&&n!==specifiedEpisode))return false;
     }
     return true;
+  }
+  function releaseTraits(value){
+    const raw=normalizeTitle(value);
+    const text=raw.replace(/\bweb\s+dl\b/g,'webdl').replace(/\bweb\s+rip\b/g,'webrip')
+      .replace(/\bblu\s+ray\b/g,'bluray').replace(/\bdirector\s+s\b/g,'directors');
+    const source=/\bremux\b/.test(text)?'remux':/\b(?:bluray|bdrip|brrip)\b/.test(text)?'bluray':
+      /\bwebdl\b/.test(text)?'webdl':/\bwebrip\b/.test(text)?'webrip':
+      /\b(?:dvdrip|dvd)\b/.test(text)?'dvd':/\bhdtv\b/.test(text)?'hdtv':'';
+    const edition=/\b(?:directors?|director s)\s+cut\b/.test(text)?'director':
+      /\b(?:extended|extended edition)\b/.test(text)?'extended':
+      /\btheatrical\b/.test(text)?'theatrical':
+      /\b(?:unrated|uncut)\b/.test(text)?'uncut':'';
+    return {source,edition};
+  }
+  function compareRelease(video,release){
+    const a=releaseTraits(video),b=releaseTraits(release);
+    const editionMismatch=!!a.edition&&!!b.edition&&a.edition!==b.edition;
+    const sourceMismatch=!!a.source&&!!b.source&&a.source!==b.source;
+    return {editionMismatch,sourceMismatch,editionMatch:!!a.edition&&a.edition===b.edition,
+      sourceMatch:!!a.source&&a.source===b.source};
   }
   function scoreRelease(video,release){
     const source=normalizeTitle(video).split(' '),candidate=normalizeTitle(release).split(' ');
@@ -121,7 +159,9 @@
     const significant=new Set(['web','webrip','webdl','bluray','bdrip','remux','hdtv',
       'dvdrip','extended','directors','cut','proper','repack','x264','x265','h264','h265',
       'hevc','av1','480p','720p','1080p','2160p','4k','hdr','dv']);
-    let score=0;
+    const traits=compareRelease(video,release);
+    let score=(traits.editionMatch?100:0)-(traits.editionMismatch?180:0)+
+      (traits.sourceMatch?45:0)-(traits.sourceMismatch?35:0);
     for(const token of media){
       if(token.length<3)continue;
       if(subs.has(token))score+=significant.has(token)?10:3;
@@ -135,7 +175,7 @@
     return score;
   }
   const api = {normalizeTitle,resultYear,matchesTitle,selectTitle,lookupParams,searchParams,
-    matchesQuality,matchesLanguage,canonicalLanguage,matchesEpisode,episodeToken,scoreRelease,selectCatalogTitle,releaseYear};
+    matchesQuality,matchesLanguage,canonicalLanguage,matchesEpisode,episodeToken,scoreRelease,compareRelease,selectCatalogTitle,releaseYear};
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.MarmaladeSubtitleMatch = api;
 })(typeof window !== 'undefined' ? window : globalThis);

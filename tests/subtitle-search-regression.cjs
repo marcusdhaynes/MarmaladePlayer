@@ -104,3 +104,29 @@ test('SubDL subtitle release year does not confuse the 2017 remake',()=>{
   assert.notEqual(match.releaseYear('Beauty.and.the.Beast.2017.1080p.WEB'),1991);
   assert.equal(match.releaseYear('Unlabelled release'),null);
 });
+
+test('international titles retain their writing systems',()=>{
+ assert.notEqual(match.normalizeTitle('千と千尋の神隠し'),'');
+ assert.equal(match.matchesTitle('الفيلم','الفيلم'),true);
+ assert.equal(match.matchesTitle('千と千尋の神隠し','もののけ姫'),false);
+});
+test('numeric film titles and video dimensions do not become release years',()=>{
+ assert.equal(match.releaseYear('1917.2019.1080p.BluRay','1917'),2019);
+ assert.equal(match.releaseYear('2001 A Space Odyssey 1968','2001 A Space Odyssey'),1968);
+ assert.equal(match.releaseYear('Movie.2160p.WEB-DL'),null);
+ assert.equal(match.releaseYear('Movie 1920x1080'),null);
+});
+test('unpacked wrong episode cannot inherit eligibility from a season pack',()=>{
+ const pack={name:'Show.S02E01-E08',season:2,episode_from:1,episode_end:8};
+ assert.equal(match.matchesEpisode({name:'Show.S02E06.srt'},pack,'tv','2','5'),false);
+ assert.equal(match.matchesEpisode({name:'Show.S02E05.srt'},pack,'tv','2','5'),true);
+ assert.equal(match.matchesEpisode({name:'Show.S02E06.srt',episode:5},pack,'tv','2','5'),false);
+ assert.equal(match.matchesEpisode(pack,pack,'tv','2','5'),true);
+});
+test('matching edit and normalized source outrank resolution-only similarities',()=>{
+ const video='Movie.2005.Directors.Cut.1080p.WEB-DL';
+ assert.ok(match.scoreRelease(video,'Movie.2005.Directors.Cut.720p.WEBDL.srt')>
+   match.scoreRelease(video,'Movie.2005.Theatrical.1080p.WEB-DL.srt'));
+ assert.equal(match.compareRelease(video,'Movie.2005.Theatrical.1080p.WEB-DL.srt').editionMismatch,true);
+ assert.equal(match.compareRelease(video,'Movie.2005.Directors.Cut.720p.WEBDL.srt').sourceMatch,true);
+});
