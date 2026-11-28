@@ -156,3 +156,6 @@ Section 06 — Independent embedded WebVTT playback acceptance. Local Chrome pas
 
 
 Section 06 — Standalone ASS V4+ named style typography. The primary/secondary text overlay renders authored font family, primary colour and opacity, bold, italic, underline and strikeout on individual cues. Recognizes leading cue-wide colour and emphasis overrides. Local Chrome verified Arabic text and same-text red/blue speaker styles with bold, italic, underline and strikeout across forward and backward seeks. All 35 codec tests and three independently muxed WebVTT browser fixtures passed. Mid-line override runs, authored layout/positioning, animation, embedded ASS styling and physical-device rendering remain open.
+
+
+Section 06 — Embedded S_TEXT/ASS named style import. FFmpeg-muxed Matroska with Arabic dialogue passed Chrome Find Tracks, Load Track, forward/back seeks and computed style checks. All 35 codec tests and prior standalone ASS/WebVTT regressions passed locally. Section 03/15 run 46103776636 passed live playback; both HD jobs timed out before host Play became enabled. Switched buffered fixtures to VP9/Opus and added host diagnostics. HD recovery timings remain unverified.

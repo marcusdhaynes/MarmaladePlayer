@@ -766,22 +766,31 @@ try {
   if(scenario!=='live')execFileSync(process.execPath,['scripts/install-mkv-decoder.mjs'],{stdio:'inherit',timeout:120000});
   for(const height of [720,1080].filter(h=>scenario==='all'||scenario===String(h))){
     const width=height===720?1280:1920;
-    const clip=join(dir,'buffer-clip-'+height+'.mp4');
-    const movie=join(dir,'buffer-movie-'+height+'.mp4');
+    const clip=join(dir,'buffer-clip-'+height+'.webm');
+    const movie=join(dir,'buffer-movie-'+height+'.webm');
     // Loop a short encoded sequence so the out-of-window seek has real keyframes
     // and over three minutes remaining without encoding a full feature film.
     execFileSync('ffmpeg',['-v','error','-f','lavfi','-i',
       'testsrc2=size='+width+'x'+height+':rate=24','-f','lavfi','-i',
-      'sine=frequency=440:sample_rate=48000','-t','2','-c:v','libx264',
-      '-preset','ultrafast','-crf','36','-g','24','-pix_fmt','yuv420p',
-      '-c:a','aac','-y',clip],{timeout:60000});
+      'sine=frequency=440:sample_rate=48000','-t','2','-c:v','libvpx-vp9',
+      '-deadline','realtime','-cpu-used','8','-crf','42','-b:v','0','-g','24','-pix_fmt','yuv420p',
+      '-c:a','libopus','-y',clip],{timeout:60000});
     execFileSync('ffmpeg',['-v','error','-stream_loop','359','-i',clip,
-      '-c','copy','-movflags','+faststart','-y',movie],{timeout:60000});
+      '-c','copy','-y',movie],{timeout:60000});
     const sender=await makePage(),viewer=await makePage();
     try{
       await sender.goto('http://127.0.0.1:'+WEB_PORT);
       await sender.locator('#fileInput').setInputFiles(movie);
-      await sender.waitForFunction(()=>!document.querySelector('#playPause').disabled);
+      try{
+        await sender.waitForFunction(()=>!document.querySelector('#hostActive').hidden&&!document.querySelector('#playPause').disabled);
+      }catch(error){
+        console.error('Buffered host setup',await sender.evaluate(()=>{
+          const v=document.querySelector('#player'),s=window.MarmaladeAddonBridge?.state;
+          return {source:s?.source,fileReady:s?.fileReady,role:s?.role,readyState:v.readyState,
+            mediaError:v.error?.message,connection:document.querySelector('#connectionText')?.textContent};
+        }));
+        throw error;
+      }
       await sender.locator('#playPause').click({force:true});
       await sender.waitForFunction(()=>!!window.MarmaladeRollingBuffer?.offer());
       let began=Date.now();

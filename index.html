@@ -6373,8 +6373,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         }catch{notify('VobSub loaded, but could not be saved on this device.');}
         return {inferred:0};
       }
-      const bitmap=result.format==='pgs',extension=bitmap?'.sup':'.vtt';
-      await loadSelectedSubtitle(new File([result.raw],label+extension,{type:bitmap?'application/octet-stream':'text/vtt'}),null,{
+      const bitmap=result.format==='pgs',extension=bitmap?'.sup':result.format==='ass'?'.ass':'.vtt';
+      await loadSelectedSubtitle(new File([result.raw],label+extension,{type:bitmap?'application/octet-stream':result.format==='ass'?'text/plain':'text/vtt'}),null,{
         mediaKey:key,restoreToken:token,id:'mkv-track:'+number,lang:result.track.language,encoding:'utf-8'});
       return {inferred:result.inferred};
     }

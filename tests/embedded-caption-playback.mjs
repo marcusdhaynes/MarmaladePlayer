@@ -28,16 +28,31 @@ function makeMatroska(file,captions){
   mux.finalize();
   writeFileSync(file,new Uint8Array(target.buffer));
 }
+      const assSource=[
+        '[Script Info]','ScriptType: v4.00+','[V4+ Styles]',
+        'Format: Name, Fontname, PrimaryColour, Bold, Italic, Underline, StrikeOut',
+        'Style: Speaker,Arial,&H000000FF,-1,0,-1,0',
+        'Style: Aside,Arial,&H00FF0000,0,-1,0,-1','[Events]',
+        'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+        'Dialogue: 0,0:00:00.50,0:00:02.00,Speaker,,0,0,0,,مرحبا',
+        'Dialogue: 0,0:00:03.00,0:00:05.50,Aside,,0,0,0,,مرحبا'
+      ].join('\n');
+
 let browser;
 try{
   const captions=join(dir,'captions.vtt');
   writeFileSync(captions,'WEBVTT\n\nopening\n00:00:00.500 --> 00:00:02.000\nFirst line\nمرحبا\n\nclosing\n00:00:03.000 --> 00:00:05.500\nSecond scene\n');
   const origin='http://marmalade.test';
   browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||undefined});
-  for(const variant of ['ffmpeg-mkv','ffmpeg-webm','matroska-vtt']){
+  for(const variant of ['ffmpeg-mkv','ffmpeg-webm','matroska-vtt','embedded-ass']){
     const ext=variant==='ffmpeg-webm'?'webm':'mkv';
     const file=join(dir,variant+'.'+ext);
-    if(variant==='matroska-vtt')makeMatroska(file,captions);
+    if(variant==='embedded-ass'){
+      const input=join(dir,'speaker.ass');
+      writeFileSync(input,assSource);
+      execFileSync(process.env.FFMPEG_PATH||'ffmpeg',['-v','error','-i',join(dir,'ffmpeg-webm.webm'),
+        '-i',input,'-map','0:v:0','-map','1:s:0','-c','copy',file],{timeout:30000});
+    }else if(variant==='matroska-vtt')makeMatroska(file,captions);
     else
     execFileSync(process.env.FFMPEG_PATH||'ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i',
       'color=size=160x90:rate=12:duration=6','-i',captions,'-map','0:v','-map','1:s','-c:v','libvpx',
@@ -63,14 +78,14 @@ try{
     const track=page.locator('#subMkvTrack option:enabled').first();
     await track.waitFor({state:'attached'});
     const label=await track.textContent();
-    const expectedCodecs=variant==='matroska-vtt'?['S_TEXT/WEBVTT']:
+    const expectedCodecs=variant==='embedded-ass'?['S_TEXT/ASS']:variant==='matroska-vtt'?['S_TEXT/WEBVTT']:
       ext==='webm'?['D_WEBVTT/SUBTITLES']:['D_WEBVTT/SUBTITLES','S_TEXT/WEBVTT'];
     assert.ok(expectedCodecs.some(codec=>label.includes(codec)),label);
     await page.locator('#subMkvTrack').selectOption(await track.getAttribute('value'));
     await page.locator('#subMkvLoad').click();
     await page.waitForFunction(()=>document.querySelector('#subMkvStatus').textContent.startsWith('Embedded subtitles loaded.'));
     await page.locator('#closeSubtitlePanel').click();
-    for(const [at,expected] of [[1,'First line'],[4,'Second scene'],[2.5,''],[1,'مرحبا']]){
+    if(variant!=='embedded-ass')for(const [at,expected] of [[1,'First line'],[4,'Second scene'],[2.5,''],[1,'مرحبا']]){
       await page.locator('#player').evaluate((v,at)=>{v.pause();v.currentTime=at;},at);
       await page.waitForFunction(({at,expected})=>{
         const v=document.querySelector('#player'),el=document.querySelector('#subtitleOverlay');
@@ -79,18 +94,9 @@ try{
         return !v.seeking&&Math.abs(v.currentTime-at)<.1&&(expected?visible&&text.includes(expected):!visible||!text);
       },{at,expected},{timeout:8000});
     }
-    console.log('PASS',variant,label,'English and Arabic, forward seek, empty interval and backward seek');
-    if(variant==='ffmpeg-webm'){
-      const source=[
-        '[Script Info]','ScriptType: v4.00+','[V4+ Styles]',
-        'Format: Name, Fontname, PrimaryColour, Bold, Italic, Underline, StrikeOut',
-        'Style: Speaker,Arial,&H000000FF,-1,0,-1,0',
-        'Style: Aside,Arial,&H00FF0000,0,-1,0,-1','[Events]',
-        'Format: Start, End, Style, Text',
-        'Dialogue: 0:00:00.50,0:00:02.00,Speaker,مرحبا',
-        'Dialogue: 0:00:03.00,0:00:05.50,Aside,مرحبا'
-      ].join('\n');
-      await page.locator('#subtitleFile').setInputFiles({name:'speaker.ass',mimeType:'text/plain',buffer:Buffer.from(source)});
+    if(variant!=='embedded-ass')console.log('PASS',variant,label,'English and Arabic, forward seek, empty interval and backward seek');
+    if(variant==='ffmpeg-webm'||variant==='embedded-ass'){
+      if(variant==='ffmpeg-webm')await page.locator('#subtitleFile').setInputFiles({name:'speaker.ass',mimeType:'text/plain',buffer:Buffer.from(assSource)});
       for(const [at,color,weight,slant,line] of [
         [1,'rgb(255, 0, 0)','700','normal','underline'],
         [4,'rgb(0, 0, 255)','400','italic','line-through'],
@@ -104,7 +110,7 @@ try{
           return css.color===color&&css.fontWeight===weight&&css.fontStyle===slant&&css.textDecorationLine===line;
         },{color,weight,slant,line},{timeout:8000});
       }
-      console.log('PASS named ASS typography, Arabic text and equal-text style changes across seeks');
+      console.log(variant,'PASS named ASS typography, Arabic text and equal-text style changes across seeks');
     }
     await page.close();
   }

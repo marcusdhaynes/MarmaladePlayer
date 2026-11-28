@@ -501,6 +501,16 @@
             try{track.privateText=track.privateField?await str(track.privateField):'';vobSubInfo(track.privateText);}
             catch{track.supported=false;}
           }
+          if(track.codec==='S_TEXT/ASS'&&track.privateField&&track.number===trackNumber){
+            // Import only named style records. Events are sourced from timed blocks.
+            let inStyles=false;
+            const lines=[];
+            for(const line of (await str(track.privateField)).split(/\r\n?|\n/)){
+              if(/^\s*\[/.test(line))inStyles=/^\s*\[V4\+ Styles\]\s*$/i.test(line);
+              else if(inStyles&&/^\s*(?:Format|Style)\s*:/i.test(line))lines.push(line);
+            }
+            if(lines.length)track.assStyles=lines.join('\n');
+          }
           delete track.privateField;
           tracks.push(track);
         }
@@ -591,6 +601,7 @@
       check();onProgress?.(100);
       return {tracks,track,raw,format:'pgs',inferred:0};
     }
+    const dialogue=[];
     for(let i=0;i<packets.length;i++){
       const packet=packets[i],start=packet.ticks*factor;
       let duration=packet.duration===null?track.defaultDuration:packet.duration*factor;
@@ -613,10 +624,22 @@
         text=parts.slice(8).join(',');
         // ASS vector drawings are not dialogue.
         if(/\{[^}]*\\p[1-9]/.test(text))continue;
+        if(track.assStyles){
+          if(start<0||start+duration>3599999||duration>180||text.length>10000)continue;
+          const style=parts[2].replace(/[\r\n]/g,' ');
+          dialogue.push('Dialogue: '+vttStamp(start)+','+vttStamp(start+duration)+','+style+','+text.replace(/\r\n?|\n/g,'\\N'));
+          continue;
+        }
       }
       rows.push({startTime:start,endTime:start+duration,text});
     }
     check();onProgress?.(100);
+    if(track.assStyles){
+      const raw=['[Script Info]','ScriptType: v4.00+','[V4+ Styles]',track.assStyles,
+        '[Events]','Format: Start, End, Style, Text',...dialogue].join('\n');
+      if(!dialogue.length||new TextEncoder().encode(raw).length>5*1024*1024)throw Error('No usable embedded ASS track within caption limits');
+      return {tracks,track,raw,format:'ass',inferred};
+    }
     return {tracks,track,raw:snapshotTextTrack(rows,track.codec.includes('WEBVTT')),format:'vtt',inferred};
   }
   // Matroska PGS blocks carry type + big-endian 16-bit segment length,
