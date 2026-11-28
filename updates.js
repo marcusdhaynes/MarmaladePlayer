@@ -8,7 +8,9 @@
   var CURRENT_VERSION = '0.1.0';
   var build = document.querySelector('meta[name="marmalade-build"]')?.content || '';
   var stamped = /^[a-f0-9]{40}$/.test(build);
-  var installed = stamped ? build.slice(0,12) : 'v'+CURRENT_VERSION;
+  var nativeBuild = document.querySelector('meta[name="marmalade-native-build"]')?.content || '';
+  var nativeStamped = /^[a-f0-9]{40}$/.test(nativeBuild);
+  var installed = nativeStamped ? nativeBuild.slice(0,12) : stamped ? build.slice(0,12) : 'v'+CURRENT_VERSION;
   function automaticChecks(){try{return localStorage.getItem('marmalade:auto-update-checks')!=='false';}catch{return true;}}
   var inFlight=null;
   function activePlayback(){
@@ -32,6 +34,10 @@
   }
   function checkForUpdate() {
     if(inFlight)return inFlight;
+    // Commit-pinned native packages are not semantic releases. Until a
+    // platform-specific installer feed is available, never claim they are
+    // current based on the unrelated web deployment or old version 0.1.0.
+    if(nativeStamped)return Promise.reject(Error('Native installer update feed unavailable'));
     var request=stamped?fetch(new URL('build-info.json',document.baseURI),{cache:'no-store'}).then(function(res){
       if(!res.ok)throw Error('Deployment check failed');
       return res.json();
@@ -71,7 +77,7 @@
     if(activePlayback()){window.MarmaladeAddonBridge?.notify('Pause playback and leave the room before updating.');return;}
     if(info.web){window.location.reload();return;}
     if (info.downloadUrl) window.open(info.downloadUrl, '_blank', 'noopener');
-    window.location.reload();
+    if(!nativeStamped)window.location.reload();
   }
 
   function renderSection(el,info,status){

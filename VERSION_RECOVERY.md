@@ -94,3 +94,16 @@ publishing. The contract suite also tests deterministic stamping, tamper
 detection, and simulated forward/backward service-worker cache migrations.
 These are non-destructive rehearsals; they do not roll back the production site
 or prove bit-for-bit reproducibility of every native installer.
+
+## Native runtime integrity
+
+Desktop and mobile preparation now embeds the full Git commit and shell identity
+in the installed HTML, displays that commit in Settings, and records SHA-256
+hashes for every staged runtime file (including the lazy decoder and platform
+bridge). Preparation verifies the manifest against the actual payload. The
+contract suite independently stages the same checkout twice, compares manifest
+bytes and rejects corrupted restored assets. This checks reproducible **runtime
+contents**, not signatures, timestamps or bit-for-bit native installer builds.
+Native installer availability cannot be inferred from the web deployment;
+until a platform-specific feed is implemented, the update UI reports that it
+cannot check rather than claiming an outdated native package is current.

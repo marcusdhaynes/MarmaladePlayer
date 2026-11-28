@@ -1,5 +1,6 @@
 import {copyFileSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
+import {stampNativeRuntime} from '../../scripts/stamp-native-runtime.mjs';
 import {resolve,join} from 'node:path';
 const root=resolve(import.meta.dirname,'../..');
 const dest=resolve(root,'desktop/web');
@@ -24,4 +25,5 @@ html=html.replace(/if \('serviceWorker' in navigator && location\.protocol === '
 html=html.replace('</head>', '<script src="./desktop-native-window.js" defer></script></head>');
 writeFileSync(join(dest,'index.html'),html);
 copyFileSync(join(root,'desktop/desktop-native-window.js'),join(dest,'desktop-native-window.js'));
+stampNativeRuntime(root,dest,'desktop');
 console.log('Bundled',assets.length,'shared MarmaladePlayer files for Windows/macOS/Linux.');

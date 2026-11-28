@@ -1,5 +1,6 @@
 import {copyFileSync, mkdirSync, readFileSync, writeFileSync, rmSync, cpSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
+import {stampNativeRuntime} from '../../scripts/stamp-native-runtime.mjs';
 import {resolve, join} from 'node:path';
 const root=resolve(import.meta.dirname,'../..');
 const dest=resolve(root,'mobile/www');
@@ -25,4 +26,5 @@ html=html.replace(/if \('serviceWorker' in navigator && location\.protocol === '
   "if (!window.Capacitor?.isNativePlatform?.() && 'serviceWorker' in navigator && location.protocol === 'https:')");
 writeFileSync(join(dest,'index.html'),html);
 copyFileSync(join(root,'mobile/native-entry.js'),join(dest,'native-entry.js'));
+stampNativeRuntime(root,dest,'mobile');
 console.log('Prepared',files.length+1,'shared MarmaladePlayer assets for native mobile packaging.');

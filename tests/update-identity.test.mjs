@@ -4,11 +4,11 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const code=readFileSync(new URL('../updates.js',import.meta.url),'utf8');
 const current='a'.repeat(40),next='b'.repeat(40);
-function fixture(commit=current){
+function fixture(commit=current,nativeCommit=''){
  let requestCount=0,reloads=0,notice='',handler,respond,storage=new Map();
  const video={paused:true},state={broadcasting:false,connections:new Map()};
  const window={location:{reload:()=>reloads++},MarmaladeAddonBridge:{state,notify:msg=>notice=msg}};
- const document={readyState:'loading',baseURI:'https://example.test/',querySelector:()=>commit?{content:commit}:null,getElementById:id=>id==='player'?video:null,addEventListener:(_,fn)=>handler=fn};
+ const document={readyState:'loading',baseURI:'https://example.test/',querySelector:selector=>{const value=selector.includes('native-build')?nativeCommit:commit;return value?{content:value}:null;},getElementById:id=>id==='player'?video:null,addEventListener:(_,fn)=>handler=fn};
  const fetch=async()=>{requestCount++;return respond();};
  const localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)};
  const context={window,document,fetch,localStorage,URL};
@@ -38,4 +38,10 @@ test('unstamped builds reject non-versioned backup tags and HTTP errors',async()
  const f=fixture('');f.setResponse(()=>({ok:true,json:async()=>({tag_name:'marmalade-backup-1234'})}));await assert.rejects(f.api.checkForUpdate(),/No comparable release version/);
  f.setResponse(()=>({ok:false}));await assert.rejects(f.api.checkForUpdate(),/Release check failed/);
  f.setResponse(()=>({ok:true,json:async()=>({tag_name:'v0.1.0'})}));assert.equal(await f.api.checkForUpdate(),null);
+});
+
+test('commit-pinned native packages do not misreport a web or semantic release as their installer update',async()=>{
+ const f=fixture('',current);
+ await assert.rejects(f.api.checkForUpdate(),/Native installer update feed unavailable/);
+ assert.equal(f.counts().requestCount,0);
 });
