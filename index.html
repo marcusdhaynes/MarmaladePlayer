@@ -1901,7 +1901,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(!record||ticket!==subtitleRestoreSequence||subtitleMediaKey()!==key)return;
     const source={kind:record.kind==='search'?'search':'local',url:record.url||'',
       name:record.name||'',filename:record.entryName||record.name||'',fps:record.fps||0,
-      id:record.id||'',lang:record.lang||'',restored:true,restoreToken:ticket,mediaKey:key};
+      id:record.id||'',lang:record.lang||'',encoding:record.encoding||'auto',restored:true,restoreToken:ticket,mediaKey:key};
     if(source.kind==='search'){
       try{
         if(!source.url)throw Error('Subtitle URL Was Not Saved');
@@ -2320,12 +2320,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
           : 'No future video buffered at the current position')
       : `${seconds.toFixed(1)} seconds ready ahead`;
   }
-  async function readSubtitleText(file){
+  async function readSubtitleText(file,encoding='auto'){
     if(file.size>5*1024*1024)throw Error('Subtitle File Too Large');
     const bytes=await file.arrayBuffer();
     const decoder=window.MarmaladeSubtitleCodec;
     if(!decoder?.decodeBytes)throw Error('Subtitle Decoder Not Loaded');
-    return decoder.decodeBytes(bytes);
+    return decoder.decodeBytes(bytes,encoding);
   }
   function parseSubtitles(raw,name='',fps=0){
     const decoder=window.MarmaladeSubtitleCodec;
@@ -2358,7 +2358,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       file=new File([match.bytes],match.name,{type:'text/plain'});
     }
     if(file.size>5*1024*1024)throw Error('Subtitle text exceeds 5 MB');
-    const raw=await readSubtitleText(file);
+    const raw=await readSubtitleText(file,options.restored?'utf-8':options.encoding||'auto');
     const decoded=parseSubtitles(raw,file.name);
     if(!decoded.cues.length)throw Error(decoded.error||'No readable subtitle cues');
     if(seq!==secondaryLoadSequence||key!==subtitleMediaKey())throw Error('Video changed while loading captions');
@@ -6160,7 +6160,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const [handle]=await window.showOpenFilePicker({multiple:false,types:[{
         description:'Subtitle Files And ZIP Packages',accept:{'text/plain':['.srt','.sub','.ass','.ssa','.sbv'], 'text/vtt':['.vtt'],'application/zip':['.zip']}
       }]});
-      if(handle)await loadSelectedSubtitle(await handle.getFile(),handle);
+      if(handle)await loadSelectedSubtitle(await handle.getFile(),handle,{encoding:document.getElementById('primarySubtitleEncoding')?.value||'auto'});
     }catch(error){if(error?.name!=='AbortError')el.subtitleFile.click();}
   });
   el.hideSubtitle.addEventListener('click',()=>{
@@ -6184,7 +6184,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       throw Error('Subtitle ZIP is damaged or not a ZIP archive');
     }
     if(file.size>5*1024*1024)throw Error('Subtitle Text Exceeds 5 MB');
-    const raw=await readSubtitleText(file);
+    const encoding=source.encoding||'auto';
+    const raw=await readSubtitleText(file,source.fromCache?'utf-8':encoding);
     const decoded=parseSubtitles(raw,file.name,source.fps);
     if(!decoded.cues.length)throw Error(decoded.error||'No Readable Subtitle Cues');
     if(token!==subtitleRestoreSequence||key!==subtitleMediaKey())
@@ -6207,7 +6208,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(key){
       const record={kind:source.kind==='search'?'search':'local',name:file.name,
         containerName:original.name,entryName:file.name,
-        id,url:source.url||'',lang:source.lang||'',fps:Number(source.fps)||0,handle:handle||null,
+        id,url:source.url||'',lang:source.lang||'',fps:Number(source.fps)||0,encoding,handle:handle||null,
         content:(source.kind==='search'||!handle)?raw:undefined};
       try{await subtitleHandleStore('put',key,record);}catch(error){
         console.warn('Could not save subtitle selection',error);
@@ -6224,7 +6225,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   el.subtitleFile.addEventListener('change',async()=>{
     const file=el.subtitleFile.files?.[0];
-    try{if(file)await loadSelectedSubtitle(file);}
+    try{if(file)await loadSelectedSubtitle(file,null,{encoding:document.getElementById('primarySubtitleEncoding')?.value||'auto'});}
     catch(error){notify('Subtitle Could Not Be Loaded: '+String(error.message||error).slice(0,120));}
     el.subtitleFile.value='';
   });

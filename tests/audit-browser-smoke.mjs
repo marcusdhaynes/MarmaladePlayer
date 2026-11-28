@@ -401,6 +401,17 @@ try{
     window.MarmaladeAddonBridge.state.subtitles=[{start:0,end:4,text:'Primary captions'}];
     window.MarmaladeSubtitleRefresh();
   });
+  assert.equal(await page.locator('#primarySubtitleEncoding').inputValue(),'auto');
+  assert.equal(await page.locator('#secondarySubtitleEncoding').inputValue(),'auto');
+  await page.locator('#secondarySubtitleEncoding').evaluate(select=>{select.value='windows-1251';});
+  const cyrillic=Buffer.concat([Buffer.from('1\n00:00:00,000 --> 00:00:04,000\n'),Buffer.from([0xcf,0xf0,0xe8,0xe2,0xe5,0xf2])]);
+  await page.locator('#secondarySubtitleFile').setInputFiles({name:'russian.srt',mimeType:'text/plain',buffer:cyrillic});
+  await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('Привет'));
+  assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions\nПривет');
+  assert.equal(await page.locator('#primarySubtitleEncoding').inputValue(),'auto');
+  await page.locator('#secondarySubtitleEncoding').evaluate(select=>{select.value='auto';});
+  await page.locator('#secondarySubtitleFile').setInputFiles({name:'secondary.sbv',mimeType:'text/plain',buffer:Buffer.from('0:00:00.000,0:00:04.000\nمرحبا بالعالم')});
+  await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('مرحبا بالعالم'));
   await page.evaluate(()=>window.MarmaladeSecondarySubtitle.setOffset(5));
   assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions');
   await page.evaluate(()=>{window.MarmaladeSecondarySubtitle.setOffset(0);window.MarmaladeSubtitleTiming.set(5);});

@@ -83,6 +83,16 @@
     }
     flush();
   }
+  function parseSbv(source,cues){
+    let active=null;
+    const flush=()=>{if(active)cue(cues,active.start,active.end,active.body.join('\n'));};
+    for(const line of source.split('\n')){
+      const match=line.match(/^\s*(\d{1,3}:\d{2}:\d{2}\.\d+)\s*,\s*(\d{1,3}:\d{2}:\d{2}\.\d+)\s*$/);
+      if(match){flush();active={start:time(match[1]),end:time(match[2]),body:[]};}
+      else if(active)active.body.push(line);
+    }
+    flush();
+  }
   function parseMicroDVD(source,cues,options){
     const lines=source.split('\n');
     let fps=Number(options?.fps)||0;
@@ -143,6 +153,7 @@
     else if(isMicroDVD){format='microdvd';const data=parseMicroDVD(source,cues,{...options,filename});
       fps=data.fps;
       if(data.assumed)warning='MicroDVD file has no frame-rate header. Using 23.976 FPS; adjust or choose a matching release if timing drifts.';}
+    else if(ext==='sbv'){format='sbv';parseSbv(source,cues);}
     else if(isSubViewer){format='subviewer';parseSubViewer(source,cues);}
     else{format=/^\s*WEBVTT/i.test(source)||ext==='vtt'?'vtt':'srt';
       if(format==='vtt')parseVtt(source,cues);else parseArrow(source,cues);}
@@ -151,10 +162,24 @@
   }
   // Decode bytes before parsing. Do not interpret isolated Western accents
   // as Arabic: Windows-1256 maps many of the same high bytes to Arabic.
-  function decodeBytes(input){
+  const encodings=Object.freeze([
+    ['auto','Automatic'],['utf-8','UTF-8'],['utf-16le','UTF-16 LE'],['utf-16be','UTF-16 BE'],
+    ['windows-1256','Arabic (Windows-1256)'],['windows-1252','Western European (Windows-1252)'],
+    ['windows-1250','Central European (Windows-1250)'],['windows-1251','Cyrillic (Windows-1251)'],
+    ['windows-1253','Greek (Windows-1253)'],['windows-1254','Turkish (Windows-1254)'],
+    ['windows-1255','Hebrew (Windows-1255)'],['windows-1257','Baltic (Windows-1257)'],
+    ['windows-1258','Vietnamese (Windows-1258)'],['windows-874','Thai (Windows-874)'],
+    ['shift_jis','Japanese (Shift JIS)'],['euc-kr','Korean (EUC-KR)'],
+    ['gb18030','Chinese Simplified (GB18030)'],['big5','Chinese Traditional (Big5)']
+  ].map(Object.freeze));
+  function decodeBytes(input,encoding='auto'){
     const bytes=input instanceof Uint8Array?input:new Uint8Array(input);
     if(bytes.byteLength>5*1024*1024)throw Error('Subtitle File Too Large');
     const strict=encoding=>new TextDecoder(encoding,{fatal:true}).decode(bytes);
+    if(encoding!=='auto'){
+      if(!encodings.some(([key])=>key===encoding))throw Error('Unsupported Subtitle Encoding');
+      try{return strict(encoding);}catch{throw Error('Subtitle Cannot Be Decoded With The Selected Encoding');}
+    }
     if(bytes[0]===0xff&&bytes[1]===0xfe)return strict('utf-16le');
     if(bytes[0]===0xfe&&bytes[1]===0xff)return strict('utf-16be');
     // BOM-less UTF-16: require a strong, asymmetric alternating NUL pattern
@@ -215,7 +240,7 @@
     visit(1,0,size);
     return active.reverse().join('\n');
   }
-  const api={time,plain,decode,decodeBytes,activeText};
+  const api={time,plain,decode,decodeBytes,activeText,encodings};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

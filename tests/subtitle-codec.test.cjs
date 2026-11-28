@@ -101,3 +101,19 @@ test('simultaneous cues are ordered, deduplicated and bounded',()=>{
  const shown=codec.activeText(cues,13).split('\n');
  assert.equal(shown.length,8);assert.equal(shown[0],'Line 4');assert.equal(shown[7],'Line 11');
 });
+
+test('SBV timestamps, multiline text and three-digit hours are supported',()=>{
+ const source='0:00:01.000,0:00:02.500\nHello\nمرحبا\n\n100:00:00.000,100:00:01.500\nLater';
+ const parsed=codec.decode(source,'captions.sbv');
+ assert.equal(parsed.format,'sbv');
+ assert.deepEqual(parsed.cues,[{start:1,end:2.5,text:'Hello\nمرحبا'},{start:360000,end:360001.5,text:'Later'}]);
+});
+test('manual encodings decode otherwise ambiguous legacy scripts and fail safely',()=>{
+ const prefix=Buffer.from('1\n00:00:01,000 --> 00:00:04,000\n');
+ const bytes=Buffer.concat([prefix,Buffer.from([0xcf,0xf0,0xe8,0xe2,0xe5,0xf2])]);
+ assert.equal(codec.decode(codec.decodeBytes(bytes,'windows-1251'),'film.srt').cues[0].text,'Привет');
+ assert.throws(()=>codec.decodeBytes(bytes,'utf-8'),/Selected Encoding/);
+ assert.throws(()=>codec.decodeBytes(bytes,'invalid'),/Unsupported/);
+ assert.equal(codec.decodeBytes(Buffer.from('مرحبا'),'utf-8'),'مرحبا');
+ assert.equal(codec.encodings[0][0],'auto');
+});

@@ -42,6 +42,20 @@
   el.loadSubtitle.title='Load subtitles or extract text subtitles from a ZIP archive';
   find.insertBefore(actions,find.querySelector('#subSearchForm'));
  }
+ // A per-import choice, not a global setting: primary and secondary files
+ // can use different legacy encodings. Cached decoded text is always UTF-8.
+ function encodingRow(id){
+  const details=document.createElement('details');details.className='sub-more-filters';
+  const summary=document.createElement('summary');summary.textContent='File Encoding';details.append(summary);
+  const select=document.createElement('select');select.id=id;select.setAttribute('aria-label','Subtitle file encoding');
+  for(const [value,label] of window.MarmaladeSubtitleCodec?.encodings||[['auto','Automatic']]){
+   const option=document.createElement('option');option.value=value;option.textContent=label;select.append(option);
+  }
+  details.append(select);
+  const note=document.createElement('p');note.className='sub-note';note.textContent='Applies to the next file / ZIP load. If text is garbled, choose its encoding and reload the file.';details.append(note);
+  return details;
+ }
+ if(actions)actions.after(encodingRow('primarySubtitleEncoding'));
  // Day-to-day search = title, year, language. Advanced release/episode filters
  // remain one tap away with original select IDs and listeners intact.
  const form=$('subSearchForm');
@@ -103,6 +117,7 @@
    '<label for="secondarySubtitleOffset">Secondary delay (seconds)</label><div class="sub-file-actions"><input id="secondarySubtitleOffset" type="number" min="-3600" max="3600" step="0.1" value="0.0" inputmode="decimal"><button type="button" id="secondarySubtitleReset">Reset</button></div>'+
    '<p class="sub-note">Secondary captions and their delay are saved on this device for this video.</p>';
  timing.append(secondary);
+ $('secondarySubtitleFile').after(encodingRow('secondarySubtitleEncoding'));
  const secondaryStatus=$('secondarySubtitleStatus'),secondaryInput=$('secondarySubtitleFile'),secondaryOffset=$('secondarySubtitleOffset');
  const refreshSecondary=()=>{
    secondaryStatus.textContent=state.secondarySubtitleName||'No secondary captions loaded';
@@ -113,7 +128,7 @@
  secondaryInput.addEventListener('change',async()=>{
    const file=secondaryInput.files?.[0];secondaryInput.value='';
    if(!file)return;
-   try{await window.MarmaladeSecondarySubtitle.load(file);}
+   try{await window.MarmaladeSecondarySubtitle.load(file,{encoding:$('secondarySubtitleEncoding').value});}
    catch(error){secondaryStatus.textContent=String(error?.message||error);}
  });
  $('clearSecondarySubtitle').addEventListener('click',()=>window.MarmaladeSecondarySubtitle.clear());
