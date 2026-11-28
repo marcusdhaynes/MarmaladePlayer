@@ -471,6 +471,27 @@ try{
     return result;
   });
   if(!trackResult.unsupported)assert.deepEqual(trackResult,{text:'Player track dialogue',language:'en',mode:'hidden',visible:true});
+  // Load a binary PGS .sup through the same file input as text captions.
+  const segment=(type,pts,payload)=>{
+    const h=Buffer.alloc(13);h.write('PG');h.writeUInt32BE(pts,2);h[10]=type;h.writeUInt16BE(payload.length,11);
+    return Buffer.concat([h,Buffer.from(payload)]);
+  };
+  const pgs=Buffer.concat([
+    segment(0x16,0,[0,4,0,2,0,0,1,128,0,0,1,0,1,0,0,0,1,0,0]),
+    segment(0x14,0,[0,0,0,16,128,128,0,1,235,128,128,255]),
+    segment(0x15,0,[0,1,0,192,0,0,14,0,2,0,2,1,0,1,0,0,0,1,1,0,0]),
+    segment(0x80,0,[]),segment(0x16,360000,[0,4,0,2,0,0,2,0,0,0,0]),segment(0x80,360000,[])
+  ]);
+  await page.locator('#subtitleFile').setInputFiles({name:'audit.sup',mimeType:'application/octet-stream',buffer:pgs});
+  await page.waitForFunction(()=>!document.querySelector('#pgsSubtitleOverlay').hidden);
+  const bitmap=await page.evaluate(()=>Array.from(document.querySelector('#pgsSubtitleOverlay').getContext('2d').getImageData(1,0,1,1).data));
+  assert.deepEqual(bitmap,[255,255,255,255]);
+  await page.evaluate(()=>window.MarmaladeSubtitleTiming.set(5));
+  assert.equal(await page.locator('#pgsSubtitleOverlay').getAttribute('hidden'),'');
+  await page.evaluate(()=>window.MarmaladeSubtitleTiming.reset());
+  await page.locator('#subtitleFile').setInputFiles({name:'primary.srt',mimeType:'text/plain',buffer:Buffer.from('1\n00:00:00,000 --> 00:00:04,000\nPrimary captions')});
+  await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('Primary captions'));
+  assert.equal(await page.locator('#pgsSubtitleOverlay').getAttribute('hidden'),'');
   const driftCheck=await page.evaluate(()=>{
     const timing=window.MarmaladeSubtitleTiming;
     timing.activate('audit-drift-film','audit-drift-sub');

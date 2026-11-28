@@ -174,3 +174,33 @@ test('player track snapshot preserves text and timing and cannot inject new cues
  assert.deepEqual(cues,[{start:1,end:3,text:'مرحبا & hello'},{start:4,end:8,text:'00:00:09.000 --> 00:00:10.000\nNot a timing row'}]);
  assert.throws(()=>codec.snapshotTextTrack([]),/No readable/);
 });
+
+function pgsSegment(type,pts,payload){
+ const h=Buffer.alloc(13);h.write('PG');h.writeUInt32BE(pts,2);h[10]=type;h.writeUInt16BE(payload.length,11);
+ return Buffer.concat([h,Buffer.from(payload)]);
+}
+function pgsFixture(){
+ const pcs=[0,4,0,2,0,0,1,0x80,0,0,1,0,1,0,0,0,1,0,0];
+ const palette=[0,0,0,16,128,128,0,1,235,128,128,255];
+ // 2x2 bitmap: opaque white, transparent; transparent, opaque white.
+ const rle=[1,0,1,0,0,0,1,1,0,0];
+ const object=[0,1,0,0xc0,0,0,rle.length+4,0,2,0,2,...rle];
+ const clear=[0,4,0,2,0,0,2,0,0,0,0];
+ return Buffer.concat([pgsSegment(0x16,90000,pcs),pgsSegment(0x14,90000,palette),
+ pgsSegment(0x15,90000,object),pgsSegment(0x80,90000,[]),
+ pgsSegment(0x16,270000,clear),pgsSegment(0x80,270000,[])]);
+}
+test('PGS decodes actual segment bytes, position, transparency and clear display set',()=>{
+ const frames=codec.decodePgs(pgsFixture());
+ assert.equal(frames.length,2);
+ const f=codec.pgsFrameAt(frames,1.5);
+ assert.equal(f.layers[0].x,1);assert.equal(f.width,4);
+ assert.deepEqual(Array.from(codec.pgsPixels(f.layers[0])),[255,255,255,255,0,0,0,0,0,0,0,0,255,255,255,255]);
+ assert.equal(codec.pgsFrameAt(frames,.9),null);assert.equal(codec.pgsFrameAt(frames,3),null);
+ assert.equal(codec.pgsFrameAt(frames,2),f);
+});
+test('PGS rejects truncated and corrupted data before display',()=>{
+ const data=pgsFixture();
+ assert.throws(()=>codec.decodePgs(data.subarray(0,data.length-1)),/Invalid PGS/);
+ const bad=Buffer.from(data);bad[0]=0;assert.throws(()=>codec.decodePgs(bad),/Invalid PGS/);
+});

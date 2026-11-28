@@ -531,7 +531,134 @@
     check();onProgress?.(100);
     return {tracks,track,raw:snapshotTextTrack(rows),inferred};
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText};
+  // Blu-ray Presentation Graphics (.sup): parse display sets, palettes,
+  // fragmented bitmap objects, authored coordinates and clear compositions.
+  // The decoded pixel budget is global to the import, not just per object.
+  function decodePgs(input){
+    const b=input instanceof Uint8Array?input:new Uint8Array(input);
+    if(!b.length||b.length>20*1024*1024)throw Error('PGS file must be under 20 MB');
+    const u16=(v,i)=>v[i]*256+v[i+1],u24=(v,i)=>v[i]*65536+u16(v,i+1);
+    const u32=(v,i)=>v[i]*16777216+u24(v,i+1);
+    const fail=message=>{throw Error('Invalid PGS: '+message);};
+    const clamp=x=>Math.max(0,Math.min(255,Math.round(x)));
+    const objects=new Map(),palettes=new Map(),pending=new Map(),frames=[];
+    let pos=0,pcs=null,pixels=0,segments=0,lastPts=-1,wrap=0;
+    function decodeRle(raw,w,h){
+      const bitmap=new Uint8Array(w*h);let at=0,x=0,y=0;
+      while(at<raw.length){
+        if(y>=h)fail('extra bitmap data');
+        let color=raw[at++],run=1;
+        if(color===0){
+          if(at>=raw.length)fail('truncated run');
+          const flags=raw[at++];
+          if(flags===0){if(x!==w)fail('incomplete bitmap row');x=0;y++;continue;}
+          run=flags&63;
+          if(flags&64){if(at>=raw.length)fail('truncated long run');run=run*256+raw[at++];}
+          if(flags&128){if(at>=raw.length)fail('truncated color');color=raw[at++];}
+        }
+        if(!run||x+run>w)fail('bitmap run exceeds row');
+        bitmap.fill(color,y*w+x,y*w+x+run);x+=run;
+      }
+      if(y!==h&&!(y===h-1&&x===w))fail('incomplete bitmap');
+      return bitmap;
+    }
+    while(pos<b.length){
+      if(++segments>200000||pos+13>b.length||b[pos]!==0x50||b[pos+1]!==0x47)fail('segment header');
+      const pts=u32(b,pos+2),type=b[pos+10],len=u16(b,pos+11);
+      if(pos+13+len>b.length)fail('truncated segment');
+      const v=b.subarray(pos+13,pos+13+len);pos+=13+len;
+      if(type===0x16){
+        if(pcs||len<11)fail('composition header');
+        if(lastPts>=0&&pts<lastPts&&lastPts-pts>0x80000000)wrap+=0x100000000;
+        if(lastPts>=0&&pts<lastPts&&lastPts-pts<=0x80000000)fail('nonmonotonic presentation timestamps');
+        lastPts=pts;
+        const width=u16(v,0),height=u16(v,2),state=v[7],count=v[10];
+        if(!width||!height||width>4096||height>2160||count>64)fail('composition dimensions');
+        if(state&0x80){objects.clear();palettes.clear();pending.clear();}
+        const placements=[];let at=11;
+        for(let i=0;i<count;i++){
+          if(at+8>len)fail('truncated object placement');
+          const object=u16(v,at),flags=v[at+3],x=u16(v,at+4),y=u16(v,at+6);
+          at+=8;let crop=null;
+          if(flags&0x80){
+            if(at+8>len)fail('truncated crop');
+            crop={x:u16(v,at),y:u16(v,at+2),w:u16(v,at+4),h:u16(v,at+6)};at+=8;
+          }
+          placements.push({object,x,y,crop,forced:!!(flags&0x40)});
+        }
+        if(at!==len)fail('composition length');
+        pcs={start:(wrap+pts)/90000,width,height,palette:v[9],placements};
+      }else if(type===0x14){
+        if(len<2||(len-2)%5)fail('palette length');
+        const palette=palettes.get(v[0])?.slice()||new Uint8ClampedArray(1024);
+        for(let i=2;i<len;i+=5){
+          const at=v[i]*4,Y=v[i+1]-16,Cr=v[i+2]-128,Cb=v[i+3]-128;
+          // BT.709 limited-range YCbCr (HD Blu-ray).
+          palette[at]=clamp(1.164383*Y+1.792741*Cr);
+          palette[at+1]=clamp(1.164383*Y-.213249*Cb-.532909*Cr);
+          palette[at+2]=clamp(1.164383*Y+2.112402*Cb);palette[at+3]=v[i+4];
+        }
+        palettes.set(v[0],palette);
+      }else if(type===0x15){
+        if(len<4)fail('object header');
+        const id=u16(v,0),version=v[2],flags=v[3];
+        let object=pending.get(id),at=4;
+        if(flags&0x80){
+          if(len<11||object)fail('invalid first object fragment');
+          const total=u24(v,4)-4,w=u16(v,7),h=u16(v,9);
+          if(total<1||total>20*1024*1024||!w||!h||w>4096||h>2160)fail('object bounds');
+          object={version,total,w,h,chunks:[],length:0};pending.set(id,object);at=11;
+        }
+        if(!object||object.version!==version)fail('missing object fragment');
+        const chunk=v.subarray(at);object.chunks.push(chunk);object.length+=chunk.length;
+        if(object.length>object.total)fail('object fragment overflow');
+        if(flags&0x40){
+          if(object.length!==object.total)fail('truncated object');
+          pixels+=object.w*object.h;if(pixels>64*1024*1024)throw Error('PGS decoded bitmap budget exceeded (64 MiB)');
+          const raw=new Uint8Array(object.length);let offset=0;
+          for(const part of object.chunks){raw.set(part,offset);offset+=part.length;}
+          objects.set(id,{w:object.w,h:object.h,bitmap:decodeRle(raw,object.w,object.h)});
+          pending.delete(id);
+        }
+      }else if(type===0x80){
+        if(len||!pcs)fail('missing composition');
+        if(pending.size)fail('unfinished object');
+        const palette=palettes.get(pcs.palette);
+        const layers=[];
+        for(const placement of pcs.placements){
+          const object=objects.get(placement.object);
+          if(!object||!palette)fail('missing palette or bitmap');
+          const crop=placement.crop||{x:0,y:0,w:object.w,h:object.h};
+          if(!crop.w||!crop.h||crop.x+crop.w>object.w||crop.y+crop.h>object.h||
+             placement.x+crop.w>pcs.width||placement.y+crop.h>pcs.height)fail('object outside composition');
+          layers.push({...placement,crop,object,palette});
+        }
+        const frame={start:pcs.start,width:pcs.width,height:pcs.height,layers};
+        if(frames.length&&frames.at(-1).start===frame.start)frames[frames.length-1]=frame;
+        else frames.push(frame);
+        if(frames.length>10000)throw Error('PGS composition count exceeds limit');
+        pcs=null;
+      }else if(type!==0x17)fail('unsupported segment type');
+    }
+    if(pcs||pending.size||!frames.some(f=>f.layers.length))fail('incomplete or empty display sets');
+    // A missing final clear is bounded, rather than displaying indefinitely.
+    return frames.map((frame,i)=>({...frame,end:frames[i+1]?.start??frame.start+5}));
+  }
+  function pgsFrameAt(frames,at){
+    if(!frames?.length||!Number.isFinite(at))return null;
+    let lo=0,hi=frames.length;
+    while(lo<hi){const mid=(lo+hi)>>1;if(frames[mid].start<=at)lo=mid+1;else hi=mid;}
+    const f=frames[lo-1];return f&&f.end>at&&f.layers.length?f:null;
+  }
+  function pgsPixels(layer){
+    const {object,palette,crop}=layer,rgba=new Uint8ClampedArray(crop.w*crop.h*4);
+    for(let y=0;y<crop.h;y++)for(let x=0;x<crop.w;x++){
+      const color=object.bitmap[(crop.y+y)*object.w+crop.x+x]*4;
+      rgba.set(palette.subarray(color,color+4),(y*crop.w+x)*4);
+    }
+    return rgba;
+  }
+  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,decodePgs,pgsFrameAt,pgsPixels};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -39,7 +39,7 @@
  if(actions){
   actions.classList.add('sub-file-actions');
   el.loadSubtitle.textContent='Load File / ZIP';
-  el.loadSubtitle.title='Load subtitles or extract text subtitles from a ZIP archive';
+  el.loadSubtitle.title='Load text subtitles, PGS .sup bitmap subtitles, or extract text subtitles from a ZIP archive';
   find.insertBefore(actions,find.querySelector('#subSearchForm'));
  }
  // A per-import choice, not a global setting: primary and secondary files
@@ -55,7 +55,12 @@
   const note=document.createElement('p');note.className='sub-note';note.textContent='Applies to the next file / ZIP load. If text is garbled, choose its encoding and reload the file.';details.append(note);
   return details;
  }
- if(actions)actions.after(encodingRow('primarySubtitleEncoding'));
+ if(actions){
+  actions.after(encodingRow('primarySubtitleEncoding'));
+  const bitmapNote=document.createElement('p');bitmapNote.className='sub-note';
+  bitmapNote.textContent='PGS .sup files preserve authored bitmap position and colors. Timing works, but text search, font styling and native video-only PiP cannot display bitmap captions.';
+  actions.after(bitmapNote);
+ }
  const playerTracks=document.createElement('details');playerTracks.className='sub-more-filters';playerTracks.id='subPlayerTracks';
  playerTracks.innerHTML='<summary>Player Text Tracks</summary><label for="subPlayerTrackSelect">Available subtitles / captions</label><div class="sub-file-actions"><select id="subPlayerTrackSelect" aria-label="Player subtitle track"></select><button type="button" id="subPlayerTrackLoad">Load Track</button></div><p class="sub-note" id="subPlayerTrackStatus" aria-live="polite"></p><p class="sub-note">Imports currently available text cues. If a stream loads captions gradually, load again to refresh. Image tracks and tracks hidden by the container decoder are not supported here.</p>';
  if(actions)actions.after(playerTracks);else find.prepend(playerTracks);

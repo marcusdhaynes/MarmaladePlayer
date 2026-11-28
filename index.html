@@ -658,6 +658,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
               
             </div>
           </div>
+          <canvas id="pgsSubtitleOverlay" aria-hidden="true" hidden style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;z-index:6"></canvas>
           <div class="subtitle-overlay" id="subtitleOverlay" hidden></div>
           <button class="exit-theater" id="exitTheater" type="button" aria-label="Exit theater mode" title="Exit theater mode">✕</button>
           <div class="theater-controls" id="theaterControls" aria-label="Video controls">
@@ -698,7 +699,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             </div>
             <span id="networkLabel" hidden aria-hidden="true"></span>
           </div>
-          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><div class="popover-heading"><strong>Subtitles</strong><button type="button" id="closeSubtitlePanel" aria-label="Close subtitles">✕</button></div><p id="subtitleName">Off · Supports .srt, .vtt And Text .sub</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load Captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,.sub,.ass,.ssa,.sbv,.zip,text/vtt,application/x-subrip,text/plain,application/zip" hidden></div>
+          <div class="theater-popover subtitle-popover" id="subtitlePanel" hidden><div class="popover-heading"><strong>Subtitles</strong><button type="button" id="closeSubtitlePanel" aria-label="Close subtitles">✕</button></div><p id="subtitleName">Off · Supports .srt, .vtt And Text .sub</p><div class="popover-actions"><button id="loadSubtitle" type="button">Load Captions</button><button id="hideSubtitle" type="button">Off</button></div><input id="subtitleFile" type="file" accept=".srt,.vtt,.sub,.ass,.ssa,.sbv,.sup,.zip,text/vtt,application/x-subrip,text/plain,application/zip" hidden></div>
           <div class="theater-popover settings-popover" id="settingsPanel" hidden>
             <div class="popover-heading"><strong>Playback Settings</strong><button type="button" id="closeSettingsPanel" aria-label="Close settings">✕</button></div>
             <label class="quality-control" for="qualitySelect">Quality <select id="qualitySelect" aria-label="My video quality"><option value="360">360p (Recommended)</option></select></label>
@@ -1880,7 +1881,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     return active?'active':loadedSearchSubtitles.has(searchSubtitleKey(item.url))?'loaded':'new';
   };
   function resetSubtitleSelection(){
-    clearSecondarySubtitle();
+    clearSecondarySubtitle();state.pgsFrames=null;drawPgsSubtitle(null);
     ++subtitleRestoreSequence;
     loadedSearchSubtitles.clear();
     state.subtitleRestoreKey='';
@@ -1899,6 +1900,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     let record;
     try{record=await subtitleHandleStore('get',key);}catch{return;}
     if(!record||ticket!==subtitleRestoreSequence||subtitleMediaKey()!==key)return;
+    if(record.kind==='pgs'){
+      try{
+        if(!(record.bytes instanceof Blob))throw Error('Saved bitmap subtitles unavailable');
+        await loadPgsSubtitle(new File([record.bytes],record.name||'previous.sup'),{restored:true,restoreToken:ticket,mediaKey:key,id:record.id});
+      }catch(error){notify('Previous bitmap subtitles could not be restored. Select the file again.');}
+      return;
+    }
     const source={kind:record.kind==='search'?'search':'local',url:record.url||'',
       name:record.name||'',filename:record.entryName||record.name||'',fps:record.fps||0,
       id:record.id||'',lang:record.lang||'',encoding:record.encoding||'auto',restored:true,restoreToken:ticket,mediaKey:key};
@@ -2395,12 +2403,32 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   function cueTextAt(cues,time){
     return window.MarmaladeSubtitleCodec?.activeText(cues,time)||'';
   }
+  function drawPgsSubtitle(frame){
+    const canvas=document.getElementById('pgsSubtitleOverlay');
+    if(!canvas)return;
+    if(!frame){canvas.hidden=true;canvas._pgsFrame=null;return;}
+    if(canvas._pgsFrame!==frame){
+      canvas.width=frame.width;canvas.height=frame.height;
+      const ctx=canvas.getContext('2d');
+      if(!ctx)return;
+      const tile=document.createElement('canvas'),tileCtx=tile.getContext('2d');
+      for(const layer of frame.layers){
+        tile.width=layer.crop.w;tile.height=layer.crop.h;
+        const image=tileCtx.createImageData(tile.width,tile.height);
+        image.data.set(window.MarmaladeSubtitleCodec.pgsPixels(layer));
+        tileCtx.putImageData(image,0,0);ctx.drawImage(tile,layer.x,layer.y);
+      }
+      canvas._pgsFrame=frame;
+    }
+    canvas.hidden=false;
+  }
   function updateSubtitles() {
     if(!el.stage.classList.contains('has-video')){
-      el.subtitleOverlay.hidden=true;return;
+      drawPgsSubtitle(null);el.subtitleOverlay.hidden=true;return;
     }
     const editing=!el.subtitlePanel.hidden;
     if(!state.subtitlesEnabled){
+      drawPgsSubtitle(null);
       // Before a subtitle file is chosen, show a sample only while the
       // Appearance editor is open. Off explicitly hides loaded captions.
       const preview=editing&&!state.subtitlePreviewSuppressed&&state.subtitles.length===0&&
@@ -2421,6 +2449,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       window.MarmaladeSubtitleClock(timeline):timeline;
     // Cues are ordered: logarithmic lookup instead of scanning thousands of cues
     // on every displayed frame. End is exclusive to avoid adjacent overlap.
+    drawPgsSubtitle(window.MarmaladeSubtitleCodec?.pgsFrameAt(state.pgsFrames,subtitleTime));
     const active=cueTextAt(state.subtitles,subtitleTime);
     // A sample cue can be inspected live while the editor is open—even when
     // playback is paused or seeking outside subtitle dialogue.
@@ -6170,7 +6199,26 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     updateSubtitles();el.subtitleName.textContent='Off';
     window.dispatchEvent(new Event('marmalade:subtitles-changed'));
   });
+  async function loadPgsSubtitle(file,source={}){
+    if(!file||file.size>20*1024*1024)throw Error('Choose a PGS .sup file under 20 MB');
+    if(!el.stage.classList.contains('has-video'))throw Error('Load a video first');
+    const key=source.mediaKey||subtitleMediaKey(),token=source.restoreToken??++subtitleRestoreSequence;
+    const frames=window.MarmaladeSubtitleCodec.decodePgs(await file.arrayBuffer());
+    if(token!==subtitleRestoreSequence||key!==subtitleMediaKey())throw Error('Video changed while loading bitmap captions');
+    const id=source.id||subtitleId(file,source);
+    state.subtitles=[];state.pgsFrames=frames;state.subtitlesEnabled=true;
+    state.subtitlePreviewSuppressed=true;state.subtitleIdentity=id;state.subtitleLanguage='';state.subtitleRestoreKey=key;
+    el.subtitleName.textContent=file.name+' · '+frames.filter(f=>f.layers.length).length+' Bitmap Cues';
+    window.MarmaladeSubtitleTiming?.activate(key,id);
+    updateSubtitles();revealControls();
+    window.dispatchEvent(new Event('marmalade:subtitles-loaded'));window.dispatchEvent(new Event('marmalade:subtitles-changed'));
+    if(key&&!source.restored)try{
+      await subtitleHandleStore('put',key,{kind:'pgs',name:file.name,id,bytes:file.slice()});
+    }catch{notify('Bitmap captions loaded, but could not be saved on this device.');}
+    return {format:'pgs',frames:frames.length};
+  }
   async function loadSelectedSubtitle(file,handle=null,source={}){
+    if(/\.sup$/i.test(file?.name||''))return loadPgsSubtitle(file,source);
     if(!file||file.size>20*1024*1024)throw Error('Choose A Subtitle File Under 20 MB');
     const key=source.mediaKey||subtitleMediaKey();
     const token=source.restoreToken??++subtitleRestoreSequence;
@@ -6192,6 +6240,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if(token!==subtitleRestoreSequence||key!==subtitleMediaKey())
       throw Error('Video Changed While Loading Subtitles');
     const id=source.id||subtitleId(file,source);
+    state.pgsFrames=null;drawPgsSubtitle(null);
     state.subtitles=decoded.cues;
     state.subtitlesEnabled=true;
     state.subtitlePreviewSuppressed=false;
