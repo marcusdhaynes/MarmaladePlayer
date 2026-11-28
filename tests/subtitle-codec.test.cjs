@@ -53,3 +53,27 @@ test('Exact video release ranks ahead of a generic or mismatched release',()=>{
   assert.ok(matcher.scoreRelease(video,'Show.S01E01.srt')>
     matcher.scoreRelease(video,'Show.S01E02.srt'));
 });
+
+test('byte decoder preserves UTF-8, BOM and BOM-less UTF-16 mixed-direction captions',()=>{
+ const text='1\n00:00:01,000 --> 00:00:04,000\nمرحبا — English 123\n';
+ const little=Buffer.from(text,'utf16le'),big=Buffer.from(little).swap16();
+ for(const bytes of [Buffer.from(text),Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),Buffer.from(text)]),
+   little,big,Buffer.concat([Buffer.from([0xff,0xfe]),little]),Buffer.concat([Buffer.from([0xfe,0xff]),big])]){
+  assert.equal(codec.decodeBytes(bytes),text);
+  assert.equal(codec.decode(codec.decodeBytes(bytes),'movie.srt').cues[0].text,'مرحبا — English 123');
+ }
+});
+test('legacy Western accents are not mistaken for Windows-1256 Arabic',()=>{
+ const text='1\n00:00:01,000 --> 00:00:04,000\nCafé déjà vu, été, Español.\n';
+ assert.equal(codec.decodeBytes(Buffer.from(text,'latin1')),text);
+});
+test('legacy Arabic words with mixed Latin digits survive byte decoding',()=>{
+ const bytes=Buffer.concat([Buffer.from('1\n00:00:01,000 --> 00:00:04,000\n'),
+  Buffer.from([0xe3,0xd1,0xcd,0xc8,0xc7]),Buffer.from(' 123\n')]);
+ assert.equal(codec.decode(codec.decodeBytes(bytes),'arabic.srt').cues[0].text,'مرحبا 123');
+});
+test('binary files remain invalid and oversized input is rejected',()=>{
+ const raw=Buffer.from([0,1,0,2,0,3,0,4,0,5,0,6,0,7,0,8]);
+ assert.equal(codec.decode(codec.decodeBytes(raw),'bitmap.sub').cues.length,0);
+ assert.throws(()=>codec.decodeBytes(new Uint8Array(5*1024*1024+1)),/Too Large/);
+});

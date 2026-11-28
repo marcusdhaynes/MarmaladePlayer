@@ -130,7 +130,39 @@
     cues.sort((a,b)=>a.start-b.start);
     return {cues,format,fps,warning,error:cues.length?'':'No readable text subtitle cues found.'};
   }
-  const api={time,plain,decode};
+  // Decode bytes before parsing. Do not interpret isolated Western accents
+  // as Arabic: Windows-1256 maps many of the same high bytes to Arabic.
+  function decodeBytes(input){
+    const bytes=input instanceof Uint8Array?input:new Uint8Array(input);
+    if(bytes.byteLength>5*1024*1024)throw Error('Subtitle File Too Large');
+    const strict=encoding=>new TextDecoder(encoding,{fatal:true}).decode(bytes);
+    if(bytes[0]===0xff&&bytes[1]===0xfe)return strict('utf-16le');
+    if(bytes[0]===0xfe&&bytes[1]===0xff)return strict('utf-16be');
+    // BOM-less UTF-16: require a strong, asymmetric alternating NUL pattern
+    // and actual subtitle timing syntax, not merely arbitrary binary data.
+    if(bytes.length%2===0&&bytes.length>=16){
+      let even=0,odd=0;
+      const pairs=Math.min(bytes.length/2,2048);
+      for(let i=0;i<pairs;i++){if(bytes[i*2]===0)even++;if(bytes[i*2+1]===0)odd++;}
+      const guess=odd/pairs>.22&&even/pairs<.04?'utf-16le':
+        even/pairs>.22&&odd/pairs<.04?'utf-16be':'';
+      if(guess)try{
+        const decoded=strict(guess);
+        if(!decoded.includes('\0')&&(/\d:\d{2}(?::\d{2})?[.,]\d+\s*-->/.test(decoded)||
+          /\{\d+\}\{\d+\}/.test(decoded)||/\[Events\]/i.test(decoded)||
+          /\[\d{1,2}:\d{2}:\d{2}[.,]\d+\]\s*\[/.test(decoded)))return decoded;
+      }catch{}
+    }
+    try{return strict('utf-8');}catch{}
+    const arabic=new TextDecoder('windows-1256').decode(bytes);
+    const western=new TextDecoder('windows-1252').decode(bytes);
+    // Multiple Arabic letters in actual words are stronger evidence than
+    // the old total-character count. Keep mixed Latin/Arabic lines intact.
+    const arabicWords=arabic.match(/[\u0621-\u064a\u0671-\u06d3]{3,}/g)||[];
+    const arabicLetters=arabicWords.reduce((sum,word)=>sum+word.length,0);
+    return arabicLetters>=4?arabic:western;
+  }
+  const api={time,plain,decode,decodeBytes};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

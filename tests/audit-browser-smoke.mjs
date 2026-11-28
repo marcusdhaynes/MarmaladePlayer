@@ -387,7 +387,8 @@ try{
     state.subtitles=[{start:0,end:4,text:'Primary captions'}];state.subtitlesEnabled=true;
     window.MarmaladeSubtitleTiming.set(0);window.MarmaladeSubtitleRefresh();
   });
-  await page.locator('#secondarySubtitleFile').setInputFiles({name:'secondary.srt',mimeType:'text/plain',buffer:Buffer.from('1\n00:00:00,000 --> 00:00:04,000\nمرحبا بالعالم\n')});
+  // Real browser file load, BOM-less UTF-16 rather than a UTF-8 string fixture.
+  await page.locator('#secondarySubtitleFile').setInputFiles({name:'secondary.srt',mimeType:'text/plain',buffer:Buffer.from('1\n00:00:00,000 --> 00:00:04,000\nمرحبا بالعالم\n','utf16le')});
   await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('مرحبا بالعالم'));
   assert.equal(await page.locator('#subtitleOverlay').textContent(),'Primary captions\nمرحبا بالعالم');
   await page.evaluate(()=>window.MarmaladeSecondarySubtitle.setOffset(5));

@@ -2321,18 +2321,11 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       : `${seconds.toFixed(1)} seconds ready ahead`;
   }
   async function readSubtitleText(file){
+    if(file.size>5*1024*1024)throw Error('Subtitle File Too Large');
     const bytes=await file.arrayBuffer();
-    if(bytes.byteLength>5*1024*1024)throw Error('Subtitle File Too Large');
-    const head=new Uint8Array(bytes,0,Math.min(bytes.byteLength,4));
-    if(head[0]===0xff&&head[1]===0xfe)return new TextDecoder('utf-16le').decode(bytes);
-    if(head[0]===0xfe&&head[1]===0xff)return new TextDecoder('utf-16be').decode(bytes);
-    try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes);}
-    catch{
-      // Older Arabic captions often use Windows-1256 instead of UTF-8.
-      const arabic=new TextDecoder('windows-1256').decode(bytes);
-      const count=(arabic.match(/[\u0600-\u06ff]/g)||[]).length;
-      return count>=3?arabic:new TextDecoder('windows-1252').decode(bytes);
-    }
+    const decoder=window.MarmaladeSubtitleCodec;
+    if(!decoder?.decodeBytes)throw Error('Subtitle Decoder Not Loaded');
+    return decoder.decodeBytes(bytes);
   }
   function parseSubtitles(raw,name='',fps=0){
     const decoder=window.MarmaladeSubtitleCodec;
