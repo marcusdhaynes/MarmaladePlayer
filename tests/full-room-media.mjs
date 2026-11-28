@@ -662,7 +662,17 @@ try {
     null,{timeout:20000});
   console.log('PASS local-sync-to-stream transition returns host video and audio');
   // A broken outbound media call must recover inside the SAME room without
-  // requiring a guest refresh or changing the invitation.
+  // requiring a guest refresh or changing the invitation. Preserve separate
+  // listening levels and explicit mute, then measure actual received PCM.
+  const setListeningLevel=(page,value)=>page.locator('#volume').evaluate((input,value)=>{
+    input.value=String(value);input.dispatchEvent(new Event('input',{bubbles:true}));
+  },value);
+  await setListeningLevel(host,30);
+  await setListeningLevel(guest,60);
+  await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
+  await guest.locator('#muteBtn').click({force:true});
+  assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.soundMuted),true);
+  const guestRoom=await guest.evaluate(()=>window.MarmaladeAddonBridge.state.code);
   const originalCallId=await host.evaluate(()=>{
     const e=[...window.MarmaladeAddonBridge.state.connections.values()][0];
     const id=e.mediaAttempt;
@@ -676,7 +686,43 @@ try {
   await guest.waitForFunction(()=>document.querySelector('#player').srcObject?.getVideoTracks()
     .some(t=>t.readyState==='live')&&
     window.MarmaladeAddonBridge.state.source==='remote',null,{timeout:18000});
-  console.log('PASS same-room media recovery after forced host call close');
+  await guest.waitForFunction(()=>{
+    const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+    return !v.paused&&v.srcObject?.getAudioTracks().some(t=>t.readyState==='live')&&s.soundMuted&&
+      (s.guestAudioFallback?Math.abs(s.guestAudioGain?.gain.value||0)<.001:v.muted);
+  },null,{timeout:15000});
+  assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.code),guestRoom);
+  assert.equal(await guest.evaluate(()=>window.MarmaladeAddonBridge.state.volumePercent),60);
+  assert.equal(await host.evaluate(()=>window.MarmaladeAddonBridge.state.volumePercent),30);
+  await guest.locator('#dropZone').evaluate(stage=>stage.classList.add('controls-visible'));
+  await guest.locator('#muteBtn').click({force:true});
+  await guest.waitForFunction(()=>{
+    const s=window.MarmaladeAddonBridge.state,v=document.querySelector('#player');
+    return !s.soundMuted&&!s.audioUnlockRequired&&!v.paused&&
+      (s.guestAudioFallback?s.guestAudioContext?.state==='running'&&Math.abs(s.guestAudioGain?.gain.value-.6)<.05:
+        !v.muted&&Math.abs(v.volume-.6)<.05);
+  },null,{timeout:15000});
+  const recoveredRms=await guest.evaluate(async()=>{
+    const tracks=document.querySelector('#player').srcObject.getAudioTracks();
+    const probe=new AudioContext(),source=probe.createMediaStreamSource(new MediaStream(tracks));
+    const analyser=probe.createAnalyser(),sink=probe.createGain();sink.gain.value=0;
+    source.connect(analyser);analyser.connect(sink);sink.connect(probe.destination);
+    try{
+      await Promise.race([probe.resume(),new Promise((_,reject)=>setTimeout(()=>reject(Error('Recovery audio probe blocked')),2500))]);
+      const samples=new Float32Array(analyser.fftSize);
+      let rms=0;
+      for(let i=0;i<35;i++){
+        await new Promise(resolve=>setTimeout(resolve,100));
+        analyser.getFloatTimeDomainData(samples);
+        rms=Math.max(rms,Math.sqrt(samples.reduce((sum,x)=>sum+x*x,0)/samples.length));
+        if(rms>.002)break;
+      }
+      return rms;
+    }finally{source.disconnect();analyser.disconnect();sink.disconnect();await probe.close();}
+  });
+  assert(recoveredRms>.002,'Recovered stream must contain audible PCM, not merely a live track');
+  assert(await host.evaluate(()=>!document.querySelector('#player').paused),'Guest audio controls must not interrupt host playback');
+  console.log('PASS same-room media recovery preserves independent volumes and mute; audible PCM restored',recoveredRms);
   assert.equal(performanceIssues.length,0,
     'Sustained performance regressions: '+JSON.stringify(performanceIssues));
   assert.deepEqual(errors,[],'Browser runtime errors');

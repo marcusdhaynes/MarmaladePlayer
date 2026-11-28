@@ -1599,10 +1599,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     const audioTracks=(stream?.getAudioTracks?.()||[]).filter(track=>track.readyState==='live');
     if(!ctx||ctx.state!=='running'||!audioTracks.length)return false;
     if(state.guestAudioFallback&&state.guestAudioStream===stream&&state.guestAudioTrackIds===audioTracks.map(t=>t.id).join('|'))return true;
+    let source=null,gain=null;
     try{
       stopGuestAudioRelay(false);
-      const source=ctx.createMediaStreamSource(new MediaStream(audioTracks));
-      const gain=ctx.createGain();
+      source=ctx.createMediaStreamSource(new MediaStream(audioTracks));
+      gain=ctx.createGain();
+      // Initialize before connecting to the speaker destination: a replacement
+      // stream must never briefly play at unity gain while the user is muted.
+      gain.gain.value=state.soundMuted?0:state.volumePercent/100;
       source.connect(gain);
       routePersonalAudio(gain,ctx,source);
       state.guestAudioSource=source;
@@ -1614,6 +1618,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       return true;
     }catch(error){
       console.debug('Guest pre-unlocked audio relay unavailable',error);
+      // Also clean up partially created nodes not yet published to state.
+      try{source?.disconnect();}catch{}
+      if(gain){disposePersonalAudio(gain);try{gain.disconnect();}catch{}}
       stopGuestAudioRelay(false);
       return false;
     }
@@ -4683,11 +4690,31 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         // leaving the movie element permanently paused and black.
         connection('Starting movie…');
         if(hadLocal){localNotice('Streaming Restored. Hold Link to Re-enable Local Video.');updateRoomActions();}
-        for(const track of stream.getAudioTracks()){
-          track.addEventListener('unmute',recoverGuestSound);
-          track.addEventListener('ended',()=>{if(state.guestCall===call)send(state.guestConn,{type:'requestmedia',reason:'audio-track-ended'});});
-        }
-        stream.addEventListener('addtrack',event=>{if(event.track.kind==='audio'&&state.guestCall===call){event.track.addEventListener('unmute',recoverGuestSound);primeGuestAudioFromGesture(true);recoverGuestSound();}});
+        const activeStream=()=>state.guestCall===call&&state.source==='remote'&&media.srcObject===stream;
+        const observedAudio=new WeakSet();
+        const recoverCurrentSound=()=>{
+          if(!activeStream())return;
+          if(!stream.getAudioTracks().some(t=>t.readyState==='live')){
+            stopGuestAudioRelay(false);
+            applyVolume();
+            send(state.guestConn,{type:'requestmedia',reason:'audio-track-ended'});
+            return;
+          }
+          primeGuestAudioFromGesture(true);recoverGuestSound();
+        };
+        const observeAudio=track=>{
+          if(observedAudio.has(track))return;
+          observedAudio.add(track);
+          track.addEventListener('unmute',recoverCurrentSound);
+          track.addEventListener('ended',recoverCurrentSound,{once:true});
+        };
+        for(const track of stream.getAudioTracks())observeAudio(track);
+        stream.addEventListener('addtrack',event=>{
+          if(event.track.kind==='audio'&&activeStream()){observeAudio(event.track);recoverCurrentSound();}
+        });
+        stream.addEventListener('removetrack',event=>{
+          if(event.track.kind==='audio')recoverCurrentSound();
+        });
         if(!stream.getAudioTracks().length){
           notify('The host stream contains no audio track. Ask the host to restart broadcasting.');
           send(state.guestConn,{type:'requestmedia',reason:'missing-audio-track'});
