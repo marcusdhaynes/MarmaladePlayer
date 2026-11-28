@@ -5002,19 +5002,33 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       joinFailed('The host has not appeared on the room service. The host must show "Room online" and keep their app open.',false,peer);
     },JOIN_TIMEOUT_MS);
     setupGuestCallHandler(peer);
-    let controlRetries=0;
+    let controlRetries=0,controlRecoveryStarted=null,signalingTimer=0,signalingAttempt=0;
+    const activeGuest=()=>state.peer===peer&&state.role==='guest'&&state.code===code;
+    const SIGNALING_GRACE_MS=120000;
+    function retrySignaling(){
+      if(!activeGuest()||peer.destroyed||signalingTimer)return;
+      if(peer.open&&!peer.disconnected){signalingAttempt=0;return;}
+      const wait=Math.min(8000,500*2**Math.min(signalingAttempt++,4));
+      signalingTimer=setTimeout(()=>{
+        signalingTimer=0;
+        if(!activeGuest()||peer.destroyed)return;
+        if(peer.open&&!peer.disconnected){signalingAttempt=0;return;}
+        if(navigator.onLine!==false){try{if(peer.disconnected)peer.reconnect();}catch{}}
+        retrySignaling();
+      },wait);
+    }
     function connectControl(recovering=false){
       if(state.peer!==peer||(!recovering&&!state.connecting))return;
       let conn;
       try{conn=peer.connect(PEER_PREFIX+code,{reliable:true});}
-      catch{if(recovering){fallbackRejoin();return;}joinFailed('Could not reach the host. Please check the invitation.',false,peer);return;}
+      catch{if(recovering){recoverControl(state.guestConn);return;}joinFailed('Could not reach the host. Please check the invitation.',false,peer);return;}
       state.guestConn=conn;
       if(recovering)window.MarmaladeRollingBuffer?.rebind(conn);
       const reconnectTimeout=recovering?setTimeout(()=>{if(state.guestConn===conn&&!conn.open){try{conn.close();}catch{}if(state.guestConn===conn&&!conn.open)recoverControl(conn);}},9000):null;
       el.joinProgressText.textContent = `Finding host · attempt ${attempt}/${MAX_JOIN_ATTEMPTS}`;
       conn.on('open', () => {
         if (state.guestConn !== conn || state.peer !== peer) return;
-        clearTimeout(reconnectTimeout);controlRetries=0;
+        clearTimeout(reconnectTimeout);controlRetries=0;controlRecoveryStarted=null;
         clearTimeout(state.joinTimeout);
         clearTimeout(state.joinRetryTimer);
         state.joinTimeout = state.joinRetryTimer = null;
@@ -5138,14 +5152,27 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     }
     let controlRetryTimer=0;
     function recoverControl(conn){
-      if(state.guestConn!==conn||state.peer!==peer||controlRetryTimer)return;
-      if(state.source==='buffered-guest'&&window.MarmaladeRollingBuffer?.getStatus()?.ready&&controlRetries<4&&!peer.destroyed){
-        controlRetries++;
+      if(!activeGuest()||state.guestConn!==conn||controlRetryTimer)return;
+      if(controlRecoveryStarted===null)controlRecoveryStarted=performance.now();
+      if(state.source==='buffered-guest'&&window.MarmaladeRollingBuffer?.getStatus()?.ready&&
+          performance.now()-controlRecoveryStarted<SIGNALING_GRACE_MS&&!peer.destroyed){
         connection('Reconnecting · using buffered movie','error');
-        controlRetryTimer=setTimeout(()=>{controlRetryTimer=0;if(state.guestConn===conn&&state.peer===peer)connectControl(true);},Math.min(2000,250*controlRetries));
+        if(!peer.open||peer.disconnected)retrySignaling();
+        controlRetryTimer=setTimeout(()=>{
+          controlRetryTimer=0;
+          if(!activeGuest()||state.guestConn!==conn)return;
+          if(!peer.open||peer.disconnected||navigator.onLine===false){recoverControl(conn);return;}
+          controlRetries++;
+          connectControl(true);
+        },Math.min(5000,500*2**Math.min(controlRetries,4)));
       }else{notify('Connection lost. Rejoining the room…');fallbackRejoin();}
     }
-    peer.on('open',()=>connectControl());
+    peer.on('open',()=>{
+      if(!activeGuest())return;
+      clearTimeout(signalingTimer);signalingTimer=0;signalingAttempt=0;
+      if(state.connecting)connectControl();
+      else if(state.guestConn?.open)connection('Watching with host','online');
+    });
     peer.on('error', (error) => {
       if (state.peer !== peer) return;
       console.error('Join signaling error',error);
@@ -5155,15 +5182,16 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         // registered. Retry: the host may be reconnecting or starting up.
         joinFailed(missing ? 'Host room is not registered. Check that the host shows "Room online" and has shared the latest link.'
           : 'The connection service is having trouble. Trying again…',false,peer);
-      } else if (error?.type === 'network' || error?.type === 'server-error') {
+      } else if (['network','server-error','socket-error','socket-closed'].includes(error?.type)) {
         connection('Signaling interrupted','error');
+        retrySignaling();
       }
     });
     peer.on('disconnected', () => {
       if (state.peer !== peer) return;
       if (state.connecting) { joinFailed('The connection service disconnected before joining.',false,peer); return; }
       connection('Reconnecting…','error');
-      try { peer.reconnect(); } catch {}
+      retrySignaling();
     });
   }
   async function joinRoom() {

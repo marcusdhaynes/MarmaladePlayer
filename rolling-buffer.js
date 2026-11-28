@@ -382,15 +382,17 @@
    s.reconnecting=true;
    // Keep already appended A/V available while the bulk channel reconnects.
    // A data interruption does not discard the guest's downloaded window.
+   const deadline=Date.now()+150000;
    for(let attempt=0;attempt<5&&current(s);attempt++){
      try{
        const old=s.conn;s.conn=null;try{old?.close();}catch{}
        await delay(attempt?Math.min(3000,400*2**attempt):0);
        if(!current(s))return;
-       const deadline=Date.now()+12000;
-       while(current(s)&&!s.control.open&&Date.now()<deadline)await delay(150);
+       // Do not spend attempts while signaling or room registration is down.
+       const roomReady=()=>s.control.open&&bridge()?.state.peer?.open&&!bridge()?.state.peer?.disconnected&&root.navigator?.onLine!==false;
+       while(current(s)&&!roomReady()&&Date.now()<deadline)await delay(150);
        if(!current(s))return;
-       if(!s.control.open)continue;
+       if(!roomReady()||Date.now()>=deadline)break;
        await openChannel(s);
        if(!current(s))return;
        s.cursor=null;s.reconnecting=false;kick(s);return;

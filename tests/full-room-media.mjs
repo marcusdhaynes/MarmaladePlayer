@@ -809,6 +809,31 @@ try {
       };
       await full('join',0);
       const original=await viewer.locator('#player').evaluate(v=>v.currentSrc);
+      // Signaling alone must not replace a healthy room control connection.
+      await viewer.evaluate(()=>{
+        const s=window.MarmaladeAddonBridge.state,p=s.peer;
+        window.__controlBeforeSignal=s.guestConn;window.__signalAttempts=0;
+        const reconnect=p.reconnect.bind(p);
+        p.reconnect=()=>{
+          if(++window.__signalAttempts<=2)throw Error('Simulated signaling outage');
+          p.reconnect=reconnect;return reconnect();
+        };
+        p.disconnect();
+      });
+      await viewer.waitForFunction(()=>{
+        const s=window.MarmaladeAddonBridge.state;
+        return window.__signalAttempts>=3&&s.peer.open&&!s.peer.disconnected;
+      },null,{timeout:20000});
+      assert.equal(await viewer.evaluate(()=>window.MarmaladeAddonBridge.state.guestConn===window.__controlBeforeSignal),true,'Signaling recovery must not replace an open room link');
+      assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original);
+      await viewer.evaluate(()=>window.MarmaladeAddonBridge.state.guestConn.close());
+      await viewer.waitForFunction(()=>{
+        const s=window.MarmaladeAddonBridge.state;
+        return s.guestConn?.open&&s.guestConn!==window.__controlBeforeSignal&&s.source==='buffered-guest'&&window.MarmaladeRollingBuffer.getStatus()?.ready&&
+          Object.values(s.peer.connections).flat().some(c=>c.open&&c.label==='marmalade-buffer-v1');
+      },null,{timeout:30000});
+      assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original,'Control replacement must preserve buffered source');
+      console.log('PASS signaling retry and room-control replacement retain buffered movie',height);
       began=Date.now();
       await viewer.evaluate(()=>{
          const state=window.MarmaladeAddonBridge.state;
