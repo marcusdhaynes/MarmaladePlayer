@@ -81,6 +81,41 @@
      close:()=>{closed=true;return queue(async()=>{entries.clear();bytes=0;key=null;await env.caches.delete(name).catch(()=>{});});}
    };
  }
+ // Shared FIFO chunk admission: each busy guest queues at most one chunk.
+ // A congested connection waits outside this scheduler, so other guests continue.
+ // Charge short chunks as a full part to bound tiny-request abuse too.
+ function createTransferScheduler({rate=32*BLOCK,burst=256*1024,maxPending=64,now=Date.now,sleep=delay}={}){
+   let tokens=burst,last=now(),running=false;
+   const queue=[];
+   async function drain(){
+     if(running)return;
+     running=true;
+     try{
+       while(queue.length){
+         const job=queue[0];
+         if(!job.allowed()){queue.shift();job.resolve(false);continue;}
+         const time=now(),elapsed=Math.max(0,time-last);
+         last=Math.max(last,time);
+         tokens=Math.min(burst,tokens+elapsed*rate/1000);
+         if(tokens<job.cost){
+           await sleep(Math.max(1,Math.ceil((job.cost-tokens)*1000/rate)));
+           continue;
+         }
+         queue.shift();tokens-=job.cost;
+         try{job.send();job.resolve(true);}catch(e){job.reject(e);}
+       }
+     }catch(e){for(const job of queue.splice(0))job.reject(e);}
+     finally{running=false;}
+   }
+   return (bytes,allowed,send)=>{
+     const cost=Math.max(PART,bytes);
+     if(!Number.isSafeInteger(bytes)||bytes<=0||bytes>PART||cost>burst||queue.length>=maxPending)
+       return Promise.reject(Error('Host transfer budget unavailable'));
+     return new Promise((resolve,reject)=>{queue.push({cost,allowed,send,resolve,reject});void drain();});
+   };
+ }
+ const scheduleHostPart=createTransferScheduler();
+ const MAX_BULK_GUESTS=32;
  function hostSource(state){
    if(state?.source==='file'&&state.file?.size)return state.file;
    if(state?.source==='native'&&state.nativeBufferSource?.length)return state.nativeBufferSource;
@@ -99,6 +134,7 @@
    if(!o||!entry?.conn.open||conn.metadata?.id!==o.id){conn.close();return true;}
    const file=hostSource(a.state);
    for(const prior of hostChannels)if(prior.peer===conn.peer)prior.close();
+   if(hostChannels.size>=MAX_BULK_GUESTS){conn.close();return true;}
    hostChannels.add(conn);
    let busy=false,invalid=0,lastId=0;
    const authorized=()=>conn.open&&a.state.connections.get(conn.peer)?.conn.open&&hostSource(a.state)===file&&offer()?.id===o.id;
@@ -120,7 +156,8 @@
            await delay(12);
          }
          if(!authorized())return;
-         reply({type:'part',id:m.id,offset:pos,bytes:bytes.slice(pos,pos+PART)});
+         const part=bytes.slice(pos,pos+PART);
+         if(!await scheduleHostPart(part.length,authorized,()=>reply({type:'part',id:m.id,offset:pos,bytes:part})))return;
        }
        reply({type:'done',id:m.id});
      }catch(e){try{reply({type:'failed',id:m.id});}catch{}}
@@ -414,7 +451,7 @@
      reconnecting:!!s.reconnecting,quotaLimited:s.capacity<Math.min(TARGET+5,remaining),
      diskBytes:s.disk?.size||0,diskAvailable:!!s.disk};
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,TARGET};
  if(!root)return;
  root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?bufferStatus(session,session.buffer&&current(session)?position(session):0):null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});

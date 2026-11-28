@@ -146,3 +146,46 @@ test('diagnostics report an attainable target in the final minutes',()=>{
  assert.equal(bufferStatus(s,260).quotaLimited,false);
  assert.equal(bufferStatus(s,301).target,0);
 });
+
+test('shared host transfer scheduler bounds aggregate payload bursts and serves queued guests in order',async()=>{
+ const {createTransferScheduler}=require('../rolling-buffer.js');
+ let clock=0;const sent=[],sleeps=[];
+ const schedule=createTransferScheduler({rate:16384*100,burst:16384,now:()=>clock,sleep:async ms=>{sleeps.push(ms);clock+=ms;}});
+ const submit=id=>schedule(16384,()=>true,()=>sent.push([id,clock]));
+ await Promise.all([submit('A1'),submit('B1'),submit('C1'),submit('A2')]);
+ assert.deepEqual(sent,[['A1',0],['B1',10],['C1',20],['A2',30]]);
+ assert.deepEqual(sleeps,[10,10,10]);
+});
+test('host transfer scheduler rejects overload, charges small requests, and skips revoked guests',async()=>{
+ const {createTransferScheduler}=require('../rolling-buffer.js');
+ let clock=0,release,revoked=false;const sent=[];
+ const schedule=createTransferScheduler({rate:16384*100,burst:16384,maxPending:2,now:()=>clock,sleep:ms=>new Promise(resolve=>{release=()=>{clock+=ms;resolve();};})});
+ await schedule(1,()=>true,()=>sent.push('first'));
+ const blocked=schedule(1,()=>!revoked,()=>sent.push('revoked'));
+ const next=schedule(1,()=>true,()=>sent.push('next'));
+ await assert.rejects(schedule(1,()=>true,()=>{}),/budget/);
+ revoked=true;release();
+ assert.equal(await blocked,false);
+ assert.equal(await next,true);
+ assert.deepEqual(sent,['first','next']);
+ await assert.rejects(schedule(16385,()=>true,()=>{}),/budget/);
+});
+test('simultaneous authorized guests receive intact independent ranges',async()=>{
+ const {api,state,raw,channel}=hostFixture(),offer=api.offer();
+ state.connections.set('guest2',{conn:{open:true}});
+ const a=channel('guest',offer.id),b=channel('guest2',offer.id);
+ api.hostChannel(a);api.hostChannel(b);
+ await Promise.all([a.data({type:'read',id:1,offset:100,length:50000}),b.data({type:'read',id:1,offset:200,length:50000})]);
+ for(const [c,offset] of [[a,100],[b,200]]){
+   assert.equal(c.sent.at(-1).type,'done');
+   assert.deepEqual(c.sent.filter(m=>m.type==='part').flatMap(m=>Array.from(m.bytes)),Array.from(raw.slice(offset,offset+50000)));
+ }
+});
+test('host bounds simultaneous bulk guests without closing their control connection',()=>{
+ const {api,state,channel}=hostFixture(),offer=api.offer();
+ for(let i=0;i<33;i++){
+   const peer='viewer'+i;state.connections.set(peer,{conn:{open:true}});
+   const c=channel(peer,offer.id);api.hostChannel(c);
+   assert.equal(c.open,i<32);assert.equal(state.connections.get(peer).conn.open,true);
+ }
+});
