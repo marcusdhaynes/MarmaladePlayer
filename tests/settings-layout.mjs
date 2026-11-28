@@ -212,7 +212,7 @@ try{
       [category,Object.fromEntries(Object.entries({[key]:value,...extras[category]}).map(([k,v])=>[storageKey(k),v]))]));
     const preferences=Object.assign({},...Object.values(groups));
     const keys=Object.keys(preferences);
-    assert.equal(keys.length,36,'Explicit fixture for each portable preference');
+    assert.equal(keys.length,38,'Explicit fixture for each portable preference');
     // Guard against schema drift: a new portable setting must get a fixture.
     const schemaSource=readFileSync(resolve(root,'settings-layout.js'),'utf8');
     const schemaText=schemaSource.slice(schemaSource.indexOf(' const schema={'),schemaSource.indexOf(' const validators='));
