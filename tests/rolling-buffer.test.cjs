@@ -286,3 +286,26 @@ test('transfer telemetry reports active progress and expires idle throughput',()
  assert.deepEqual(transferHealth(s,2500),{receivedBytes:4096,rangeRetries:2,pendingRanges:1,transferIdleMs:1500,goodputBps:500000});
  s.requests.clear();assert.equal(transferHealth(s,7000).goodputBps,null);assert.equal(transferHealth(s,7000).transferIdleMs,0);
 });
+
+test('parallel host lanes require an authorized primary and remain globally bounded',async()=>{
+ const {api,state,channel}=hostFixture(),offer=api.offer();
+ const aux=channel('guest',offer.id);aux.metadata.lane=1;api.hostChannel(aux);assert.equal(aux.open,false);
+ const primary=channel('guest',offer.id);api.hostChannel(primary);
+ const lanes=[1,2].map(lane=>{const c=channel('guest',offer.id);c.metadata.lane=lane;api.hostChannel(c);return c;});
+ const invalid=channel('guest',offer.id);invalid.metadata.lane=3;api.hostChannel(invalid);assert.equal(invalid.open,false);
+ await Promise.all([primary,...lanes].map((c,i)=>c.data({type:'read',id:1,offset:i*100,length:100})));
+ for(const c of [primary,...lanes])assert.equal(c.sent.at(-1).type,'done');
+ primary.close();for(const c of lanes)assert.equal(c.open,false);
+ assert.equal(state.connections.get('guest').conn.open,true);
+});
+test('parallel range requests reconstruct exact bytes and retry only failed slices',async()=>{
+ const {splitRange,readParallel}=require('../rolling-buffer.js');
+ const raw=Uint8Array.from({length:700000},(_,i)=>i%251),parts=splitRange(7,600000,3),calls=[],retries=[];
+ assert.equal(parts.length,3);assert.equal(parts.reduce((sum,p)=>sum+p.length,0),600000);
+ const result=await readParallel(7,600000,['a','b','c'],async(at,len,lane)=>{
+   calls.push([at,len,lane]);if(lane==='b')throw Error('interrupted');
+   return raw.slice(at,at+len).buffer;
+ },async(p,error,lane)=>{retries.push(lane);return raw.slice(p.offset,p.offset+p.length).buffer;});
+ assert.deepEqual(new Uint8Array(result),raw.slice(7,600007));
+ assert.equal(calls.length,3);assert.deepEqual(retries,['b']);
+});

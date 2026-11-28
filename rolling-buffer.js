@@ -8,7 +8,8 @@
  const LABEL='marmalade-buffer-v1';
  const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  const bridge=()=>root.MarmaladeAddonBridge;
- const keys=new WeakMap(),hostChannels=new Set();
+ const keys=new WeakMap(),hostChannels=new Set(),hostLaneInfo=new WeakMap();
+ const MAX_LANES=3;
  let session=null,failedKey='',retryAt=0;
  function ahead(ranges,time){
    for(let i=0;i<(ranges?.length||0);i++)
@@ -158,7 +159,7 @@
    const a=bridge(),s=a?.state,file=hostSource(s);
    if(!s||s.role!=='host'||!s.broadcasting||!s.fileReady||!file||s.allowOriginalBuffer===false)return null;
    if(!keys.has(file))keys.set(file,crypto.randomUUID?.()||Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join(''));
-   return {id:keys.get(file),size:file.size||file.length,name:file.name};
+   return {id:keys.get(file),size:file.size||file.length,name:file.name,parallelRanges:MAX_LANES};
  }
  function validOffer(o){return o&&typeof o.id==='string'&&o.id.length<=100&&typeof o.name==='string'&&o.name.length<=512&&Number.isSafeInteger(o.size)&&o.size>0;}
  function hostChannel(conn){
@@ -166,12 +167,19 @@
    const a=bridge(),o=offer(),entry=a?.state.connections.get(conn.peer);
    if(!o||!entry?.conn.open||conn.metadata?.id!==o.id){conn.close();return true;}
    const file=hostSource(a.state);
-   for(const prior of hostChannels)if(prior.peer===conn.peer)prior.close();
+   const lane=conn.metadata?.lane??0;
+   if(!Number.isInteger(lane)||lane<0||lane>=MAX_LANES){conn.close();return true;}
+   const primary=()=>[...hostChannels].find(c=>c.peer===conn.peer&&c.open&&hostLaneInfo.get(c)?.lane===0&&hostLaneInfo.get(c)?.entry===entry);
+   if(lane!==0&&!primary()){conn.close();return true;}
+   for(const prior of [...hostChannels]){
+     if(prior.peer===conn.peer&&(lane===0||hostLaneInfo.get(prior)?.lane===lane))prior.close();
+   }
+   // The aggregate channel limit is unchanged; additional lanes are optional.
    if(hostChannels.size>=MAX_BULK_GUESTS){conn.close();return true;}
-   hostChannels.add(conn);
+   hostLaneInfo.set(conn,{lane,entry});hostChannels.add(conn);
    let busy=false,invalid=0,lastId=0;
    const window=createTransferWindow();
-   const authorized=()=>conn.open&&a.state.connections.get(conn.peer)===entry&&entry.conn.open&&hostSource(a.state)===file&&offer()?.id===o.id;
+   const authorized=()=>conn.open&&hostChannels.has(conn)&&a.state.connections.get(conn.peer)===entry&&entry.conn.open&&(lane===0||!!primary())&&hostSource(a.state)===file&&offer()?.id===o.id;
    const reply=m=>{if(authorized())conn.send(m);};
    conn.on('data',async m=>{
      if(!authorized()){conn.close();return;}
@@ -197,8 +205,12 @@
      }
      finally{busy=false;}
    });
-   conn.on('close',()=>hostChannels.delete(conn));
-   conn.on('error',()=>{hostChannels.delete(conn);try{conn.close();}catch{}});
+   const release=()=>{
+     hostChannels.delete(conn);
+     if(lane===0)for(const c of [...hostChannels])if(c.peer===conn.peer&&hostLaneInfo.get(c)?.entry===entry)try{c.close();}catch{}
+   };
+   conn.on('close',release);
+   conn.on('error',()=>{release();try{conn.close();}catch{}});
    return true;
  }
  function closeHost(){const file=hostSource(bridge()?.state);if(file)keys.delete(file);for(const conn of hostChannels)try{conn.close();}catch{}hostChannels.clear();}
@@ -209,7 +221,7 @@
    for(const req of s.requests.values()){clearTimeout(req.timer);req.reject(Error('Buffer session cancelled'));}
    s.requests.clear();s.cache.clear();
    void s.disk?.close();s.disk=null;
-   try{s.conn?.close();}catch{}
+   closeAux(s);try{s.conn?.close();}catch{}
    try{Promise.resolve(s.remuxer?.destroy?.()).catch(()=>{});}catch{}
    if(s.url)URL.revokeObjectURL(s.url);
  }
@@ -265,11 +277,11 @@
      pendingRanges:pending,transferIdleMs:pending?elapsed:0,
      goodputBps:pending||elapsed<5000?(s.goodputBps??null):null};
  }
- function request(s,offset,length){
-   if(!current(s)||!s.conn?.open||!validRange(offset,length,s.offer.size))return Promise.reject(Error('Invalid or disconnected range'));
+ function request(s,offset,length,channel=s.conn){
+   if(!current(s)||!channel?.open||!validRange(offset,length,s.offer.size))return Promise.reject(Error('Invalid or disconnected range'));
    return new Promise((resolve,reject)=>{
      const now=()=>root?.performance?.now?.()??Date.now();
-     const id=++s.sequence,req={bytes:new Uint8Array(length),received:0,resolve,reject,timer:0,started:now()};
+     const id=++s.sequence,req={bytes:new Uint8Array(length),received:0,resolve,reject,timer:0,started:now(),channel};
      s.lastTransferAt=req.started;
      req.arm=()=>{
        clearTimeout(req.timer);
@@ -281,11 +293,11 @@
      };
      req.arm();
      s.requests.set(id,req);
-     try{s.conn.send({type:'read',id,offset,length});}catch(e){clearTimeout(req.timer);s.requests.delete(id);reject(e);}
+     try{channel.send({type:'read',id,offset,length});}catch(e){clearTimeout(req.timer);s.requests.delete(id);reject(e);}
    });
  }
- function receive(s,m){
-   const req=s.requests.get(m?.id);if(!req)return;
+ function receive(s,m,channel){
+   const req=s.requests.get(m?.id);if(!req||req.channel!==channel)return;
    const finish=(error)=>{clearTimeout(req.timer);s.requests.delete(m.id);error?req.reject(error):req.resolve(req.bytes.buffer);};
    if(m.type==='part'){
      const b=m.bytes instanceof ArrayBuffer?new Uint8Array(m.bytes):ArrayBuffer.isView(m.bytes)?new Uint8Array(m.bytes.buffer,m.bytes.byteOffset,m.bytes.byteLength):null;
@@ -310,6 +322,59 @@
      s.rangeRetries=(s.rangeRetries||0)+1;await reconnect(s);
    });
  }
+ function splitRange(offset,length,lanes){
+   const n=Math.max(1,Math.min(lanes,Math.ceil(length/(128*1024))));
+   const step=Math.ceil(length/n),parts=[];
+   for(let pos=0;pos<length;pos+=step)parts.push({offset:offset+pos,length:Math.min(step,length-pos)});
+   return parts;
+ }
+ async function readParallel(offset,length,lanes,request,recover){
+   const pieces=splitRange(offset,length,lanes.length),out=new Uint8Array(length);
+   const results=await Promise.allSettled(pieces.map((p,i)=>request(p.offset,p.length,lanes[i])));
+   for(let i=0;i<pieces.length;i++){
+     const p=pieces[i],result=results[i];
+     const bytes=new Uint8Array(result.status==='fulfilled'?result.value:await recover(p,result.reason,lanes[i]));
+     if(bytes.length!==p.length)throw Error('Incomplete movie range');
+     out.set(bytes,p.offset-offset);
+   }
+   return out.buffer;
+ }
+ function closeAux(s){
+   for(const c of s.aux?.values()||[])try{c.close();}catch{}
+   s.aux?.clear();
+ }
+ async function chooseLanes(s){
+   const now=Date.now();
+   if(!current(s)||s.reconnecting||!s.conn?.open)return [s.conn];
+   const cap=Math.min(MAX_LANES,Number(s.offer.parallelRanges)||1);
+   // Only use extra transport paths after measuring a slow primary path.
+   // Healthy LAN transfers retain the ordinary single-channel protocol.
+   if(cap>1&&s.ready&&s.receivedBytes>=2*BLOCK&&s.goodputBps>0&&s.goodputBps<6e6&&now>=(s.nextLaneAttempt||0)){
+     s.nextLaneAttempt=now+15000;
+     for(let lane=1;lane<cap;lane++){
+       if(s.aux?.get(lane)?.open)continue;
+       try{await openChannel(s,lane);}catch{const c=s.aux?.get(lane);s.aux?.delete(lane);try{c?.close();}catch{}}
+       if(!current(s)||s.reconnecting)break;
+     }
+   }
+   return [s.conn,...(s.aux?.values()||[])].filter(c=>c?.open);
+ }
+ async function fetchBlock(s,offset,length){
+   const lanes=await chooseLanes(s);
+   if(lanes.length<2||length<256*1024)return requestRecoverable(s,offset,length);
+   return readParallel(offset,length,lanes,(at,count,c)=>request(s,at,count,c),async(p,error,c)=>{
+     if(!current(s)||!recoverableRangeFailure(error,c,c===s.conn?s.conn:(c.open?c:null),s.reconnecting))throw error;
+     if(c===s.conn&&error.code==='RANGE_TIMEOUT'){await reconnect(s);}
+     else if(c!==s.conn){try{c.close();}catch{}}
+     if(s.reconnectTask)await s.reconnectTask;
+     s.rangeRetries=(s.rangeRetries||0)+1;
+     const prefix=error.prefix instanceof Uint8Array?error.prefix:new Uint8Array(0);
+     const result=new Uint8Array(p.length),used=Math.min(prefix.length,p.length-1);
+     result.set(prefix.subarray(0,used));
+     result.set(new Uint8Array(await requestRecoverable(s,p.offset+used,p.length-used)),used);
+     return result.buffer;
+   });
+ }
  async function read(s,offset,size){
    if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(size)||offset<0||size<0||size>16*BLOCK)throw Error('Invalid decoder read');
    const length=Math.max(0,Math.min(size,s.offer.size-offset));
@@ -324,7 +389,7 @@
        block=await s.disk?.get(start);
        if(!block||block.length!==expected){
          if(!current(s))throw Error('Buffer session cancelled');
-         block=new Uint8Array(await requestRecoverable(s,start,expected));
+         block=new Uint8Array(await fetchBlock(s,start,expected));
        }
        if(!current(s))throw Error('Buffer session cancelled');
        s.cache.set(start,block);s.cacheBytes+=block.length;
@@ -419,14 +484,16 @@
    }catch(e){if(current(s)){if(s.reconnecting||!s.conn?.open){s.cursor=null;void reconnect(s);}else stop(true,e.message);}}
    finally{s.running=false;}
  }
- async function openChannel(s){
-   const a=bridge(),conn=a.state.peer.connect(s.control.peer,{label:LABEL,reliable:true,metadata:{id:s.offer.id}});
-   s.conn=conn;
-   conn.on('data',m=>{if(s.conn===conn)receive(s,m);});
+ async function openChannel(s,lane=0){
+   const a=bridge(),conn=a.state.peer.connect(s.control.peer,{label:LABEL,reliable:true,metadata:{id:s.offer.id,lane}});
+   if(lane===0)s.conn=conn;
+   else{if(!s.aux)s.aux=new Map();s.aux.set(lane,conn);}
+   const active=()=>lane===0?s.conn===conn:s.aux?.get(lane)===conn;
+   conn.on('data',m=>{if(active())receive(s,m,conn);});
    const lost=()=>{
-     if(!current(s)||s.conn!==conn)return;
-     for(const req of s.requests.values()){clearTimeout(req.timer);req.reject(interruptedRange(Error('Movie transfer disconnected'),req));}
-     s.requests.clear();
+     if(!current(s)||!active())return;
+     for(const [id,req] of s.requests)if(req.channel===conn){clearTimeout(req.timer);s.requests.delete(id);req.reject(interruptedRange(Error('Movie transfer disconnected'),req));}
+     if(lane!==0){s.aux.delete(lane);return;}
      if(s.buffer)void reconnect(s);
    };
    conn.on('close',lost);conn.on('error',lost);
@@ -449,7 +516,7 @@
    const deadline=Date.now()+150000;
    for(let attempt=0;attempt<5&&current(s);attempt++){
      try{
-       const old=s.conn;s.conn=null;try{old?.close();}catch{}
+       closeAux(s);const old=s.conn;s.conn=null;try{old?.close();}catch{}
        await delay(attempt?Math.min(3000,400*2**attempt):0);
        if(!current(s))return;
        // Do not spend attempts while signaling or room registration is down.
@@ -532,9 +599,9 @@
    const target=Math.min(TARGET,remaining);
    return {target,capacity:s.capacity,ready:s.ready,seconds:s.buffer?ahead(s.buffer.buffered,time):0,
      reconnecting:!!s.reconnecting,quotaLimited:s.capacity<Math.min(TARGET+5,remaining),
-     diskBytes:s.disk?.size||0,diskAvailable:!!s.disk,...transferHealth(s,root?.performance?.now?.()??Date.now())};
+     diskBytes:s.disk?.size||0,diskAvailable:!!s.disk,transferLanes:(s.conn?.open?1:0)+[...(s.aux?.values()||[])].filter(c=>c.open).length,...transferHealth(s,root?.performance?.now?.()??Date.now())};
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,resumeRange,interruptedRange,transferHealth,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,resumeRange,interruptedRange,transferHealth,splitRange,readParallel,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
  if(!root)return;
  root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?bufferStatus(session,session.buffer&&current(session)?position(session):0):null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});

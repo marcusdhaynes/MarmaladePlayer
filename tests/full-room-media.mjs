@@ -863,6 +863,7 @@ try {
             throw error;
           }
           const after=await transport(),countersAfter=netemStats();
+          console.log('NETEM transfer lanes',await viewer.evaluate(()=>window.MarmaladeRollingBuffer.getStatus()?.transferLanes));
           assert.equal(after.local,'udp');assert.equal(after.remote,'udp');
           assert(countersAfter.packets-countersBefore.packets>100,'The shaped UDP queue must carry real traffic');
           assert(countersAfter.bytes-countersBefore.bytes>100000,'The shaped queue must carry movie-scale traffic');
