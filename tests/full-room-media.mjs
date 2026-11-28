@@ -582,6 +582,8 @@ try {
       guestMuted:guestB.muted,hostTime:hostB.sourceTime};
     const captureFps=((Number(tier)<=540?hostB.baseCaptureFrames-hostA.baseCaptureFrames:hostB.highCaptureFrames-hostA.highCaptureFrames)*1000/(hostB.time-hostA.time));
     console.log('SUSTAINED FRAME RATE',JSON.stringify({...metrics,captureFps,highPaintIdle:hostB.highPaintIdle}));
+    if(Number(tier)<540&&hostB.compatibilityCanvas)
+      assert.equal(hostB.senderSourceHeight,Number(tier),'Low-tier compatibility capture should match selected tier without secondary sender scaling');
     if(Number(tier)<=540&&hostB.highCanvas)assert(hostB.highPaintIdle,'Unused HD canvas must be idle at '+tier+'p');
     if(Number(tier)>540&&hostB.highCanvas)assert(!hostB.highPaintIdle,'HD canvas must resume at '+tier+'p');
     assert(!guestB.paused,'Guest video must keep playing at '+tier+'p');

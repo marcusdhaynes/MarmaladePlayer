@@ -1438,7 +1438,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   // Base capture remains lightweight. Native/full-resolution capture is lazy and
   // only started when somebody explicitly requests >540p or Original.
   const LEVELS = [
-    { id: '144', height: 144, bitrate: 240000, fps: 24 },
+    { id: '144', height: 144, bitrate: 350000, fps: 24 },
     { id: '240', height: 240, bitrate: 420000, fps: 24 },
     { id: '360', height: 360, bitrate: 520000, fps: 24 },
     { id: '480', height: 480, bitrate: 950000, fps: 24 },
@@ -1461,7 +1461,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     fileReady: false, broadcasting: false, outgoing: null, nativeCapture: null,
     screenStream: null, audioContext: null, audioDestination: null, audioSourceNode: null,
     speakerGain: null, soundMuted: false, audioReady: false, volumePercent: 100, volumeDetent: false, animationFrame: 0,
-    canvasStream: null, interval: null, connections: new Map(), guestConn: null,
+    canvasStream: null, lowCompatCaptures: new Map(), interval: null, connections: new Map(), guestConn: null,
     guestCall: null, lastVolume: 1, pingAt: 0, connecting: false, toastTimeout: null,
     audioUnlockRequired: false,
     guestAudioContext: null, guestAudioSource: null, guestAudioGain: null,
@@ -3348,6 +3348,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     if (state.qualityTimer) { window.clearInterval(state.qualityTimer); state.qualityTimer = null; }
     if (state.animationFrame) { cancelAnimationFrame(state.animationFrame); state.animationFrame = 0; }
     // AudioContext's destination is reused; never end its audio track.
+    for(const capture of state.lowCompatCaptures.values())capture.dispose();
+    state.lowCompatCaptures.clear();
     if(state.canvasStream)for(const track of state.canvasStream.getVideoTracks())track.stop();
     if (state.outgoing && !keepScreen) for (const track of state.outgoing.getVideoTracks()) track.stop();
     if (state.outgoing && keepScreen && state.source !== 'screen') for (const track of state.outgoing.getVideoTracks()) track.stop();
@@ -4147,7 +4149,69 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Manually selecting Original must not silently flood the other connections.
     return Math.max(64000, Math.min(desired, Math.floor(MAX_TOTAL_VIDEO_BPS * desired / totalWanted)));
   }
-  function getCompatCanvasTrack() {
+  // Share an exact-size compatibility capture only among guests requesting the
+  // same low tier. A 540p capture followed by RTP downscaling is unnecessary
+  // work at 144p–480p and can starve the software encoder on constrained hosts.
+  function getLowCompatCapture(height) {
+    if(state.source!=='file'||!media.videoWidth||!media.videoHeight)return null;
+    const actualHeight=Math.min(height,media.videoHeight);
+    const existing=state.lowCompatCaptures.get(height);
+    if(existing?.track.readyState==='live'&&existing.height===actualHeight)return existing.track;
+    // Keep any existing live sender intact if metadata changed; the general
+    // compatibility track remains a fallback until this source is reopened.
+    if(existing?.track.readyState==='live')return null;
+    existing?.dispose();
+    const canvas=document.createElement('canvas');
+    canvas.height=actualHeight;
+    canvas.width=Math.max(2,Math.round(media.videoWidth*actualHeight/media.videoHeight/2)*2);
+    const ctx=canvas.getContext('2d',{alpha:false,desynchronized:true});
+    if(!ctx||!canvas.captureStream)return null;
+    let stream,track,manual;
+    try{
+      stream=canvas.captureStream(0);track=stream.getVideoTracks()[0];
+      manual=typeof track?.requestFrame==='function';
+      if(!manual){track?.stop();stream=canvas.captureStream(STREAM_FPS);track=stream.getVideoTracks()[0];}
+    }catch{track?.stop();return null;}
+    if(!track)return null;
+    let disposed=false,frameHandle=null,timer=null,lastPaint=-Infinity,lastDecoded=-Infinity;
+    const paint=(now,decoded=false)=>{
+      if(disposed||track.readyState!=='live'||media.readyState<2||
+        (!decoded&&now-lastPaint<1000/STREAM_FPS-2))return;
+      lastPaint=now;
+      try{
+        ctx.drawImage(media,0,0,canvas.width,canvas.height);
+        if(manual)track.requestFrame();
+        state.baseCaptureFrames++;
+      }catch{}
+    };
+    const record={track,height:actualHeight,width:canvas.width,dispose(){
+      if(disposed)return;disposed=true;
+      if(timer!==null)clearInterval(timer);
+      if(frameHandle!==null)try{media.cancelVideoFrameCallback?.(frameHandle);}catch{}
+      track.stop();
+    }};
+    state.lowCompatCaptures.set(height,record);
+    if('contentHint' in track)try{track.contentHint='motion';}catch{}
+    paint(performance.now());
+    if(manual&&typeof media.requestVideoFrameCallback==='function'){
+      const onFrame=now=>{
+        if(disposed||track.readyState!=='live')return;
+        lastDecoded=performance.now();paint(now,true);
+        frameHandle=media.requestVideoFrameCallback(onFrame);
+      };
+      frameHandle=media.requestVideoFrameCallback(onFrame);
+    }
+    timer=setInterval(()=>{
+      const now=performance.now();
+      if(!media.paused&&now-lastDecoded>100)paint(now);
+    },Math.round(1000/STREAM_FPS));
+    return track;
+  }
+  function getCompatCanvasTrack(height=STREAM_HEIGHT) {
+    if(height<STREAM_HEIGHT){
+      const exact=getLowCompatCapture(height);
+      if(exact)return exact;
+    }
     let track=state.canvasStream?.getVideoTracks()[0];
     if(track?.readyState==='live'){
       state.basePaintIdle=false;
@@ -4173,13 +4237,14 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // host's can request a one-time canvas capture, per guest.
     const newTrack = wantsHigh
       ? getHighVideoTrack(current.height,!!(entry.compatCanvas||entry.captureRescue))
-      : entry.compatCanvas ? getCompatCanvasTrack() : state.outgoing?.getVideoTracks()[0];
+      : entry.compatCanvas ? getCompatCanvasTrack(current.height) : state.outgoing?.getVideoTracks()[0];
     if (!newTrack || newTrack.readyState !== 'live') return;
     const bitrate = budgetForGuest(entry,Math.round(current.bitrate *
       (current.height > STREAM_HEIGHT ?
         (entry.highBitrateFactor ?? 1)*(entry.highHeadroomFactor ?? 1) : 1)));
-    const naturalHeight = newTrack.getSettings?.().height || (wantsHigh ? sourceHeight() : STREAM_HEIGHT);
-    const naturalWidth = newTrack.getSettings?.().width || (wantsHigh ? media.videoWidth : STREAM_WIDTH);
+    const exactCapture=[...state.lowCompatCaptures.values()].find(c=>c.track===newTrack);
+    const naturalHeight = newTrack.getSettings?.().height || exactCapture?.height || (wantsHigh ? sourceHeight() : STREAM_HEIGHT);
+    const naturalWidth = newTrack.getSettings?.().width || exactCapture?.width || (wantsHigh ? media.videoWidth : STREAM_WIDTH);
     const scale = Math.max(1, naturalHeight / Math.max(1, current.height),
       naturalWidth / Math.max(1, Math.round(current.height * naturalWidth / Math.max(1, naturalHeight))));
     const signature = `${newTrack.id}/${bitrate}/${scale.toFixed(2)}/${current.fps}/${entry.motionRescue?'rescue':'detail'}`;
@@ -4241,7 +4306,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             // capture if this browser rejects RTP sender scaling.
             const safe=wantsHigh
               ?getHighVideoTrack(current.height,true)
-              :getCompatCanvasTrack();
+              :getCompatCanvasTrack(current.height);
             if (safe?.readyState==='live' && safe!==sender.track)
               await sender.replaceTrack(safe);
           }
@@ -4276,9 +4341,18 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // lower tier; preserve the track so returning to HD need not renegotiate.
     state.highPaintIdle=!!state.highCanvas&&
       !active.some((e,i)=>tracks[i]===state.highTrack||levelForGuest(e).height>STREAM_HEIGHT);
+    // Do not stop a track while replaceTrack is still pending. Once all
+    // senders settle, release unused tier canvases and their capture clocks.
+    if(!active.some(e=>e.tuning)){
+      for(const [height,capture] of state.lowCompatCaptures){
+        if(!tracks.includes(capture.track)){
+          capture.dispose();state.lowCompatCaptures.delete(height);
+        }
+      }
+    }
     if(!state.basePaint)return;
     const base=state.canvasStream?.getVideoTracks()[0];
-    const anyBase=active.some((e,i)=>!tracks[i]||tracks[i]===base||levelForGuest(e).height<=STREAM_HEIGHT);
+    const anyBase=active.some((e,i)=>!tracks[i]||tracks[i]===base);
     state.basePaintIdle=!anyBase;
     if(anyBase&&!state.interval){
       state.basePaint();
