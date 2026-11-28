@@ -62,6 +62,7 @@
         if(markers.length)item.markers=markers;
       }
       cues.push(item);
+      return item;
     }
   }
   // Handle timestamped cues even if a SubDL release lacks blank lines.
@@ -142,10 +143,50 @@
     }
     return {fps,assumed};
   }
+  function assColor(value){
+    const match=/^&H([0-9a-f]{6}|[0-9a-f]{8})&?$/i.exec(value||'');
+    if(!match)return '';
+    const hex=match[1],rgb=hex.slice(-6);
+    return '#'+rgb.slice(4)+rgb.slice(2,4)+rgb.slice(0,2)+(hex.length===8?(255-parseInt(hex.slice(0,2),16)).toString(16).padStart(2,'0'):'');
+  }
+  function assAppearance(fields,body){
+    const style={...fields};
+    // Only leading overrides apply to a whole cue. Mid-line changes need runs.
+    const prefix=/^(?:\{[^}]*\})+/.exec(body)?.[0]||'';
+    for(const tag of prefix.matchAll(/\\(1?c)(&H[\da-f]{6}&?)|\\([bius])(-?1|0)(?=\\|\})/gi)){
+      if(tag[1])style.primarycolour=tag[2];
+      else style[{b:'bold',i:'italic',u:'underline',s:'strikeout'}[tag[3].toLowerCase()]]=tag[4];
+    }
+    const css={},color=assColor(style.primarycolour);
+    if(color)css.color=color;
+    if(style.fontname&&/^[\p{L}\p{N} _-]{1,80}$/u.test(style.fontname))css.fontFamily='"'+style.fontname+'"';
+    if(style.bold!==undefined)css.fontWeight=Number(style.bold)?'bold':'normal';
+    if(style.italic!==undefined)css.fontStyle=Number(style.italic)?'italic':'normal';
+    const lines=[];
+    if(Number(style.underline))lines.push('underline');
+    if(Number(style.strikeout))lines.push('line-through');
+    if(lines.length)css.textDecorationLine=lines.join(' ');
+    return css;
+  }
   function parseAss(source,cues){
     const lines=source.split('\n');
+    const styles=new Map();let styleSection=false,styleKeys=[];
     let inEvents=false,keys=['layer','start','end','style','name','marginl','marginr','marginv','effect','text'];
     for(const line of lines){
+      if(/^\s*\[/.test(line)){
+        styleSection=/^\s*\[V4\+ Styles\]/i.test(line);styleKeys=[];
+      }
+      if(styleSection){
+        const match=/^\s*(Format|Style)\s*:\s*(.*)$/i.exec(line);
+        if(match){
+          const values=match[2].split(',').map(v=>v.trim());
+          if(match[1].toLowerCase()==='format')styleKeys=values.map(v=>v.toLowerCase());
+          else if(values.length===styleKeys.length&&styles.size<4096){
+            const definition=Object.fromEntries(styleKeys.map((key,i)=>[key,values[i]]));
+            if(definition.name)styles.set(definition.name,definition);
+          }
+        }
+      }
       if(/^\s*\[events\]/i.test(line)){inEvents=true;continue;}
       if(/^\s*\[[^\]]+\]/.test(line)){inEvents=false;continue;}
       if(!inEvents)continue;
@@ -157,8 +198,12 @@
       const cols=raw.split(',');
       if(cols.length<keys.length)continue;
       const parsed=cols.slice(0,keys.length-1).concat(cols.slice(keys.length-1).join(','));
-      cue(cues,time(parsed[keys.indexOf('start')]),time(parsed[keys.indexOf('end')]),
-        parsed[keys.indexOf('text')]);
+      const body=parsed[keys.indexOf('text')];
+      const item=cue(cues,time(parsed[keys.indexOf('start')]),time(parsed[keys.indexOf('end')]),body);
+      if(item){
+        const appearance=assAppearance(styles.get(parsed[keys.indexOf('style')]?.trim()),body);
+        if(Object.keys(appearance).length)item.assStyle=appearance;
+      }
     }
   }
   function decode(raw,filename='',options={}){
@@ -237,11 +282,11 @@
   // Cache an end-time interval tree by array identity. A lookup prunes every
   // subtree whose latest end is already expired; no arbitrary 32-cue window.
   const cueIndexes=new WeakMap();
-  function activeText(cues,at){
-    if(!Array.isArray(cues)||!cues.length||!Number.isFinite(at))return '';
+  function activeCues(cues,at){
+    if(!Array.isArray(cues)||!cues.length||!Number.isFinite(at))return [];
     let low=0,high=cues.length;
     while(low<high){const mid=(low+high)>>1;if(cues[mid].start<=at)low=mid+1;else high=mid;}
-    if(!low)return '';
+    if(!low)return [];
     let index=cueIndexes.get(cues);
     if(!index||index.length!==cues.length){
       let size=1;while(size<cues.length)size*=2;
@@ -258,15 +303,16 @@
       if(left>=low||ends[node]<=at||active.length>=8)return;
       if(right-left===1){
         const text=cues[left]?.text;
-        if(text&&!seen.has(text)){seen.add(text);active.push(text);}
+        if(text&&!seen.has(text)){seen.add(text);active.push(cues[left]);}
         return;
       }
       const mid=(left+right)>>1;
       visit(node*2+1,mid,right);visit(node*2,left,mid);
     }
     visit(1,0,size);
-    return active.reverse().join('\n');
+    return active.reverse();
   }
+  function activeText(cues,at){return activeCues(cues,at).map(c=>c.text).join('\n');}
   function fitTiming(first,second){
     const values=[first?.cue,first?.movie,second?.cue,second?.movie];
     if(values.some(v=>!Number.isFinite(v)||v<0))return null;
@@ -967,7 +1013,7 @@
     }
     return rgba;
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,matroskaPgsToSup,decodePgs,vobSubInfo,decodeVobSub,parseVobSubIndex,extractSpuFromProgramStream,readVobSubPair,pgsFrameAt,pgsPixels};
+  const api={time,plain,decode,decodeBytes,activeCues,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,matroskaPgsToSup,decodePgs,vobSubInfo,decodeVobSub,parseVobSubIndex,extractSpuFromProgramStream,readVobSubPair,pgsFrameAt,pgsPixels};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

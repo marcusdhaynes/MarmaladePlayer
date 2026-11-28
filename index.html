@@ -2442,7 +2442,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       const preview=editing&&!state.subtitlePreviewSuppressed&&state.subtitles.length===0&&
         !document.getElementById('subStyleView')?.hidden;
       el.subtitleOverlay.hidden=!preview;
-      if(preview)el.subtitleOverlay.textContent='Subtitle Preview';
+      if(preview){el.subtitleOverlay.textContent='Subtitle Preview';delete el.subtitleOverlay.dataset.assStyle;}
       return;
     }
     // Locally decoded guests MUST follow their actual presented movie frame,
@@ -2458,7 +2458,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Cues are ordered: logarithmic lookup instead of scanning thousands of cues
     // on every displayed frame. End is exclusive to avoid adjacent overlap.
     drawPgsSubtitle(window.MarmaladeSubtitleCodec?.pgsFrameAt(state.pgsFrames,subtitleTime));
-    const active=cueTextAt(state.subtitles,subtitleTime);
+    const primaryCues=window.MarmaladeSubtitleCodec?.activeCues(state.subtitles,subtitleTime)||[];
+    const active=primaryCues.map(c=>c.text).join('\n');
     // A sample cue can be inspected live while the editor is open—even when
     // playback is paused or seeking outside subtitle dialogue.
     const primary=active||(editing&&!document.getElementById('subStyleView')?.hidden&&
@@ -2466,14 +2467,30 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     // Apply the same presentation-clock correction, but independent timing.
     const unshifted=window.MarmaladeSubtitleClockBase?.(timeline)??timeline;
     const secondaryTime=unshifted-state.secondarySubtitleOffset;
-    const secondary=cueTextAt(state.secondarySubtitles,secondaryTime);
+    const secondaryCues=window.MarmaladeSubtitleCodec?.activeCues(state.secondarySubtitles,secondaryTime)||[];
+    const secondary=secondaryCues.map(c=>c.text).join('\n');
     const shown=[primary,secondary].filter(Boolean).join('\n');
     el.subtitleOverlay.hidden=!shown;
     const naturalText=shown.normalize('NFC');
-    if(shown&&el.subtitleOverlay.textContent!==naturalText){
+    const rows=primary&&!active?[state.subtitles[0],...secondaryCues]:[...primaryCues,...secondaryCues];
+    const styled=rows.some(c=>c?.assStyle);
+    const signature=styled?JSON.stringify(rows.map(c=>c.assStyle||null)):'';
+    if(shown&&(el.subtitleOverlay.textContent!==naturalText||el.subtitleOverlay.dataset.assStyle!==signature)){
       // Never split a caption into individual characters or force one language
       // on mixed-script text. Let the native shaper and bidi algorithm work.
-      el.subtitleOverlay.textContent=naturalText;
+      el.subtitleOverlay.dataset.assStyle=signature;
+      if(styled){
+        const content=document.createDocumentFragment();
+        rows.forEach((cue,index)=>{
+          if(index)content.append('\n');
+          const span=document.createElement('span');span.textContent=cue.text;
+          for(const key of ['color','fontFamily','fontStyle','fontWeight','textDecorationLine']){
+            if(cue.assStyle?.[key])span.style[key]=cue.assStyle[key];
+          }
+          content.append(span);
+        });
+        el.subtitleOverlay.replaceChildren(content);
+      }else el.subtitleOverlay.textContent=naturalText;
       el.subtitleOverlay.removeAttribute('lang');
       el.subtitleOverlay.dir='auto';
       window.MarmaladeSubtitleReposition?.();

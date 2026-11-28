@@ -80,6 +80,32 @@ try{
       },{at,expected},{timeout:8000});
     }
     console.log('PASS',variant,label,'English and Arabic, forward seek, empty interval and backward seek');
+    if(variant==='ffmpeg-webm'){
+      const source=[
+        '[Script Info]','ScriptType: v4.00+','[V4+ Styles]',
+        'Format: Name, Fontname, PrimaryColour, Bold, Italic, Underline, StrikeOut',
+        'Style: Speaker,Arial,&H000000FF,-1,0,-1,0',
+        'Style: Aside,Arial,&H00FF0000,0,-1,0,-1','[Events]',
+        'Format: Start, End, Style, Text',
+        'Dialogue: 0:00:00.50,0:00:02.00,Speaker,مرحبا',
+        'Dialogue: 0:00:03.00,0:00:05.50,Aside,مرحبا'
+      ].join('\n');
+      await page.locator('#subtitleFile').setInputFiles({name:'speaker.ass',mimeType:'text/plain',buffer:Buffer.from(source)});
+      for(const [at,color,weight,slant,line] of [
+        [1,'rgb(255, 0, 0)','700','normal','underline'],
+        [4,'rgb(0, 0, 255)','400','italic','line-through'],
+        [1,'rgb(255, 0, 0)','700','normal','underline']
+      ]){
+        await page.locator('#player').evaluate((v,at)=>{v.currentTime=at;},at);
+        await page.waitForFunction(({color,weight,slant,line})=>{
+          const span=document.querySelector('#subtitleOverlay:not([hidden]) span');
+          if(!span||span.textContent!=='مرحبا')return false;
+          const css=getComputedStyle(span);
+          return css.color===color&&css.fontWeight===weight&&css.fontStyle===slant&&css.textDecorationLine===line;
+        },{color,weight,slant,line},{timeout:8000});
+      }
+      console.log('PASS named ASS typography, Arabic text and equal-text style changes across seeks');
+    }
     await page.close();
   }
 }finally{

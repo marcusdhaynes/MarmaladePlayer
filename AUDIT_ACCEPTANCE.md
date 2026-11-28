@@ -153,3 +153,6 @@ Section 06: Embedded WebVTT dialogue extraction supports Matroska S_TEXT/WEBVTT 
 
 
 Section 06 — Independent embedded WebVTT playback acceptance. Local Chrome passed all three playable fixtures via the production subtitle studio: FFmpeg-muxed MKV and WebM with D_WEBVTT/SUBTITLES and a webm-muxer Matroska movie with S_TEXT/WEBVTT. Each verified Find Tracks, track selection, Load Track, visible first cue, forward seek, clear interval and Arabic text after a backward seek. The repeatable Chromium regression runs in the audit workflow. This verifies the tested UI/render paths; authored layout, other engines and devices remain open.
+
+
+Section 06 — Standalone ASS V4+ named style typography. The primary/secondary text overlay renders authored font family, primary colour and opacity, bold, italic, underline and strikeout on individual cues. Recognizes leading cue-wide colour and emphasis overrides. Local Chrome verified Arabic text and same-text red/blue speaker styles with bold, italic, underline and strikeout across forward and backward seeks. All 35 codec tests and three independently muxed WebVTT browser fixtures passed. Mid-line override runs, authored layout/positioning, animation, embedded ASS styling and physical-device rendering remain open.
