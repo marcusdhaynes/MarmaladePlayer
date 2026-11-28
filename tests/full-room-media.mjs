@@ -542,6 +542,11 @@ try {
         width:packet.frameWidth||0,height:packet.frameHeight||0,
         limitation:packet.qualityLimitationReason||'unknown',
         dropped:packet.framesDropped||0,
+        receivedFrames:packet.framesReceived??null,packetsLost:packet.packetsLost??null,
+        jitter:packet.jitter??null,jitterDelay:packet.jitterBufferDelay??null,
+        jitterEmitted:packet.jitterBufferEmittedCount??null,
+        totalDecodeTime:packet.totalDecodeTime??null,totalEncodeTime:packet.totalEncodeTime??null,
+        target:state.jitterTarget,
         rendered:state.remoteVideoFrameCount||0,
         sourceFrames:document.querySelector('#player').getVideoPlaybackQuality?.().totalVideoFrames||0,
         sourceTime:document.querySelector('#player').currentTime,
@@ -582,7 +587,16 @@ try {
       limited:hostB.limitation,videoPaused:guestB.paused,
       guestMuted:guestB.muted,hostTime:hostB.sourceTime};
     const captureFps=((Number(tier)<=540?hostB.baseCaptureFrames-hostA.baseCaptureFrames:hostB.highCaptureFrames-hostA.highCaptureFrames)*1000/(hostB.time-hostA.time));
+    const delta=(before,after,key)=>Number.isFinite(before[key])&&Number.isFinite(after[key])?after[key]-before[key]:null;
+    const received=delta(guestA,guestB,'receivedFrames'),emitted=delta(guestA,guestB,'jitterEmitted'),delay=delta(guestA,guestB,'jitterDelay');
+    const decodeTime=delta(guestA,guestB,'totalDecodeTime'),encodeTime=delta(hostA,hostB,'totalEncodeTime');
     console.log('SUSTAINED FRAME RATE',JSON.stringify({...metrics,captureFps,highPaintIdle:hostB.highPaintIdle,
+      receivedFps:received===null?null:received*1000/(guestB.time-guestA.time),
+      lostPackets:delta(guestA,guestB,'packetsLost'),droppedFrames:delta(guestA,guestB,'dropped'),
+      packetJitterMs:guestB.jitter===null?null:guestB.jitter*1000,
+      measuredPlayoutMs:emitted>0&&delay!==null?delay*1000/emitted:null,requestedPlayoutMs:guestB.target,
+      averageDecodeMs:decodeTime!==null&&guestB.frames>guestA.frames?decodeTime*1000/(guestB.frames-guestA.frames):null,
+      averageEncodeMs:encodeTime!==null&&hostB.frames>hostA.frames?encodeTime*1000/(hostB.frames-hostA.frames):null,
       exactCaptures:hostB.exactCaptures,priorExactCaptures:hostA.exactCaptures}));
     if(Number(tier)<540&&hostB.compatibilityCanvas)
       assert.deepEqual(hostB.exactCaptures.map(c=>c.height),[Number(tier)],'Only the actively selected low-tier canvas should remain for one guest');

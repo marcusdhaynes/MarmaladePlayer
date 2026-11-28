@@ -2819,10 +2819,30 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       state.hls.config.maxMaxBufferLength=185;
     }
     if(Number(state.requestedQuality)<=STREAM_HEIGHT)
-      state.jitterTarget = clamp(Math.round((state.jitterTarget * .6) +
-        ((freezes || quality > .025 ? 2100 : selectedMode().rtcMs) * .4)),130,3000);
+      state.jitterTarget=nextLowPlayoutTarget(state.jitterTarget,state.stabilityMode,report);
     applyReceiverPlayout();
     updateDiagnostics();
+  }
+  // Avoid jumping toward 2.1 seconds on a single freeze: it may be a
+  // decoder stall or quality switch rather than network jitter.
+  function nextLowPlayoutTarget(previous,mode,report={}){
+    const [base,ceiling]=mode==='smooth'?[700,1400]:mode==='balanced'?[280,800]:[140,330];
+    const old=Math.max(base,Math.min(ceiling,Number(previous)||base));
+    const loss=Math.max(0,Number(report.loss)||0),jitter=Math.max(0,Number(report.packetJitterMs)||0);
+    if(loss>.025||jitter>95)return Math.min(ceiling,old+100);
+    if(loss>.009||jitter>40)return Math.min(ceiling,old+40);
+    return Math.max(base,old-25);
+  }
+  const appliedReceiverTargets=new WeakMap();
+  function setReceiverPlayout(receiver,target){
+    if(appliedReceiverTargets.get(receiver)===target)return;
+    // Use modern milliseconds, legacy seconds only as a fallback.
+    if('jitterBufferTarget' in receiver){
+      try{receiver.jitterBufferTarget=target;appliedReceiverTargets.set(receiver,target);return;}catch{}
+    }
+    if('playoutDelayHint' in receiver){
+      try{receiver.playoutDelayHint=target/1000;appliedReceiverTargets.set(receiver,target);}catch{}
+    }
   }
   function applyReceiverPlayout() {
     const pc=state.guestCall?.peerConnection;
@@ -2848,20 +2868,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       }
       for(const receiver of pc.getReceivers()){
         if(receiver.track?.kind!=='video')continue;
-        if('jitterBufferTarget' in receiver)
-          try{receiver.jitterBufferTarget=state.highPlayoutTarget;}catch{}
-        if('playoutDelayHint' in receiver)
-          try{receiver.playoutDelayHint=state.highPlayoutTarget/1000;}catch{}
+        setReceiverPlayout(receiver,state.highPlayoutTarget);
       }
       return;
     }
-    // Leave the successful 144p–540p policy unchanged.
     for(const receiver of pc.getReceivers()){
       if(receiver.track?.kind!=='video')continue;
-      if('jitterBufferTarget' in receiver)
-        try{receiver.jitterBufferTarget=state.jitterTarget;}catch{}
-      if('playoutDelayHint' in receiver)
-        try{receiver.playoutDelayHint=state.jitterTarget/1000;}catch{}
+      setReceiverPlayout(receiver,state.jitterTarget);
     }
   }
   async function fileFingerprint(file) {
