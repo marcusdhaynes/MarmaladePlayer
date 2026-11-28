@@ -308,3 +308,23 @@ test('S_VOBSUB CodecPrivate and binary SPU blocks are extracted from MKV',async(
  assert.equal(result.format,'vobsub');assert.equal(result.frames[0].start,1);
  assert.deepEqual(Array.from(codec.pgsPixels(result.frames[0].layers[0])),Array(16).fill(255));
 });
+
+function dvdPack(index,raw){
+ const header=Buffer.from([0,0,1,0xba,0x44,0,4,0,4,1,0,0,3,0]);
+ const pes=Buffer.from([0,0,1,0xbd,0,0,0x80,0,0,0x20+index]);
+ pes.writeUInt16BE(raw.length+4,4);
+ return Buffer.concat([header,pes,raw]);
+}
+test('paired IDX/SUB demux selects language and reassembles fragmented DVD SPU',async()=>{
+ const spu=dvdSpu(),parts=[dvdPack(0,spu.subarray(0,12)),dvdPack(1,spu),dvdPack(0,spu.subarray(12))];
+ const idx=dvdPrivate+'\nid: en, index: 0\ntimestamp: 00:00:01:000, filepos: 000000000\nid: ar, index: 1\ntimestamp: 00:00:02:000, filepos: '+parts[0].length.toString(16);
+ const parsed=codec.parseVobSubIndex(idx);
+ assert.deepEqual(parsed.tracks.map(t=>t.language),['en','ar']);
+ const file=new Blob(parts),en=await codec.readVobSubPair(idx,file,0),ar=await codec.readVobSubPair(idx,file,1);
+ assert.equal(en.frames[0].start,1);assert.equal(ar.frames[0].start,2);
+ assert.deepEqual(Array.from(codec.pgsPixels(en.frames[0].layers[0])),Array(16).fill(255));
+ assert.throws(()=>codec.extractSpuFromProgramStream(parts[0],0),/incomplete/);
+ await assert.rejects(codec.readVobSubPair(idx.replace('000000000','fffffffff'),file,0),/outside/);
+ const controller=new AbortController();controller.abort();
+ await assert.rejects(codec.readVobSubPair(idx,file,0,{signal:controller.signal}),/cancelled/);
+});

@@ -6362,6 +6362,39 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       return {inferred:result.inferred};
     }
   };
+  // Paired DVD subtitle import shares the bitmap renderer and stored
+  // raw SPU format with embedded VobSub. No video or SUB file is uploaded.
+  let vobPairAbort=null;
+  function cancelVobPair(){vobPairAbort?.abort();vobPairAbort=null;}
+  for(const event of ['marmalade:media-cleared','marmalade:video-selected','marmalade:library-video-selected'])
+    window.addEventListener(event,cancelVobPair);
+  window.MarmaladeVobSubPair={
+    cancel:cancelVobPair,
+    async list(idx){
+      if(!idx||idx.size>2*1024*1024)throw Error('Choose an IDX file under 2 MB');
+      const text=await idx.text();
+      const parsed=window.MarmaladeSubtitleCodec.parseVobSubIndex(text);
+      return parsed.tracks.map(t=>({index:t.index,language:t.language,count:t.entries.length}));
+    },
+    async load(idx,sub,index,onProgress){
+      if(!el.stage.classList.contains('has-video'))throw Error('Load a video first');
+      if(!idx||!sub||idx.size>2*1024*1024||
+        !/\.idx$/i.test(idx.name)||!/\.sub$/i.test(sub.name)||
+        idx.name.replace(/\.idx$/i,'').toLowerCase()!==sub.name.replace(/\.sub$/i,'').toLowerCase())
+        throw Error('Choose matching .idx and .sub files with the same base name');
+      cancelVobPair();const controller=new AbortController();vobPairAbort=controller;
+      const key=subtitleMediaKey(),token=++subtitleRestoreSequence;
+      const result=await window.MarmaladeSubtitleCodec.readVobSubPair(await idx.text(),sub,index,{signal:controller.signal,onProgress});
+      if(controller.signal.aborted||key!==subtitleMediaKey()||token!==subtitleRestoreSequence)
+        throw Error('Video or subtitle selection changed');
+      const name=idx.name+' · '+result.language,id='vobsub-pair:'+subtitleId(idx)+'|'+sub.size+'|'+sub.lastModified+'|'+index;
+      await applyBitmapSubtitles(result.frames,name,id,{mediaKey:key,lang:result.language});
+      if(key)try{
+        await subtitleHandleStore('put',key,{kind:'vobsub',name,id,lang:result.language,privateText:result.privateText,entries:result.entries});
+      }catch{notify('VobSub loaded, but could not be saved on this device.');}
+      return {count:result.frames.length};
+    }
+  };
   el.subtitleFile.addEventListener('change',async()=>{
     const file=el.subtitleFile.files?.[0];
     try{if(file)await loadSelectedSubtitle(file,null,{encoding:document.getElementById('primarySubtitleEncoding')?.value||'auto'});}

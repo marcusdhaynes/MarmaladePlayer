@@ -813,13 +813,105 @@
           last={start:when,end:packetEnd,width:info.width,height:info.height,
             layers:[{x,y,crop:{x:0,y:0,w,h},object:cachedBitmap,palette,forced}]};
         }
-        if(next===pos){finish(Math.min(packetEnd,last?last.start+5:when));break;}
+        if(next===pos){finish(entry.duration>0?packetEnd:Math.min(packetEnd,last?last.start+5:when));break;}
         pos=next;
         if(frames.length>10000)fail('composition count');
       }
     }
     if(!frames.length||frames.length>10000)fail('no usable bitmap compositions');
     return frames;
+  }
+  // Standalone VobSub IDX/SUB: IDX indexes language-specific DVD SPUs
+  // stored in MPEG-2 program-stream private_stream_1 PES packets.
+  function parseVobSubIndex(text){
+    const source=String(text||'').replace(/^\uFEFF/,'');
+    if(source.length>2*1024*1024)throw Error('VobSub IDX exceeds 2 MB');
+    const metadata=source.split(/\r?\n/).filter(line=>/^\s*(?:size|palette|custom colors):/i.test(line)).join('\n');
+    vobSubInfo(metadata);
+    const tracks=[];let active=null,total=0;
+    for(const line of source.split(/\r?\n/)){
+      const track=/^\s*id:\s*([a-z0-9_-]{1,16})\s*,\s*index:\s*(\d+)\s*$/i.exec(line);
+      if(track){
+        const index=Number(track[2]);
+        if(index>31||tracks.some(t=>t.index===index))throw Error('Invalid or duplicate VobSub language index');
+        active={index,language:track[1],entries:[]};tracks.push(active);continue;
+      }
+      if(/^\s*delay:/i.test(line)&&!/^\s*delay:\s*[+-]?00:00:00:000\s*$/i.test(line))
+        throw Error('Nonzero IDX delay directives are unsupported; use the subtitle timing control');
+      if(!/^\s*timestamp:/i.test(line))continue;
+      const m=/^\s*timestamp:\s*(\d{1,3}):(\d{2}):(\d{2}):(\d{3})\s*,\s*filepos:\s*([0-9a-f]{1,13})\s*$/i.exec(line);
+      if(!active||!m||Number(m[2])>=60||Number(m[3])>=60)throw Error('Invalid VobSub IDX timestamp');
+      const start=Number(m[1])*3600+Number(m[2])*60+Number(m[3])+Number(m[4])/1000,offset=parseInt(m[5],16);
+      const prev=active.entries.at(-1);
+      if(start>7*86400||!Number.isSafeInteger(offset)||offset<0||
+        (prev&&(start<prev.start||offset<=prev.offset))||++total>100000)throw Error('Invalid VobSub IDX entry order or bounds');
+      active.entries.push({start,offset});
+    }
+    return {metadata,tracks:tracks.filter(t=>t.entries.length)};
+  }
+  function extractSpuFromProgramStream(bytes,index){
+    const b=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),pieces=[];
+    let pos=0,size=null,total=0,first=true;
+    const fail=message=>{throw Error('Invalid VobSub SUB: '+message);};
+    if(!Number.isInteger(index)||index<0||index>31)fail('language index');
+    while(pos+6<=b.length){
+      if(b[pos]||b[pos+1]||b[pos+2]!==1)fail('MPEG packet prefix');
+      const code=b[pos+3];
+      if(first&&code!==0xba)fail('IDX offset does not point to a pack');
+      first=false;
+      if(code===0xba){
+        if(pos+14>b.length||(b[pos+4]&0xc0)!==0x40)fail('unsupported MPEG pack');
+        pos+=14+(b[pos+13]&7);continue;
+      }
+      if(code===0xb9)break;
+      const length=b[pos+4]*256+b[pos+5],end=pos+6+length;
+      if(!length||end>b.length)fail('truncated PES packet');
+      if(code===0xbd){
+        if(pos+9>end||(b[pos+6]&0xc0)!==0x80)fail('unsupported PES header');
+        const start=pos+9+b[pos+8];
+        if(start>=end)fail('missing substream id');
+        if(b[start]===0x20+index){
+          const payload=b.subarray(start+1,end);
+          if(!payload.length)fail('empty subtitle fragment');
+          pieces.push(payload);total+=payload.length;
+          if(size===null&&total>=2){
+            const x=pieces[0],second=x.length>1?x[1]:pieces[1][0];
+            size=x[0]*256+second;
+            if(size<10||size>65535)fail('SPU size');
+          }
+          if(size!==null&&total>=size){
+            const out=new Uint8Array(size);let at=0;
+            for(const piece of pieces){const count=Math.min(piece.length,size-at);out.set(piece.subarray(0,count),at);at+=count;if(at===size)break;}
+            return out;
+          }
+        }
+      }
+      pos=end;
+    }
+    fail('selected SPU packet is incomplete or missing');
+  }
+  async function readVobSubPair(indexText,file,index,{signal,onProgress}={}){
+    const parsed=parseVobSubIndex(indexText),track=parsed.tracks.find(t=>t.index===index);
+    if(!track||track.entries.length>10000)throw Error('No supported VobSub captions for the selected language');
+    if(!file||typeof file.slice!=='function'||!Number.isSafeInteger(file.size)||file.size<=0)
+      throw Error('Choose the matching binary .sub file');
+    const entries=[];let total=0;
+    for(let i=0;i<track.entries.length;i++){
+      if(signal?.aborted)throw Error('VobSub import cancelled');
+      const {start,offset}=track.entries[i],next=track.entries[i+1]?.offset??file.size;
+      if(offset>=file.size||next>file.size)throw Error('VobSub IDX offset is outside the selected SUB file');
+      const end=Math.min(file.size,next,offset+1024*1024);
+      const data=await file.slice(offset,end).arrayBuffer();
+      if(signal?.aborted)throw Error('VobSub import cancelled');
+      const raw=extractSpuFromProgramStream(data,index);
+      total+=raw.length;if(total>20*1024*1024)throw Error('VobSub selected language exceeds 20 MB');
+      entries.push({start,duration:0,raw});
+      if(i%32===0){onProgress?.(Math.round((i+1)/track.entries.length*100));await new Promise(resolve=>setTimeout(resolve,0));}
+    }
+    const frames=decodeVobSub(parsed.metadata,entries);
+    if(signal?.aborted)throw Error('VobSub import cancelled');
+    onProgress?.(100);
+    return {frames,entries,privateText:parsed.metadata,language:track.language};
   }
   function pgsFrameAt(frames,at){
     if(!frames?.length||!Number.isFinite(at))return null;
@@ -835,7 +927,7 @@
     }
     return rgba;
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,matroskaPgsToSup,decodePgs,vobSubInfo,decodeVobSub,pgsFrameAt,pgsPixels};
+  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack,matroskaText,matroskaPgsToSup,decodePgs,vobSubInfo,decodeVobSub,parseVobSubIndex,extractSpuFromProgramStream,readVobSubPair,pgsFrameAt,pgsPixels};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

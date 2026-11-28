@@ -130,6 +130,46 @@
  mkvCancel.addEventListener('click',()=>{++mkvOperation;window.MarmaladeEmbeddedSubtitles.cancel();mkvStatus.textContent='Extraction cancelled.';mkvBusy(false);});
  for(const event of ['marmalade:media-cleared','marmalade:video-selected','marmalade:library-video-selected'])window.addEventListener(event,mkvReset);
  mkvReset();
+ const pair=document.createElement('details');pair.className='sub-more-filters';
+ pair.innerHTML='<summary>DVD VobSub (.idx + .sub)</summary><div class="sub-file-actions"><button type="button" id="subVobChoose">Choose IDX + SUB</button><button type="button" id="subVobCancel" disabled>Cancel</button></div><input id="subVobFiles" type="file" accept=".idx,.sub" multiple hidden><div class="sub-file-actions"><select id="subVobLanguage" aria-label="VobSub language"></select><button type="button" id="subVobLoad" disabled>Load Track</button></div><p class="sub-note" id="subVobStatus" aria-live="polite">Choose both files with matching names.</p>';
+ embedded.after(pair);
+ const vobFiles=$('subVobFiles'),vobSelect=$('subVobLanguage'),vobLoad=$('subVobLoad'),vobStatus=$('subVobStatus'),vobCancel=$('subVobCancel');
+ let vobIdx=null,vobSub=null,vobOperation=0;
+ function resetVob(){
+  ++vobOperation;window.MarmaladeVobSubPair.cancel();vobIdx=null;vobSub=null;
+  vobSelect.replaceChildren();vobLoad.disabled=true;vobCancel.disabled=true;
+  vobStatus.textContent='Choose both files with matching names.';
+ }
+ $('subVobChoose').addEventListener('click',()=>vobFiles.click());
+ vobFiles.addEventListener('change',async()=>{
+  const files=[...vobFiles.files];vobFiles.value='';resetVob();
+  const operation=vobOperation;
+  const idx=files.find(f=>/\.idx$/i.test(f.name)),sub=files.find(f=>/\.sub$/i.test(f.name));
+  if(files.length!==2||!idx||!sub||idx.name.slice(0,-4).toLowerCase()!==sub.name.slice(0,-4).toLowerCase()){
+   vobStatus.textContent='Select the matching IDX and SUB together.';return;
+  }
+  try{
+   const tracks=await window.MarmaladeVobSubPair.list(idx);
+   if(operation!==vobOperation)return;
+   vobIdx=idx;vobSub=sub;
+   for(const track of tracks){const option=document.createElement('option');option.value=String(track.index);option.textContent=track.language+' · '+track.count+' captions';vobSelect.append(option);}
+   vobLoad.disabled=!tracks.length;vobStatus.textContent=tracks.length?tracks.length+' languages available.':'No subtitle tracks found.';
+  }catch(error){if(operation===vobOperation)vobStatus.textContent=String(error.message||error);}
+ });
+ vobLoad.addEventListener('click',async()=>{
+  if(!vobIdx||!vobSub||vobLoad.disabled)return;
+  const operation=++vobOperation;vobLoad.disabled=true;vobCancel.disabled=false;
+  vobStatus.textContent='Extracting DVD captions…';
+  try{
+   const result=await window.MarmaladeVobSubPair.load(vobIdx,vobSub,Number(vobSelect.value),percent=>{
+    if(operation===vobOperation)vobStatus.textContent='Extracting DVD captions · '+percent+'%';
+   });
+   if(operation===vobOperation)vobStatus.textContent=result.count+' bitmap cues loaded.';
+  }catch(error){if(operation===vobOperation)vobStatus.textContent=String(error.message||error);}
+  finally{if(operation===vobOperation){vobLoad.disabled=false;vobCancel.disabled=true;}}
+ });
+ vobCancel.addEventListener('click',()=>{++vobOperation;window.MarmaladeVobSubPair.cancel();vobLoad.disabled=!vobIdx;vobCancel.disabled=true;vobStatus.textContent='Extraction cancelled.';});
+ for(const event of ['marmalade:media-cleared','marmalade:video-selected','marmalade:library-video-selected'])window.addEventListener(event,resetVob);
  // Day-to-day search = title, year, language. Advanced release/episode filters
  // remain one tap away with original select IDs and listeners intact.
  const form=$('subSearchForm');

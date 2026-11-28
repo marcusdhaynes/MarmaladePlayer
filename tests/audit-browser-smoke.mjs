@@ -504,6 +504,17 @@ try{
     return {white:Array.from(ctx.getImageData(1,0,1,1).data),clear:Array.from(ctx.getImageData(0,0,1,1).data),ended:codec.pgsFrameAt(frames,4)===null};
   });
   assert.deepEqual(dvd,{white:[255,255,255,255],clear:[0,0,0,0],ended:true});
+  const spu=Buffer.from([0,36,0,6,0x90,0x90,0,0,0,30,1,3,0,16,4,0,240,5,0,16,2,0,0,1,6,0,4,0,5,255,0,176,0,30,2,255]);
+  const pack=Buffer.from([0,0,1,0xba,0x44,0,4,0,4,1,0,0,3,0,0,0,1,0xbd,0,40,0x80,0,0,0x20]);
+  const idx='size: 4x2\npalette: 000000, ffffff, '+Array(14).fill('000000').join(', ')+'\nid: en, index: 0\ntimestamp: 00:00:00:000, filepos: 000000000';
+  await page.locator('#subVobFiles').setInputFiles([{name:'audit.idx',mimeType:'text/plain',buffer:Buffer.from(idx)},{name:'audit.sub',mimeType:'application/octet-stream',buffer:Buffer.concat([pack,spu])}]);
+  await page.waitForFunction(()=>!document.querySelector('#subVobLoad').disabled);
+  await page.locator('#subVobLoad').evaluate(button=>button.click());
+  await page.waitForFunction(()=>document.querySelector('#subVobStatus').textContent.includes('bitmap cues loaded'));
+  await page.waitForFunction(()=>!document.querySelector('#pgsSubtitleOverlay').hidden);
+  assert.deepEqual(await page.evaluate(()=>Array.from(document.querySelector('#pgsSubtitleOverlay').getContext('2d').getImageData(1,0,1,1).data)),[255,255,255,255]);
+  await page.locator('#subtitleFile').setInputFiles({name:'primary.srt',mimeType:'text/plain',buffer:Buffer.from('1\n00:00:00,000 --> 00:00:04,000\nPrimary captions')});
+  await page.waitForFunction(()=>document.querySelector('#subtitleOverlay').textContent.includes('Primary captions'));
   const driftCheck=await page.evaluate(()=>{
     const timing=window.MarmaladeSubtitleTiming;
     timing.activate('audit-drift-film','audit-drift-sub');
