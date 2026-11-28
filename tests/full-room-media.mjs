@@ -754,6 +754,8 @@ try {
   assert.deepEqual(errors,[],'Browser runtime errors');
   console.log('PASS actual two-browser Marmalade PeerJS movie + sound');
   await guest.close();await host.close();
+  // Use the same decoder assets as the published player for original-file rooms.
+  execFileSync(process.execPath,['scripts/install-mkv-decoder.mjs'],{stdio:'inherit',timeout:120000});
   for(const height of [720,1080]){
     const width=height===720?1280:1920;
     const clip=join(dir,'buffer-clip-'+height+'.mp4');
