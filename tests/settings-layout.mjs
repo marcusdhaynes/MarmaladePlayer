@@ -268,7 +268,10 @@ try{
     for(let i=0;i<fixtures.length;i++){
       const category=fixtures[i][0];
       await page.locator('#settingsBtn').click({force:true});
-      await page.locator('#settingsBackup > summary').click();
+      // The backup details can remain open when the panel is closed and reopened.
+      // Toggle only when necessary; otherwise the test hides its own controls.
+      if(!await page.locator('#settingsBackup').evaluate(node=>node.open))
+        await page.locator('#settingsBackup > summary').click();
       await page.locator('#settingsResetCategory').selectOption(category);
       await page.locator('#settingsReset').click();
       await Promise.all([page.waitForEvent('load'),page.locator('#settingsApplyBackup').click()]);
