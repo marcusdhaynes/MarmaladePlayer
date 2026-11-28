@@ -114,7 +114,40 @@
      return new Promise((resolve,reject)=>{queue.push({cost,allowed,send,resolve,reject});void drain();});
    };
  }
- const scheduleHostPart=createTransferScheduler();
+ // Adapt the amount queued per guest, not their chosen video resolution.
+ // The shared FIFO scheduler remains the hard aggregate admission bound.
+ function createTransferWindow({min=128*1024,max=512*1024,initial=256*1024}={}){
+   let limit=initial,healthy=0;
+   return {
+     get limit(){return limit;},
+     observe(waitMs){
+       if(waitMs>=250){limit=Math.max(min,Math.floor(limit*.75/PART)*PART);healthy=0;}
+       else if(waitMs===0){if(++healthy>=16){limit=Math.min(max,limit+PART);healthy=0;}}
+       else healthy=0;
+       return limit;
+     }
+   };
+ }
+ function transferCongestionError(){const e=Error('Movie transfer queue stopped draining');e.code='TRANSFER_CONGESTION';return e;}
+ async function waitTransferCapacity(conn,window,allowed,{now=Date.now,sleep=delay,idleMs=20000,maxMs=90000}={}){
+   const start=now();let progress=start;
+   const measure=()=>({bytes:Math.max(0,Number(conn.dataChannel?.bufferedAmount)||0),messages:Math.max(0,Number(conn.bufferSize)||0)});
+   let prior=measure();
+   while(allowed()){
+     const next=measure(),time=now();
+     if(next.bytes<=window.limit-PART&&next.messages<32){
+       window.observe(Math.max(0,time-start));return true;
+     }
+     // No new application data is submitted during this wait. Either queue
+     // shrinking indicates drain progress, but the hard deadline still caps it.
+     if(next.bytes<prior.bytes||next.messages<prior.messages)progress=time;
+     prior=next;
+     if(time-start>=maxMs||time-progress>=idleMs)throw transferCongestionError();
+     await sleep(12);
+   }
+   return false;
+ }
+ const scheduleHostPart=createTransferScheduler({now:()=>root?.performance?.now?.()??Date.now()});
  const MAX_BULK_GUESTS=32;
  function hostSource(state){
    if(state?.source==='file'&&state.file?.size)return state.file;
@@ -137,6 +170,7 @@
    if(hostChannels.size>=MAX_BULK_GUESTS){conn.close();return true;}
    hostChannels.add(conn);
    let busy=false,invalid=0,lastId=0;
+   const window=createTransferWindow();
    const authorized=()=>conn.open&&a.state.connections.get(conn.peer)===entry&&entry.conn.open&&hostSource(a.state)===file&&offer()?.id===o.id;
    const reply=m=>{if(authorized())conn.send(m);};
    conn.on('data',async m=>{
@@ -150,17 +184,17 @@
        const bytes=new Uint8Array(await (file.read?file.read(m.offset,m.length):file.slice(m.offset,m.offset+m.length).arrayBuffer()));
        if(bytes.length!==m.length)throw Error('Short file read');
        for(let pos=0;pos<bytes.length;pos+=PART){
-         const started=Date.now();
-         while(authorized()&&((conn.dataChannel?.bufferedAmount||0)>512*1024||(conn.bufferSize||0)>32)){
-           if(Date.now()-started>20000)throw Error('Range channel congested');
-           await delay(12);
-         }
-         if(!authorized())return;
+         if(!await waitTransferCapacity(conn,window,authorized,{now:()=>root?.performance?.now?.()??Date.now()}))return;
          const part=bytes.slice(pos,pos+PART);
          if(!await scheduleHostPart(part.length,authorized,()=>reply({type:'part',id:m.id,offset:pos,bytes:part})))return;
        }
        reply({type:'done',id:m.id});
-     }catch(e){try{reply({type:'failed',id:m.id});}catch{}}
+     }catch(e){
+       // A stalled transport is recoverable; a file read error is not.
+       // Close only the bulk channel so the guest can retry the decoder read.
+       if(e?.code==='TRANSFER_CONGESTION'){try{conn.close();}catch{}}
+       else try{reply({type:'failed',id:m.id});}catch{}
+     }
      finally{busy=false;}
    });
    conn.on('close',()=>hostChannels.delete(conn));
@@ -470,7 +504,7 @@
      reconnecting:!!s.reconnecting,quotaLimited:s.capacity<Math.min(TARGET+5,remaining),
      diskBytes:s.disk?.size||0,diskAvailable:!!s.disk};
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,createTransferWindow,waitTransferCapacity,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
  if(!root)return;
  root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?bufferStatus(session,session.buffer&&current(session)?position(session):0):null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});

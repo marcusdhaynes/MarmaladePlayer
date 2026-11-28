@@ -220,3 +220,42 @@ test('superseded control connections cannot authorize old bulk channels',async()
  await fresh.data({type:'read',id:1,offset:0,length:8});
  assert.equal(fresh.sent.at(-1).type,'done');
 });
+
+test('per-guest adaptive queue windows back off under congestion and recover gradually',()=>{
+ const {createTransferWindow}=require('../rolling-buffer.js');
+ const a=createTransferWindow(),b=createTransferWindow();
+ assert.equal(a.limit,256*1024);
+ assert.equal(a.observe(500),192*1024);
+ assert.equal(b.limit,256*1024,'A congested guest must not change another guest window');
+ for(let i=0;i<20;i++)a.observe(500);
+ assert.equal(a.limit,128*1024);
+ for(let i=0;i<15;i++)a.observe(0);
+ assert.equal(a.limit,128*1024);
+ a.observe(0);assert.equal(a.limit,144*1024);
+ for(let i=0;i<1000;i++)a.observe(0);
+ assert.equal(a.limit,512*1024);
+});
+test('queue watchdog tolerates progress beyond idle timeout but bounds indefinite drain',async()=>{
+ const {createTransferWindow,waitTransferCapacity}=require('../rolling-buffer.js');
+ const conn={dataChannel:{bufferedAmount:600000},bufferSize:0};
+ let clock=0;
+ const w=createTransferWindow();
+ const opts={now:()=>clock,idleMs:20,maxMs:100,sleep:async ms=>{clock+=ms;conn.dataChannel.bufferedAmount-=60000;}};
+ assert.equal(await waitTransferCapacity(conn,w,()=>true,opts),true);
+ assert(clock>20,'Slow progress must outlive the idle threshold');
+ assert(clock<100);
+ clock=0;conn.dataChannel.bufferedAmount=600000;
+ await assert.rejects(waitTransferCapacity(conn,w,()=>true,{...opts,sleep:async ms=>{clock+=ms;conn.dataChannel.bufferedAmount--;}}),{code:'TRANSFER_CONGESTION'});
+ assert(clock>=100);
+});
+test('queue watchdog fails a stalled channel and stops promptly after permission revocation',async()=>{
+ const {createTransferWindow,waitTransferCapacity}=require('../rolling-buffer.js');
+ const conn={dataChannel:{bufferedAmount:600000},bufferSize:0},w=createTransferWindow();
+ let clock=0;
+ const opts={now:()=>clock,idleMs:20,maxMs:100,sleep:async ms=>{clock+=ms;}};
+ await assert.rejects(waitTransferCapacity(conn,w,()=>true,opts),{code:'TRANSFER_CONGESTION'});
+ assert(clock>=20&&clock<100);
+ clock=0;
+ assert.equal(await waitTransferCapacity(conn,w,()=>clock<12,opts),false);
+ assert.equal(clock,12);
+});
