@@ -108,6 +108,8 @@
    theme.addEventListener('change',reflect);reflect();
  }
  into('windowTheme','video','settings-window-theme-row');
+ into('reduceTransparency','video','settings-toggle-row');
+ into('reduceMotion','video','settings-toggle-row');
  const subtitleLanguageRow=document.createElement('label');
  subtitleLanguageRow.className='settings-row';
  subtitleLanguageRow.innerHTML='<span>Preferred Subtitle Language <small>Default language for subtitle searches</small></span><select id="preferredSubtitleLanguage" aria-label="Preferred Subtitle Language"></select>';
@@ -254,7 +256,7 @@
  }
  const storageKey=key=>key===subtitleStyleKey?key:'marmalade:'+key;
  const schema={
-  appearance:{'background-theme':choices('cosmic01','cosmic02','none'),'cosmic-background':bool,'window-theme':choices('classic','glass')},
+  appearance:{'background-theme':choices('cosmic01','cosmic02','none'),'cosmic-background':bool,'window-theme':choices('classic','glass'),'reduce-transparency':bool,'reduce-motion':bool},
   video:{
    'mobile:match-video-aspect':bool,'fullscreen-orientation':choices('portrait','landscape'),
    'guest-quality':choices('144','240','360','480','540','720','1080'),

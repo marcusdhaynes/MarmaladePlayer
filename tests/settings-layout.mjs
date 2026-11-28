@@ -34,6 +34,31 @@ try{
   assert.deepEqual(await page.locator('.settings-tab').evaluateAll(
     els=>els.map(el=>[el.dataset.settingsTab,el.textContent.trim()])),
     [['video','Video'],['controls','Controls'],['party','Party']]);
+  // Whole-section interface acceptance: actual theme materials, opt-in
+  // accessibility settings, keyboard focus restoration and OS preference.
+  await page.locator('#settingsTabVideo').click();
+  await page.locator('#windowTheme').selectOption('glass');
+  await page.locator('#reduceTransparency').check();
+  await page.locator('#reduceMotion').check();
+  const accessible=await page.evaluate(()=>{
+    const panel=document.getElementById('settingsPanel'),style=getComputedStyle(panel);
+    return {theme:document.documentElement.dataset.windowTheme,transparency:document.documentElement.dataset.reduceTransparency,
+      motion:document.documentElement.dataset.reduceMotion,background:style.backgroundColor,blur:style.backdropFilter,
+      transition:getComputedStyle(panel.querySelector('.settings-tab')).transitionDuration,
+      label:panel.getAttribute('aria-label'),controls:document.getElementById('settingsBtn').getAttribute('aria-controls')};
+  });
+  assert.deepEqual(accessible,{theme:'glass',transparency:'true',motion:'true',background:'rgb(33, 30, 41)',blur:'none',transition:'0s',label:'Settings',controls:'settingsPanel'});
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#settingsPanel').evaluate(p=>p.hidden),true);
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'settingsBtn');
+  await page.locator('#settingsBtn').click({force:true});
+  await page.locator('#reduceTransparency').uncheck();
+  await page.locator('#reduceMotion').uncheck();
+  await page.locator('#windowTheme').selectOption('classic');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.waitForFunction(()=>document.documentElement.dataset.reduceMotion==='true');
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.waitForFunction(()=>document.documentElement.dataset.reduceMotion==='false');
   // Every existing settings input remains unique and in the appropriate pane.
   const groups={
     video:['qualitySelect','qualityHint','backgroundTheme','settingsSubtitleShortcut'],
@@ -205,14 +230,14 @@ try{
       party:{'stability-mode':'smooth'},buffering:{'peer-assist':'false'},
       library:{'media-library:visible':'true','media-library:auto-posters':'false','media-library:poster-columns':'7','media-library:list':'true'},
       controls:{'control-fade-seconds':'8','tap-video-playback':'false'},
-      appearance:{'background-theme':'cosmic02','cosmic-background':'false'}
+      appearance:{'background-theme':'cosmic02','cosmic-background':'false','reduce-transparency':'true','reduce-motion':'true'}
     };
     const storageKey=k=>k==='marmalade-subtitle-style-v1'?k:'marmalade:'+k;
     const groups=Object.fromEntries(fixtures.map(([category,key,value])=>
       [category,Object.fromEntries(Object.entries({[key]:value,...extras[category]}).map(([k,v])=>[storageKey(k),v]))]));
     const preferences=Object.assign({},...Object.values(groups));
     const keys=Object.keys(preferences);
-    assert.equal(keys.length,38,'Explicit fixture for each portable preference');
+    assert.equal(keys.length,40,'Explicit fixture for each portable preference');
     // Guard against schema drift: a new portable setting must get a fixture.
     const schemaSource=readFileSync(resolve(root,'settings-layout.js'),'utf8');
     const schemaText=schemaSource.slice(schemaSource.indexOf(' const schema={'),schemaSource.indexOf(' const validators='));

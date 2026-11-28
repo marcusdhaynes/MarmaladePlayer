@@ -706,6 +706,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
             <div class="quality-hint" id="qualityHint" role="status" aria-live="polite">Your local playback stays at original quality.</div>
              <div class="backgrounds-setting"><div class="backgrounds-heading">Backgrounds</div><label for="backgroundTheme">Background Theme <select id="backgroundTheme" aria-label="Background theme"><option value="cosmic01">Cosmic 01</option><option value="cosmic02">Cosmic 02</option><option value="none">None</option></select></label></div>
             <label for="windowTheme">Window Theme <select id="windowTheme" aria-label="Window Theme"><option value="classic">Classic</option><option value="glass">Glass</option></select></label>
+            <label><span>Reduce Transparency <small>Opaque windows and menus</small></span><input type="checkbox" id="reduceTransparency"></label>
+            <label><span>Reduce Motion <small>Disable decorative transitions</small></span><input type="checkbox" id="reduceMotion"></label>
             <details id="timelineChapters" class="settings-advanced timeline-chapters"><summary>Chapters</summary><div class="bookmark-editor"><p id="chapterStatus" role="status">Open a video with chapter metadata.</p><div class="chapter-actions"><button type="button" id="chapterPrevious" disabled>Previous</button><button type="button" id="chapterNext" disabled>Next</button><button type="button" id="chapterImport" disabled>Import VTT</button><button type="button" id="chapterClear" disabled>Clear Import</button></div><input id="chapterFile" type="file" accept=".vtt,text/vtt" hidden><div id="chapterList"></div></div></details>
             <details id="timelineBookmarks" class="settings-advanced timeline-bookmarks"><summary>Timeline Bookmarks</summary><div class="bookmark-editor"><p id="bookmarkStatus" role="status">Open a local video to save bookmarks.</p><div class="bookmark-add"><input id="bookmarkName" type="text" maxlength="80" placeholder="Bookmark Name (Optional)" aria-label="Bookmark name"><button type="button" id="bookmarkAdd" disabled>Add Current Time</button></div><div id="bookmarkList"></div></div></details>
             <label>Skip Interval <select id="skipInterval" aria-label="Seconds to rewind or fast forward"><option value="5">5 Seconds</option><option value="10" selected>10 Seconds</option><option value="15">15 Seconds</option><option value="20">20 Seconds</option><option value="30">30 Seconds</option><option value="60">60 Seconds</option></select></label>
@@ -1321,6 +1323,22 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   applyWindowTheme(localPreference('window-theme','classic'));
   windowTheme.addEventListener('change',()=>applyWindowTheme(windowTheme.value));
+  const accessibilityPreferences=[['reduceTransparency','reduce-transparency','reduceTransparency','(prefers-reduced-transparency: reduce)'],
+    ['reduceMotion','reduce-motion','reduceMotion','(prefers-reduced-motion: reduce)']];
+  function applyAccessibilityPreferences(){
+    for(const [id,key,attr,query] of accessibilityPreferences){
+      const reduced=$(id).checked||!!window.matchMedia?.(query).matches;
+      document.documentElement.dataset[attr]=String(reduced);
+      const pop=window.documentPictureInPicture?.window;
+      if(pop)pop.document.documentElement.dataset[attr]=String(reduced);
+    }
+  }
+  for(const [id,key,,query] of accessibilityPreferences){
+    const input=$(id);input.checked=localPreference(key,'false')==='true';
+    input.addEventListener('change',()=>{rememberPreference(key,String(input.checked));applyAccessibilityPreferences();});
+    window.matchMedia?.(query).addEventListener?.('change',applyAccessibilityPreferences);
+  }
+  applyAccessibilityPreferences();
   // Poster is purely visual and never uploaded. Keep it until playback starts.
   const posterPreview=document.getElementById('stagePosterPreview');
   let posterHasPlayed=false;
@@ -6256,6 +6274,9 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     });
     revealControls();
   }
+  for(const [panel,trigger,label] of [[el.settingsPanel,el.settingsBtn,'Settings'],[el.subtitlePanel,el.subtitleBtn,'Subtitles']]){
+    panel.setAttribute('role','region');panel.setAttribute('aria-label',label);trigger.setAttribute('aria-controls',panel.id);
+  }
   el.settingsBtn.addEventListener('click',()=>togglePopover(el.settingsPanel,el.settingsBtn));
   el.closeSettings.addEventListener('click',()=>{
     el.settingsPanel.hidden=true;el.settingsBtn.setAttribute('aria-expanded','false');revealControls();
@@ -6283,7 +6304,8 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   },true);
   window.addEventListener('keydown',event=>{
     if(event.key!=='Escape'||event.defaultPrevented)return;
-    if(dismissPalettes()){event.preventDefault();event.stopImmediatePropagation();}
+    const trigger=!el.settingsPanel.hidden?el.settingsBtn:!el.subtitlePanel.hidden?el.subtitleBtn:null;
+    if(dismissPalettes()){trigger?.focus({preventScroll:true});event.preventDefault();event.stopImmediatePropagation();}
   },true);
   el.subtitleBtn.addEventListener('click',()=>{
     if(el.subtitlePanel.hidden)state.subtitlePreviewSuppressed=false;
@@ -6801,6 +6823,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         const pop=await window.documentPictureInPicture.requestWindow({width:Math.round(280*dims.width/dims.height),height:280});
         pipWindow=pop;
         pop.document.documentElement.dataset.windowTheme=document.documentElement.dataset.windowTheme||'classic';
+        for(const attr of ['reduceTransparency','reduceMotion'])pop.document.documentElement.dataset[attr]=document.documentElement.dataset[attr]||'false';
         stagePlaceholder=document.createComment('Marmalade video pop-out position');
         el.stage.replaceWith(stagePlaceholder);
         // Document PiP uses its own CSS scope. Reuse all existing styles,

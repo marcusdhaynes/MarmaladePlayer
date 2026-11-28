@@ -401,3 +401,47 @@ html[data-window-theme="glass"] #gamesPanel .game-score-card.delete-armed .game-
 .settings-popover #chapterList{display:grid;gap:3px;max-height:180px;overflow:auto}
 .settings-popover .chapter-jump{font-size:11px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .settings-popover .chapter-jump[aria-current=true]{border-color:#dcb677;color:#ffd1a4}
+
+/* Shared material system for player, library, games and metadata windows.
+   Preserve geometry and movie/subtitle rendering; only interactive chrome
+   inherits the material and accessibility preferences. */
+:root{
+ --marmalade-glass-surface:linear-gradient(155deg,rgba(42,35,49,.94),rgba(24,22,31,.96));
+ --marmalade-solid-surface:#211e29;
+ --marmalade-glass-border:#b3a0b64d;
+ --marmalade-glass-radius:12px;
+ --marmalade-glass-shadow:0 12px 34px #0008,inset 0 1px #ffffff0d;
+ --marmalade-glass-blur:blur(12px);
+ --marmalade-focus:#ffbd87;
+ --marmalade-ui-muted:#c0b9c5;
+}
+:root[data-window-theme="glass"] :is(.theater-popover,.adaptive-brightness-popover,.ml-panel,.ml-settings-panel,.ml-dialog-surface,.ml-context-menu,.games-panel,.games-dialog-surface,.games-log-panel,.media-info){
+ background:var(--marmalade-glass-surface)!important;
+ border-color:var(--marmalade-glass-border)!important;
+ border-radius:var(--marmalade-glass-radius)!important;
+ box-shadow:var(--marmalade-glass-shadow)!important;
+ backdrop-filter:var(--marmalade-glass-blur)!important;
+ -webkit-backdrop-filter:var(--marmalade-glass-blur)!important;
+}
+:root[data-reduce-transparency="true"] :is(.theater-popover,.adaptive-brightness-popover,.ml-panel,.ml-settings-panel,.ml-dialog-surface,.ml-context-menu,.games-panel,.games-dialog-surface,.games-log-panel,.media-info,.timestamp-editor,.theater-pill,.connection-pill){
+ background:var(--marmalade-solid-surface)!important;
+ backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+}
+:root[data-reduce-transparency="true"] :is(.ml-dialog,.games-dialog){
+ background:#101014!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+}
+:root[data-reduce-motion="true"] :is(.theater-popover,.theater-controls,.theater-top,.ml-panel,.ml-dialog,.ml-context-menu,.games-panel,.games-dialog,.media-info,.adaptive-brightness-popover,.toast,.stage-overlay-play,.connection-pill,.room-indicator,.icon-btn),
+:root[data-reduce-motion="true"] :is(.theater-popover,.theater-controls,.theater-top,.ml-panel,.ml-dialog,.ml-context-menu,.games-panel,.games-dialog,.media-info,.adaptive-brightness-popover) *{
+ animation:none!important;transition:none!important;scroll-behavior:auto!important;
+}
+:root[data-reduce-motion="true"]{scroll-behavior:auto!important}
+:root :is(button,select,input,textarea,summary,a,[role="menuitem"],[role="tab"]):focus-visible{
+ outline:2px solid var(--marmalade-focus)!important;outline-offset:2px;
+}
+:root :is(.settings-popover .settings-hint,.ml-context-menu .ml-menu-action,.mi-muted){color:var(--marmalade-ui-muted)}
+:root :is(.theater-popover,.ml-context-menu,.ml-dialog-surface,.games-dialog-surface,.adaptive-brightness-popover){overflow-wrap:anywhere}
+:root :is(.ml-menu-action,.settings-tab,.popover-actions button){border-radius:7px}
+@media(pointer:coarse){
+ :root :is(.ml-menu-action,.settings-tab,.popover-actions button,.settings-search-result){min-height:44px}
+ :root .settings-popover .settings-row{min-height:44px}
+}
