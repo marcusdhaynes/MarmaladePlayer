@@ -361,7 +361,9 @@
   // Local Matroska text-subtitle demux. Read bounded windows, skip unrelated
   // packet payloads, and never load the entire movie into memory.
   async function matroskaText(file,{trackNumber=null,signal,onProgress}={}){
-    if(!file||typeof file.slice!=='function'||!Number.isSafeInteger(file.size))throw Error('Choose a local MKV/WebM file');
+    const ranged=typeof file?.read==='function',length=ranged?file.length:file?.size;
+    if(!file||(!ranged&&typeof file.slice!=='function')||!Number.isSafeInteger(length)||length<=0)
+      throw Error('Choose a local MKV/WebM file or supported media-library source');
     const id={EBML:0x1a45dfa3,SEG:0x18538067,INFO:0x1549a966,TRACKS:0x1654ae6b,CLUSTER:0x1f43b675,
       ENTRY:0xae,NUMBER:0xd7,TYPE:0x83,CODEC:0x86,NAME:0x536e,LANG:0x22b59c,IETF:0x22b59d,
       SCALE:0x2ad7b1,TIME:0xe7,GROUP:0xa0,BLOCK:0xa1,SIMPLE:0xa3,DURATION:0x9b,
@@ -371,10 +373,13 @@
     const check=()=>{if(signal?.aborted)throw Error('Subtitle extraction cancelled');};
     async function read(at,n){
       check();
-      if(!Number.isSafeInteger(at)||!Number.isSafeInteger(n)||at<0||n<0||at+n>file.size||n>1024*1024)throw Error('Invalid Matroska element bounds');
+      if(!Number.isSafeInteger(at)||!Number.isSafeInteger(n)||at<0||n<0||at+n>length||n>1024*1024)throw Error('Invalid Matroska element bounds');
       if(at<windowStart||at+n>windowStart+windowBytes.length){
         windowStart=at;
-        windowBytes=new Uint8Array(await file.slice(at,Math.min(file.size,at+Math.max(n,1024*1024))).arrayBuffer());
+        const count=Math.min(length-at,Math.max(n,1024*1024));
+        const data=ranged?await file.read(at,count,{signal}):await file.slice(at,at+count).arrayBuffer();
+        windowBytes=new Uint8Array(data);
+        if(windowBytes.byteLength!==count)throw Error('Truncated Matroska source range');
         check();
       }
       return windowBytes.subarray(at-windowStart,at-windowStart+n);
@@ -396,7 +401,7 @@
       const end=size.value===null?limit:start+size.value;
       if(start>limit||end>limit||!Number.isSafeInteger(end))throw Error('Truncated Matroska element');
       if(++steps>3000000)throw Error('Matroska scan exceeds the supported element count');
-      if(steps%4096===0){onProgress?.(Math.min(100,at/file.size*100));await new Promise(resolve=>setTimeout(resolve,0));check();}
+      if(steps%4096===0){onProgress?.(Math.min(100,at/length*100));await new Promise(resolve=>setTimeout(resolve,0));check();}
       return {type:type.value,start,end,unknown:size.value===null};
     }
     async function children(start,end,visit){
@@ -481,11 +486,11 @@
       }
       return pos;
     }
-    const header=await element(0,file.size);
+    const header=await element(0,length);
     if(header.type!==id.EBML||header.unknown)throw Error('Not a supported Matroska/WebM file');
     let pos=header.end,segment=null;
-    while(pos<file.size){
-      const e=await element(pos,file.size);
+    while(pos<length){
+      const e=await element(pos,length);
       if(e.type===id.SEG){segment=e;break;}
       if(e.unknown)throw Error('Invalid Matroska segment');pos=e.end;
     }

@@ -45,12 +45,14 @@
     if(typeof fetchImpl!=='function')throw new Error('Media fetch is unavailable.');
     return {
       name:String(name||'Video'),length,kind:'native',url:address.href,
-      read:async(offset,size)=>{
+      read:async(offset,size,options)=>{
+        const signal=options?.signal;
+        if(signal?.aborted)throw new Error('Media read cancelled.');
         const range=checkRead(offset,size,length);
         if(!range)return new ArrayBuffer(0);
         const response=await fetchImpl(address.href,{
           method:'GET',headers:{Range:`bytes=${range.start}-${range.end}`},
-          credentials:'omit',cache:'no-store',mode:'cors'
+          credentials:'omit',cache:'no-store',mode:'cors',redirect:'error',signal
         });
         if(response.status!==206){
           throw new Error(`Minternet media server returned HTTP ${response.status}, expected 206 Partial Content.`);
@@ -61,7 +63,25 @@
           Number(match[2])!==range.end||Number(match[3])!==length){
           throw new Error('Minternet returned a mismatched media byte range.');
         }
+        // A misbehaving server must not make us buffer an entire movie.
+        if(response.body?.getReader){
+          const reader=response.body.getReader(),bytes=new Uint8Array(range.length);
+          let offset=0;
+          try{
+            while(true){
+              if(signal?.aborted)throw new Error('Media read cancelled.');
+              const {done,value}=await reader.read();
+              if(done)break;
+              if(offset+value.byteLength>bytes.length)throw new Error('The media server exceeded the requested range.');
+              bytes.set(value,offset);offset+=value.byteLength;
+            }
+            if(offset!==bytes.length)throw new Error('The media server returned a truncated video chunk.');
+            return bytes.buffer;
+          }catch(error){await reader.cancel().catch(()=>{});throw error;}
+          finally{reader.releaseLock();}
+        }
         const bytes=await response.arrayBuffer();
+        if(signal?.aborted)throw new Error('Media read cancelled.');
         if(bytes.byteLength!==range.length)
           throw new Error('The media server returned a truncated video chunk.');
         return bytes;

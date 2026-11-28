@@ -268,6 +268,22 @@ try{
     assert(nativeSound.audioTracks>0,'Minternet HTTP Range remux must contain an audio track');
     assert(nativeSound.energy>.001,'Minternet HTTP Range E-AC-3 conversion must produce audible PCM');
     console.log('PASS: Minternet native HTTP Range MKV audio',JSON.stringify(nativeSound));
+    // Import both text and bitmap tracks from the already selected library
+    // source; do not materialize a browser File or reload the player.
+    await page.locator('#subMkvScan').evaluate(button=>button.click());
+    await page.waitForFunction(()=>document.querySelector('#subMkvTrack').options.length===3);
+    const nativeTracks=await page.evaluate(()=>window.MarmaladeEmbeddedSubtitles.scan());
+    assert.deepEqual(nativeTracks.map(t=>t.codec),['S_TEXT/UTF8','S_TEXT/ASS','S_HDMV/PGS']);
+    await page.locator('#subMkvLoad').evaluate(button=>button.click());
+    await page.waitForFunction(()=>window.MarmaladeAddonBridge.state.subtitles[0]?.text==='EMBEDDED EARLY');
+    await page.locator('#subMkvTrack').evaluate(select=>{select.value=select.options[2].value;select.dispatchEvent(new Event('change'));});
+    await page.locator('#subMkvLoad').evaluate(button=>button.click());
+    await page.waitForFunction(()=>document.querySelector('#subMkvStatus').textContent.includes('Embedded subtitles loaded.')&&window.MarmaladeAddonBridge.state.pgsFrames?.length);
+    await page.evaluate(()=>{const media=document.querySelector('#player');media.pause();media.currentTime=1.7;});
+    await page.waitForFunction(()=>!document.querySelector('#player').seeking&&!document.querySelector('#pgsSubtitleOverlay').hidden);
+    assert.deepEqual(await page.evaluate(()=>Array.from(document.querySelector('#pgsSubtitleOverlay').getContext('2d').getImageData(160,160,1,1).data)),[255,255,255,255]);
+    assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.file===null),true);
+    console.log('PASS Minternet range-backed embedded text and PGS captions without a second movie File');
   }finally{
     await new Promise(resolve=>rangeServer.close(resolve));
   }

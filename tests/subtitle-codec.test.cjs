@@ -248,3 +248,27 @@ test('bounded EBML scan actually extracts a binary PGS track from Matroska block
  assert.equal(frames[0].start,1);assert.equal(frames[0].end,3);
  assert.deepEqual(Array.from(codec.pgsPixels(frames[0].layers[0])).slice(0,4),[255,255,255,255]);
 });
+
+test('Matroska discovery and extraction use bounded random-access library reads',async()=>{
+ const ebml=(id,body)=>{
+   const data=Buffer.from(body);if(data.length>=127)throw Error('fixture too large');
+   return Buffer.concat([Buffer.from(id,'hex'),Buffer.from([128+data.length]),data]);
+ };
+ const join=(...parts)=>Buffer.concat(parts);
+ const track=ebml('ae',join(ebml('d7',[1]),ebml('83',[17]),ebml('86',Buffer.from('S_TEXT/UTF8'))));
+ const group=ebml('a0',join(ebml('a1',join(Buffer.from([0x81,0,0,0]),Buffer.from('Library text'))),ebml('9b',[7,208])));
+ const mkv=join(ebml('1a45dfa3',[]),ebml('18538067',join(ebml('1654ae6b',track),ebml('1f43b675',join(ebml('e7',[3,232]),group)))));
+ const controller=new AbortController(),calls=[];
+ const source={name:'Library.mkv',length:mkv.length,async read(at,size,options){
+   assert.equal(options.signal,controller.signal);assert(size<=1024*1024);calls.push([at,size]);
+   return mkv.slice(at,at+size);
+ }};
+ const scan=await codec.matroskaText(source,{signal:controller.signal});
+ assert.equal(scan.tracks[0].codec,'S_TEXT/UTF8');
+ const result=await codec.matroskaText(source,{trackNumber:1,signal:controller.signal});
+ assert.deepEqual(codec.decode(result.raw,'library.vtt').cues,[{start:1,end:3,text:'Library text'}]);
+ assert(calls.length>=2);
+ await assert.rejects(codec.matroskaText({...source,read:async()=>new Uint8Array(1)}),/Truncated Matroska source range/);
+ controller.abort();
+ await assert.rejects(codec.matroskaText(source,{signal:controller.signal}),/cancelled/);
+});

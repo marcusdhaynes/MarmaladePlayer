@@ -88,3 +88,16 @@ test('Minternet stream and browser File must both be wired to the audio decoder'
   assert.match(script,/read:\s*source\.read/);
   assert.match(media,/chooseNativeStream/);
 });
+
+test('Native subtitle range reads forward cancellation and refuse redirects or oversized bodies',async()=>{
+ const controller=new AbortController();let signal;
+ const source=fromNativeStream({url,size:20,fetchImpl:async(request,opts)=>{
+   signal=opts.signal;assert.equal(opts.redirect,'error');
+   return {status:206,headers:{get:()=> 'bytes 0-7/20'},
+     body:new ReadableStream({start(c){c.enqueue(new Uint8Array(9));c.close();}})};
+ }});
+ await assert.rejects(source.read(0,8,{signal:controller.signal}),/exceeded the requested range/);
+ assert.equal(signal,controller.signal);
+ controller.abort();
+ await assert.rejects(source.read(0,8,{signal:controller.signal}),/cancelled/);
+});
