@@ -189,3 +189,20 @@ test('host bounds simultaneous bulk guests without closing their control connect
    assert.equal(c.open,i<32);assert.equal(state.connections.get(peer).conn.open,true);
  }
 });
+
+test('range deadline follows validated progress but never exceeds the hard cap',()=>{
+ const {rangeDeadline}=require('../rolling-buffer.js');
+ assert.equal(rangeDeadline(1000,1000),31000);
+ assert.equal(rangeDeadline(1000,25000),55000);
+ assert.equal(rangeDeadline(1000,100000),121000);
+ assert.equal(rangeDeadline(1000,121000),121000);
+});
+test('a stalled open transport is recoverable, but invalid data on a healthy channel is not',()=>{
+ const {rangeTimeoutError,recoverableRangeFailure}=require('../rolling-buffer.js');
+ const channel={open:true},other={open:true};
+ assert.equal(recoverableRangeFailure(rangeTimeoutError(),channel,channel,false),true);
+ assert.equal(recoverableRangeFailure(Error('Invalid movie range'),channel,channel,false),false);
+ assert.equal(recoverableRangeFailure(Error('Disconnected'),channel,other,false),true);
+ assert.equal(recoverableRangeFailure(Error('Disconnected'),{open:false},channel,false),true);
+ assert.equal(recoverableRangeFailure(Error('Disconnected'),channel,channel,true),true);
+});

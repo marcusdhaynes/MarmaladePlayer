@@ -196,11 +196,28 @@
      a.notify?.('Buffered movie unavailable; using live stream. '+String(reason).slice(0,100));
    }
  }
+ // A healthy-looking RTC channel can silently stop delivering data.
+ // Reset the idle watchdog on validated progress, never beyond the hard cap.
+ const RANGE_IDLE_MS=30000,RANGE_MAX_MS=120000;
+ function rangeDeadline(start,last){return Math.min(start+RANGE_MAX_MS,last+RANGE_IDLE_MS);}
+ function rangeTimeoutError(){const error=Error('Movie range stopped progressing');error.code='RANGE_TIMEOUT';return error;}
+ function recoverableRangeFailure(error,channel,currentChannel,reconnecting){
+   return error?.code==='RANGE_TIMEOUT'||channel!==currentChannel||!channel?.open||reconnecting;
+ }
  function request(s,offset,length){
    if(!current(s)||!s.conn?.open||!validRange(offset,length,s.offer.size))return Promise.reject(Error('Invalid or disconnected range'));
    return new Promise((resolve,reject)=>{
-     const id=++s.sequence,req={bytes:new Uint8Array(length),received:0,resolve,reject,timer:0};
-     req.timer=setTimeout(()=>{s.requests.delete(id);reject(Error('Movie range timed out'));},30000);
+     const now=()=>root?.performance?.now?.()??Date.now();
+     const id=++s.sequence,req={bytes:new Uint8Array(length),received:0,resolve,reject,timer:0,started:now()};
+     req.arm=()=>{
+       clearTimeout(req.timer);
+       const deadline=rangeDeadline(req.started,now());
+       req.timer=setTimeout(()=>{
+         if(s.requests.get(id)!==req)return;
+         s.requests.delete(id);reject(rangeTimeoutError());
+       },Math.max(0,deadline-now()));
+     };
+     req.arm();
      s.requests.set(id,req);
      try{s.conn.send({type:'read',id,offset,length});}catch(e){clearTimeout(req.timer);s.requests.delete(id);reject(e);}
    });
@@ -211,7 +228,7 @@
    if(m.type==='part'){
      const b=m.bytes instanceof ArrayBuffer?new Uint8Array(m.bytes):ArrayBuffer.isView(m.bytes)?new Uint8Array(m.bytes.buffer,m.bytes.byteOffset,m.bytes.byteLength):null;
      if(!b||!b.length||b.length>PART||m.offset!==req.received||req.received+b.length>req.bytes.length){finish(Error('Invalid movie range'));return;}
-     req.bytes.set(b,req.received);req.received+=b.length;
+     req.bytes.set(b,req.received);req.received+=b.length;req.arm();
    }else if(m.type==='done'){finish(req.received===req.bytes.length?null:Error('Incomplete movie range'));}
    else if(m.type==='failed')finish(Error('Host could not read movie range'));
  }
@@ -224,7 +241,7 @@
      try{return await request(s,offset,length);}
      catch(error){
        if(!current(s)||attempt>=2||
-          (channel===s.conn&&channel?.open&&!s.reconnecting))throw error;
+          !recoverableRangeFailure(error,channel,s.conn,s.reconnecting))throw error;
        await reconnect(s);
      }
    }
@@ -451,7 +468,7 @@
      reconnecting:!!s.reconnecting,quotaLimited:s.capacity<Math.min(TARGET+5,remaining),
      diskBytes:s.disk?.size||0,diskAvailable:!!s.disk};
  }
- if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,TARGET};
+ if(typeof module!=='undefined'&&module.exports)module.exports={ahead,changedWindow,goal,playable,validRange,openDiskCache,bufferStatus,createTransferScheduler,rangeDeadline,rangeTimeoutError,recoverableRangeFailure,TARGET};
  if(!root)return;
  root.MarmaladeRollingBuffer={offer,hostChannel,closeHost,observe,stop,rebind,announce,kick:()=>{if(session)kick(session);},getStatus:()=>session?bufferStatus(session,session.buffer&&current(session)?position(session):0):null};
  root.addEventListener('marmalade:media-cleared',()=>{stop();closeHost();});

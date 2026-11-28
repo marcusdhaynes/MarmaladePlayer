@@ -810,8 +810,27 @@ try {
       await full('join',0);
       const original=await viewer.locator('#player').evaluate(v=>v.currentSrc);
       began=Date.now();
-      await sender.locator('#player').evaluate(v=>{v.currentTime=220;});
-      await full('outside-window seek',218);
+      await viewer.evaluate(()=>{
+         const state=window.MarmaladeAddonBridge.state;
+         const bulk=Object.values(state.peer.connections).flat().find(c=>c.open&&c.label==='marmalade-buffer-v1');
+         if(!bulk)throw Error('Missing active bulk channel');
+         window.__stalledBulk=bulk;
+         const send=bulk.send.bind(bulk);
+         bulk.send=message=>{
+           if(message?.type!=='read')return send(message);
+           bulk.send=send;
+           window.__silentRead={offset:message.offset,length:message.length,open:bulk.open};
+           // Silently drop a read without closing or reporting an error.
+         };
+       });
+       await sender.locator('#player').evaluate(v=>{v.currentTime=220;});
+       await viewer.waitForFunction(()=>{
+         const s=window.MarmaladeAddonBridge.state;
+         return window.__silentRead?.open&&!window.__stalledBulk.open&&
+           Object.values(s.peer.connections).flat().some(c=>c.open&&c!==window.__stalledBulk&&c.label==='marmalade-buffer-v1');
+       },null,{timeout:60000});
+      await full('silent open-channel stall and outside-window seek',218);
+       assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original,'Silent stall recovery must retain the MSE source');
       began=Date.now();
       await viewer.evaluate(()=>{
         const state=window.MarmaladeAddonBridge.state;
