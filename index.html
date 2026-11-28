@@ -6224,6 +6224,39 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
       notify('Subtitles Loaded And Saved For This Video.');
     return {cues:decoded.cues,format:decoded.format};
   }
+  // Use engine-exposed text tracks only; never select the synthetic PiP
+  // track or claim support for container streams the engine cannot expose.
+  function playerSubtitleTracks(){
+    return Array.from(media.textTracks||[]).filter(track=>
+      ['subtitles','captions'].includes(track.kind)&&track!==nativePipTrack);
+  }
+  window.MarmaladePlayerTextTracks={
+    list:()=>playerSubtitleTracks().map((track,index)=>({
+      index,label:String(track.label||track.language||'Text Track '+(index+1)).slice(0,120),
+      language:String(track.language||'').slice(0,30)
+    })),
+    async load(index){
+      if(!el.stage.classList.contains('has-video'))throw Error('Load a video first');
+      const track=playerSubtitleTracks()[index],key=subtitleMediaKey();
+      if(!track)throw Error('Player subtitle track is no longer available');
+      const oldMode=track.mode;
+      // Hidden mode asks the browser to load cues without a second overlay.
+      track.mode='hidden';
+      try{
+        const raw=window.MarmaladeSubtitleCodec.snapshotTextTrack(track.cues);
+        const label=String(track.label||track.language||'Text Track '+(index+1)).replace(/[\\/:*?"<>|\x00-\x1f]/g,' ').slice(0,100);
+        const file=new File([raw],label+'.vtt',{type:'text/vtt'});
+        await loadSelectedSubtitle(file,null,{mediaKey:key,lang:track.language||'',
+          id:'player-track:'+index+':'+String(track.id||'')+':'+label,encoding:'utf-8'});
+        return true;
+      }catch(error){
+        // A previously disabled track stays hidden so asynchronous cue
+        // loading can finish. A showing track is restored on failure.
+        if(oldMode==='showing'&&playerSubtitleTracks().includes(track))track.mode=oldMode;
+        throw error;
+      }
+    }
+  };
   el.subtitleFile.addEventListener('change',async()=>{
     const file=el.subtitleFile.files?.[0];
     try{if(file)await loadSelectedSubtitle(file,null,{encoding:document.getElementById('primarySubtitleEncoding')?.value||'auto'});}

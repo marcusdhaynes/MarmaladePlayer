@@ -56,6 +56,33 @@
   return details;
  }
  if(actions)actions.after(encodingRow('primarySubtitleEncoding'));
+ const playerTracks=document.createElement('details');playerTracks.className='sub-more-filters';playerTracks.id='subPlayerTracks';
+ playerTracks.innerHTML='<summary>Player Text Tracks</summary><label for="subPlayerTrackSelect">Available subtitles / captions</label><div class="sub-file-actions"><select id="subPlayerTrackSelect" aria-label="Player subtitle track"></select><button type="button" id="subPlayerTrackLoad">Load Track</button></div><p class="sub-note" id="subPlayerTrackStatus" aria-live="polite"></p><p class="sub-note">Imports currently available text cues. If a stream loads captions gradually, load again to refresh. Image tracks and tracks hidden by the container decoder are not supported here.</p>';
+ if(actions)actions.after(playerTracks);else find.prepend(playerTracks);
+ const playerTrackSelect=$('subPlayerTrackSelect'),playerTrackLoad=$('subPlayerTrackLoad'),playerTrackStatus=$('subPlayerTrackStatus');
+ function refreshPlayerTracks(){
+  const tracks=window.MarmaladePlayerTextTracks?.list()||[],previous=playerTrackSelect.value;
+  playerTrackSelect.replaceChildren();
+  for(const track of tracks){
+   const option=document.createElement('option');option.value=String(track.index);option.textContent=track.label+(track.language?' · '+track.language:'');playerTrackSelect.append(option);
+  }
+  if(tracks.some(t=>String(t.index)===previous))playerTrackSelect.value=previous;
+  playerTrackLoad.disabled=!tracks.length;
+  if(!tracks.length)playerTrackStatus.textContent='No exposed text tracks available.';
+  else playerTrackStatus.textContent=tracks.length+' text track'+(tracks.length===1?'':'s')+' available.';
+ }
+ playerTrackLoad.addEventListener('click',async()=>{
+  if(playerTrackLoad.disabled)return;
+  playerTrackLoad.disabled=true;
+  try{await window.MarmaladePlayerTextTracks.load(Number(playerTrackSelect.value));playerTrackStatus.textContent='Track loaded into the subtitle studio.';}
+  catch(error){playerTrackStatus.textContent=String(error.message||error);}
+  finally{playerTrackLoad.disabled=!(window.MarmaladePlayerTextTracks?.list().length);}
+ });
+ playerTracks.addEventListener('toggle',()=>{if(playerTracks.open)refreshPlayerTracks();});
+ for(const event of ['addtrack','removetrack'])media.textTracks?.addEventListener?.(event,refreshPlayerTracks);
+ media.addEventListener('loadedmetadata',refreshPlayerTracks);
+ window.addEventListener('marmalade:media-cleared',refreshPlayerTracks);
+ refreshPlayerTracks();
  // Day-to-day search = title, year, language. Advanced release/episode filters
  // remain one tap away with original select IDs and listeners intact.
  const form=$('subSearchForm');

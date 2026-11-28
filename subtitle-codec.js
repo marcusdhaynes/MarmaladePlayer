@@ -336,7 +336,29 @@
     for(let i=0;i<index.length;i++)if(terms.every(term=>index[i].includes(term)))results.push(i);
     return results;
   }
-  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue};
+  // Convert engine-exposed text cues into a bounded, inert WebVTT snapshot.
+  // Re-escape the sanitized text so it cannot create a new timing row.
+  function snapshotTextTrack(input){
+    const rows=['WEBVTT'];let count=0,size=6;
+    const stamp=seconds=>{
+      const ms=Math.round(seconds*1000),h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60;
+      return [h,m,s].map(n=>String(n).padStart(2,'0')).join(':')+'.'+String(ms%1000).padStart(3,'0');
+    };
+    for(const item of input||[]){
+      const start=Number(item.startTime),end=Number(item.endTime);
+      if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end>3599999||end<=start||end-start>180||typeof item.text!=='string')continue;
+      const text=plain(item.text).replace(/\n\s*\n/g,'\n');
+      if(!text||text.length>10000)continue;
+      const escaped=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const row=stamp(start)+' --> '+stamp(end)+'\n'+escaped;
+      size+=new TextEncoder().encode(row).length+2;
+      if(++count>10000||size>5*1024*1024)throw Error('Player subtitle track exceeds the supported caption limit');
+      rows.push(row);
+    }
+    if(!count)throw Error('No readable text captions are available from this track yet');
+    return rows.join('\n\n')+'\n';
+  }
+  const api={time,plain,decode,decodeBytes,activeText,encodings,fitTiming,referenceAlignment,dialogueKey,searchDialogue,snapshotTextTrack};
   if(typeof module==='object'&&module.exports)module.exports=api;
   root.MarmaladeSubtitleCodec=api;
 })(typeof window!=='undefined'?window:globalThis);

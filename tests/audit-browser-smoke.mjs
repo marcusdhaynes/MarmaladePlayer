@@ -455,6 +455,22 @@ try{
     return {text:cue.text,exact:api.exactWordTime(cue,parts,1),estimated:api.estimateWordTime(cue,parts,1),first:api.exactWordTime(cue,parts,0)};
   });
   assert.deepEqual(inlineTiming,{text:'Hello world again',exact:2.2,estimated:2.2,first:null});
+  const trackResult=await page.evaluate(async()=>{
+    const {state,media}=window.MarmaladeAddonBridge;
+    if(typeof VTTCue!=='function')return {unsupported:true};
+    const track=media.addTextTrack('captions','Audit embedded captions','en');
+    track.mode='hidden';
+    track.addCue(new VTTCue(0,4,'<b>Player track dialogue</b>'));
+    const selected=window.MarmaladePlayerTextTracks.list().find(t=>t.label==='Audit embedded captions');
+    await window.MarmaladePlayerTextTracks.load(selected.index);
+    const result={text:state.subtitles[0]?.text,language:state.subtitleLanguage,mode:track.mode,visible:!document.querySelector('#subtitleOverlay').hidden};
+    state.subtitles=[{start:0,end:4,text:'Primary captions'}];
+    window.MarmaladeSubtitleTiming.reset();
+    window.dispatchEvent(new Event('marmalade:subtitles-loaded'));
+    window.MarmaladeSubtitleRefresh();
+    return result;
+  });
+  if(!trackResult.unsupported)assert.deepEqual(trackResult,{text:'Player track dialogue',language:'en',mode:'hidden',visible:true});
   const driftCheck=await page.evaluate(()=>{
     const timing=window.MarmaladeSubtitleTiming;
     timing.activate('audit-drift-film','audit-drift-sub');

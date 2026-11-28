@@ -165,3 +165,12 @@ test('dialogue beginning NOTE or STYLE is not discarded as metadata',()=>{
  const source='WEBVTT\n\n00:01.000 --> 00:05.000\nNOTE this is dialogue\nSTYLE matters';
  assert.equal(codec.decode(source,'timed.vtt').cues[0].text,'NOTE this is dialogue\nSTYLE matters');
 });
+
+test('player track snapshot preserves text and timing and cannot inject new cues',()=>{
+ const raw=codec.snapshotTextTrack([{startTime:1,endTime:3,text:'<b>مرحبا</b> &amp; hello'},
+ {startTime:4,endTime:8,text:'00:00:09.000 --> 00:00:10.000\nNot a timing row'},
+ {startTime:10,endTime:11,text:null}]);
+ const cues=codec.decode(raw,'track.vtt').cues;
+ assert.deepEqual(cues,[{start:1,end:3,text:'مرحبا & hello'},{start:4,end:8,text:'00:00:09.000 --> 00:00:10.000\nNot a timing row'}]);
+ assert.throws(()=>codec.snapshotTextTrack([]),/No readable/);
+});
