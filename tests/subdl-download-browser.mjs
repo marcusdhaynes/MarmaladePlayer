@@ -13,15 +13,26 @@ const server=createServer((req,res)=>{
   if(path!==root&&!path.startsWith(root+sep)){res.writeHead(403);res.end();return;}
   try{const data=readFileSync(path);res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream'});res.end(data);}catch{res.writeHead(404);res.end();}
 });
-function makeZip(name,subtitle){
+// Independent checksum for standards-compliant fixture ZIPs.
+function crc32(bytes){
+ let crc=0xffffffff;
+ for(const byte of bytes){
+  crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);
+ }
+ return (crc^0xffffffff)>>>0;
+}
+function makeZip(name,subtitle,{badChecksum=false}={}){
   const file=Buffer.from(name),body=Buffer.from(subtitle);
+  const checksum=(crc32(body)^(badChecksum?1:0))>>>0;
   const payload=deflateRawSync(body);
   const head=Buffer.alloc(30),dir=Buffer.alloc(46),tail=Buffer.alloc(22);
   head.writeUInt32LE(0x04034b50);head.writeUInt16LE(8,8);
+  head.writeUInt32LE(checksum,14);
   head.writeUInt32LE(payload.length,18);head.writeUInt32LE(body.length,22);
   head.writeUInt16LE(file.length,26);
   const offset=head.length+file.length+payload.length;
   dir.writeUInt32LE(0x02014b50);dir.writeUInt16LE(8,10);
+  dir.writeUInt32LE(checksum,16);
   dir.writeUInt32LE(payload.length,20);dir.writeUInt32LE(body.length,24);
   dir.writeUInt16LE(file.length,28);
   tail.writeUInt32LE(0x06054b50);tail.writeUInt16LE(1,8);tail.writeUInt16LE(1,10);
@@ -65,8 +76,14 @@ try{
  await page.locator('#subSearchForm').evaluate(f=>f.requestSubmit());
  await page.locator('#subSearchResults button').filter({hasText:'Use'}).waitFor({timeout:10000});
  await page.locator('#subSearchResults button').filter({hasText:'Use'}).click();
- await page.waitForFunction(()=>document.getElementById('subtitleName')?.textContent?.includes('1 Cues'),
-   null,{timeout:10000});
+ try{
+   await page.waitForFunction(()=>document.getElementById('subtitleName')?.textContent?.includes('1 Cues'),
+     null,{timeout:10000});
+ }catch(error){
+   console.error('SubDL load failed:',await page.locator('#subSearchProgress').count()
+     ?await page.locator('#subSearchProgress').textContent():await page.locator('#toast').textContent());
+   throw error;
+ }
  assert.equal(await page.locator('#subtitleOverlay').textContent(),'Hello from SubDL');
  assert.equal(await page.locator('#subtitleOverlay').getAttribute('hidden'),null,
    'SubDL ZIP captions must be visibly rendered over the movie');
@@ -89,6 +106,17 @@ try{
  assert.equal(stored.containerName,'Example.1080p.zip');
  assert.equal(stored.fps,25);
  assert.ok(stored.content.includes('Hello from SubDL'));
+ // Real browser decompression must reject a corrupt checksum without losing
+ // the currently active, correctly downloaded and cached subtitle.
+ await page.locator('#subtitleFile').setInputFiles({
+   name:'damaged.zip',mimeType:'application/zip',
+   buffer:makeZip('damaged.srt','1\n00:00:00,000 --> 00:00:30,000\nWrong captions',{badChecksum:true})
+ });
+ await page.waitForFunction(()=>document.querySelector('#toast')?.textContent.includes('checksum failed'));
+ assert.equal(await page.locator('#subtitleOverlay').textContent(),'Hello from SubDL');
+ assert.equal(await page.evaluate(()=>window.MarmaladeAddonBridge.state.subtitles[0].text),'Hello from SubDL');
+ assert.equal(await page.locator('#subtitleName').textContent(), 'Example.2026.1080p.srt · 1 Cues');
+ console.log('PASS browser rejects damaged ZIP and preserves active subtitles');
  await page.locator('#subtitleTiming').evaluate(el=>{
    el.value='2.3';el.dispatchEvent(new Event('change',{bubbles:true}));
  });

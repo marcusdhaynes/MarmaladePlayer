@@ -99,3 +99,18 @@ test('ZIP path traversal and absolute paths are not valid subtitle candidates',(
  const packed=archive([['../bad.srt','bad'],['..\\bad.srt','bad'],['/bad.srt','bad'],['C:\\bad.srt','bad'],['good.srt','ok']],0);
  assert.deepEqual(zip.list(packed).map(e=>e.name),['good.srt']);
 });
+
+test('ZIP with a standard data descriptor and zero local sizes is accepted',async()=>{
+ const original=archive([['film.srt','hello']],0);
+ const end=original.length-22,central=original.readUInt32LE(end+16);
+ const descriptor=Buffer.alloc(16);
+ descriptor.writeUInt32LE(0x08074b50,0);
+ descriptor.writeUInt32LE(crc32(Buffer.from('hello')),4);
+ descriptor.writeUInt32LE(5,8);descriptor.writeUInt32LE(5,12);
+ const result=Buffer.concat([original.subarray(0,central),descriptor,original.subarray(central)]);
+ result.writeUInt16LE(8,6);
+ result.fill(0,14,26);
+ result.writeUInt16LE(8,central+16+8);
+ result.writeUInt32LE(central+16,result.length-22+16);
+ assert.equal(new TextDecoder().decode((await zip.extract(result)).bytes),'hello');
+});
