@@ -38,6 +38,12 @@ try{
   // accessibility settings, keyboard focus restoration and OS preference.
   await page.locator('#settingsTabVideo').click();
   await page.locator('#windowTheme').selectOption('glass');
+  // Compare actual computed glass materials across all primary surfaces,
+  // including hidden windows (computed styles are available while hidden).
+  const surfaces=['settingsPanel','subtitlePanel','brightnessPopover','mediaLibraryPanel','mlSettingsPanel','mlContextMenu','gamesPanel','gamesLogPanel','mediaInfoPanel'];
+  const materials=await page.evaluate(ids=>ids.map(id=>{const el=document.getElementById(id),s=getComputedStyle(el);return {id,bg:s.backgroundImage,blur:s.backdropFilter};}),surfaces);
+  assert(materials.every(v=>v.bg===materials[0].bg&&v.blur===materials[0].blur),JSON.stringify(materials));
+  assert(materials[0].bg.includes('gradient')&&materials[0].blur.includes('blur'));
   await page.locator('#reduceTransparency').check();
   await page.locator('#reduceMotion').check();
   const accessible=await page.evaluate(()=>{
@@ -48,9 +54,20 @@ try{
       label:panel.getAttribute('aria-label'),controls:document.getElementById('settingsBtn').getAttribute('aria-controls')};
   });
   assert.deepEqual(accessible,{theme:'glass',transparency:'true',motion:'true',background:'rgb(33, 30, 41)',blur:'none',transition:'0s',label:'Settings',controls:'settingsPanel'});
+  const solids=await page.evaluate(ids=>ids.map(id=>{const s=getComputedStyle(document.getElementById(id));return [id,s.backgroundColor,s.backdropFilter];}),surfaces);
+  for(const [id,bg,blur] of solids){assert.equal(bg,'rgb(33, 30, 41)',id+' opaque material');assert.equal(blur,'none',id+' no blur');}
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#settingsPanel').evaluate(p=>p.hidden),true);
   assert.equal(await page.evaluate(()=>document.activeElement.id),'settingsBtn');
+  // Keyboard focus shows a readable, viewport-clamped description.
+  const tooltip=page.locator('#marmalade-ui-tooltip');
+  await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.textContent(),'Settings');
+  const tipBox=await tooltip.boundingBox();
+  assert(tipBox.x>=0&&tipBox.y>=0&&tipBox.x+tipBox.width<=viewport.width+1&&tipBox.y+tipBox.height<=viewport.height+1);
+  assert((await page.locator('#settingsBtn').getAttribute('aria-describedby')).includes('marmalade-ui-tooltip'));
+  await page.keyboard.press('Escape');await tooltip.waitFor({state:'hidden'});
+  assert.equal(await page.locator('#settingsBtn').getAttribute('title'),'Settings');
   await page.locator('#settingsBtn').click({force:true});
   await page.locator('#reduceTransparency').uncheck();
   await page.locator('#reduceMotion').uncheck();

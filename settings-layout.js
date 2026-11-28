@@ -2,6 +2,60 @@
    Existing control nodes are MOVED, not recreated: every listener survives. */
 (() => {
  'use strict';
+ // Install a single delegated, keyboard-accessible tooltip per document.
+ // Native titles are suppressed only while our tooltip is visible; dynamic
+ // title changes and unmodified controls keep their existing semantics.
+ const tooltipDocuments=new WeakSet();
+ function installTooltips(doc){
+   if(!doc||tooltipDocuments.has(doc))return;
+   tooltipDocuments.add(doc);
+   const win=doc.defaultView;let active=null,tip=null,timer=0;
+   const selector='button[title],a[title],[role="button"][title]';
+   const target=node=>node?.closest?.(selector);
+   function hide(){
+     win.clearTimeout(timer);timer=0;
+     if(active){
+       const {node,title,description}=active;
+       if(!node.hasAttribute('title'))node.setAttribute('title',title);
+       if(node.getAttribute('aria-describedby')===((description?description+' ':'')+'marmalade-ui-tooltip')){
+         if(description)node.setAttribute('aria-describedby',description);else node.removeAttribute('aria-describedby');
+       }
+     }
+     active=null;if(tip)tip.hidden=true;
+   }
+   function show(node){
+     hide();
+     if(!node?.isConnected||node.disabled||!node.getClientRects().length)return;
+     const title=node.getAttribute('title')?.trim();if(!title)return;
+     const description=node.getAttribute('aria-describedby')||'';
+     if(!tip){tip=doc.createElement('div');tip.id='marmalade-ui-tooltip';tip.className='marmalade-ui-tooltip';tip.setAttribute('role','tooltip');}
+     const container=doc.fullscreenElement||doc.webkitFullscreenElement||doc.body;
+     if(tip.parentNode!==container)container.append(tip);
+     active={node,title,description};tip.textContent=title;tip.hidden=false;
+     node.removeAttribute('title');node.setAttribute('aria-describedby',(description?description+' ':'')+tip.id);
+     const r=node.getBoundingClientRect(),w=tip.offsetWidth,h=tip.offsetHeight;
+     const x=Math.max(8,Math.min(win.innerWidth-w-8,r.left+(r.width-w)/2));
+     const y=r.top>=h+14?r.top-h-6:Math.max(8,Math.min(win.innerHeight-h-8,r.bottom+6));
+     tip.style.left=x+'px';tip.style.top=y+'px';
+   }
+   doc.addEventListener('pointerover',event=>{
+     if(event.pointerType==='touch')return;
+     const node=target(event.target);if(!node||node.contains(event.relatedTarget))return;
+     hide();timer=win.setTimeout(()=>show(node),350);
+   });
+   doc.addEventListener('pointerout',event=>{
+     const node=active?.node||target(event.target);
+     if(node&&!node.contains(event.relatedTarget))hide();
+   });
+   doc.addEventListener('focusin',event=>{const node=target(event.target);if(node)show(node);else hide();});
+   doc.addEventListener('focusout',hide);
+   doc.addEventListener('pointerdown',hide,true);
+   win.addEventListener('keydown',event=>{if(event.key==='Escape')hide();},true);
+   win.addEventListener('resize',hide);
+   doc.addEventListener('scroll',hide,true);
+   doc.addEventListener('fullscreenchange',hide);
+ }
+ window.MarmaladeInstallTooltips=installTooltips;installTooltips(document);
  const panel=document.getElementById('settingsPanel');
  if(!panel||panel.querySelector('.settings-tabs'))return;
  const $=id=>document.getElementById(id);

@@ -151,11 +151,11 @@
 /* Window appearance is independent of the wallpaper and video surfaces.
    Classic intentionally has no override, preserving all original colors. */
 html[data-window-theme="glass"] :is(#subtitlePanel,#settingsPanel,.theater-popover,.adaptive-brightness-popover,.media-info,.ml-panel,.games-panel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface,.games-log-panel){
- background:linear-gradient(145deg,rgba(48,37,63,.69),rgba(20,18,31,.57))!important;
- border-color:rgba(220,202,245,.32)!important;
- box-shadow:0 12px 34px rgba(5,3,15,.35),inset 0 1px 0 rgba(255,255,255,.17)!important;
- backdrop-filter:blur(20px) saturate(1.22)!important;
- -webkit-backdrop-filter:blur(20px) saturate(1.22)!important;
+ background:var(--marmalade-glass-surface)!important;
+ border-color:var(--marmalade-glass-border)!important;
+ box-shadow:var(--marmalade-glass-shadow)!important;
+ backdrop-filter:var(--marmalade-glass-blur)!important;
+ -webkit-backdrop-filter:var(--marmalade-glass-blur)!important;
 }
 html[data-window-theme="glass"] :is(.settings-popover,.subtitle-studio,.ml-dialog-surface,.games-dialog-surface) :is(input:not([type="range"]):not([type="color"]):not([type="checkbox"]),select){
  background-color:rgba(16,13,24,.78);
@@ -166,7 +166,7 @@ html[data-window-theme="glass"] :is(.settings-popover,.subtitle-studio) :is(.set
 }
 @supports not (backdrop-filter:blur(1px)){
  html[data-window-theme="glass"] :is(#subtitlePanel,#settingsPanel,.theater-popover,.adaptive-brightness-popover,.media-info,.ml-panel,.games-panel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface,.games-log-panel){
-  background:linear-gradient(145deg,rgba(48,37,63,.91),rgba(20,18,31,.88))!important;
+  background:var(--marmalade-solid-surface)!important;
  }
 }
 .settings-popover .settings-window-theme-row select{width:119px;max-width:48%;flex-basis:119px}
@@ -453,3 +453,35 @@ html[data-window-theme="glass"] #gamesPanel .game-score-card.delete-armed .game-
  background:#211e29!important;background-image:none!important;
  backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
 }
+
+/* Section 09: one material for the actual named windows, including the
+   compact room sidebar and portaled library menu. Preserve layout and art. */
+html[data-window-theme="glass"] :is(#settingsPanel,#subtitlePanel,#brightnessPopover,#mediaLibraryPanel,#mlSettingsPanel,#mlContextMenu,#gamesPanel,#gamesLogPanel,#mediaInfoPanel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface){
+ background:var(--marmalade-glass-surface)!important;
+ border-color:var(--marmalade-glass-border)!important;
+ box-shadow:var(--marmalade-glass-shadow)!important;
+ backdrop-filter:var(--marmalade-glass-blur)!important;
+ -webkit-backdrop-filter:var(--marmalade-glass-blur)!important;
+}
+html[data-reduce-transparency="true"] :is(#settingsPanel,#subtitlePanel,#brightnessPopover,#mediaLibraryPanel,#mlSettingsPanel,#mlContextMenu,#gamesPanel,#gamesLogPanel,#mediaInfoPanel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface){
+ background:var(--marmalade-solid-surface)!important;
+ backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+}
+@supports not (backdrop-filter:blur(1px)){
+ html[data-window-theme="glass"] :is(#settingsPanel,#subtitlePanel,#brightnessPopover,#mediaLibraryPanel,#mlSettingsPanel,#mlContextMenu,#gamesPanel,#gamesLogPanel,#mediaInfoPanel,.compact-sidepanel,.ml-dialog-surface,.games-dialog-surface){background:var(--marmalade-solid-surface)!important}
+}
+html[data-reduce-transparency="true"] :is(#settingsPanel,#subtitlePanel,#mlSettingsPanel,#mlContextMenu,.ml-dialog-surface,.games-dialog-surface) :is(button,select,input:not([type="range"]):not([type="checkbox"]):not([type="color"]),textarea):not(.icon-btn):not(.ml-card):not(.games-card):not(.ml-card-more){
+ background:#37313f!important;color:#f8f4ed!important;border-color:#82758a!important;
+}
+html[data-reduce-transparency="true"] :is(#settingsPanel,#subtitlePanel,#mlSettingsPanel,#mlContextMenu,.ml-dialog-surface,.games-dialog-surface) :is(button,[role="tab"]):is([aria-selected="true"],[aria-pressed="true"],.active){background:#59456b!important;color:#fff!important}
+html[data-reduce-transparency="true"] :is(#settingsPanel,#subtitlePanel,#mlSettingsPanel,#mlContextMenu,.ml-dialog-surface,.games-dialog-surface) :is(button,select):not(:disabled):hover{border-color:#f2c6a0!important}
+:root :is(.settings-tab,.ml-menu-action,.popover-actions button){font-family:inherit;font-weight:650;line-height:1.35;letter-spacing:.01em}
+:root :is(.settings-tab,.ml-tool-icon,.popover-heading button,.theater-controls .icon-btn) svg{flex:none;vertical-align:middle}
+:root :is(.settings-tab,.ml-tool-icon,.popover-heading button) svg:not([fill="currentColor"]){stroke-linecap:round;stroke-linejoin:round}
+.marmalade-ui-tooltip{
+ position:fixed;z-index:2147483647;pointer-events:none;max-width:min(260px,calc(100vw - 16px));
+ padding:5px 8px;background:#211e29;color:#f8f4ed;border:1px solid #82758a;
+ border-radius:7px;box-shadow:0 4px 16px #0007;font:500 11px/1.4 system-ui,sans-serif;
+ overflow-wrap:anywhere;text-align:center;white-space:normal;
+}
+.marmalade-ui-tooltip[hidden]{display:none!important}

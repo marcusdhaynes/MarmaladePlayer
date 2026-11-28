@@ -6847,6 +6847,7 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         pipWindow=pop;
         pop.document.documentElement.dataset.windowTheme=document.documentElement.dataset.windowTheme||'classic';
         for(const attr of ['reduceTransparency','reduceMotion'])pop.document.documentElement.dataset[attr]=document.documentElement.dataset[attr]||'false';
+        window.MarmaladeInstallTooltips?.(pop.document);
         stagePlaceholder=document.createComment('Marmalade video pop-out position');
         el.stage.replaceWith(stagePlaceholder);
         // Document PiP uses its own CSS scope. Reuse all existing styles,
