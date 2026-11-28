@@ -754,6 +754,73 @@ try {
   assert.deepEqual(errors,[],'Browser runtime errors');
   console.log('PASS actual two-browser Marmalade PeerJS movie + sound');
   await guest.close();await host.close();
+  for(const height of [720,1080]){
+    const width=height===720?1280:1920;
+    const clip=join(dir,'buffer-clip-'+height+'.mp4');
+    const movie=join(dir,'buffer-movie-'+height+'.mp4');
+    // Loop a short encoded sequence so the out-of-window seek has real keyframes
+    // and over three minutes remaining without encoding a full feature film.
+    execFileSync('ffmpeg',['-v','error','-f','lavfi','-i',
+      'testsrc2=size='+width+'x'+height+':rate=24','-f','lavfi','-i',
+      'sine=frequency=440:sample_rate=48000','-t','2','-c:v','libx264',
+      '-preset','ultrafast','-crf','36','-g','24','-pix_fmt','yuv420p',
+      '-c:a','aac','-y',clip],{timeout:60000});
+    execFileSync('ffmpeg',['-v','error','-stream_loop','219','-i',clip,
+      '-c','copy','-movflags','+faststart','-y',movie],{timeout:60000});
+    const sender=await makePage(),viewer=await makePage();
+    try{
+      await sender.goto('http://127.0.0.1:'+WEB_PORT);
+      await sender.locator('#fileInput').setInputFiles(movie);
+      await sender.waitForFunction(()=>!document.querySelector('#playPause').disabled);
+      await sender.locator('#playPause').click({force:true});
+      await sender.waitForFunction(()=>!!window.MarmaladeRollingBuffer?.offer());
+      let began=Date.now();
+      await viewer.goto(await sender.locator('#inviteLink').inputValue());
+      const full=async(label,minTime,maxTime=Infinity)=>{
+        await viewer.waitForFunction(({height,minTime,maxTime})=>{
+          const v=document.querySelector('#player');
+          if(window.MarmaladeAddonBridge.state.source!=='buffered-guest'||
+             v.videoHeight!==height||v.currentTime<minTime||v.currentTime>maxTime)return false;
+          for(let i=0;i<v.buffered.length;i++){
+            if(v.buffered.start(i)<=v.currentTime&&v.buffered.end(i)-v.currentTime>=180)return true;
+          }
+          return false;
+        },{height,minTime,maxTime},{timeout:120000});
+        console.log('PASS contiguous guest buffer',height,label,'elapsed ms',Date.now()-began);
+      };
+      await full('join',0);
+      const original=await viewer.locator('#player').evaluate(v=>v.currentSrc);
+      began=Date.now();
+      await sender.locator('#player').evaluate(v=>{v.currentTime=220;});
+      await full('outside-window seek',218);
+      began=Date.now();
+      await viewer.evaluate(()=>{
+        const state=window.MarmaladeAddonBridge.state;
+        const bulk=Object.values(state.peer.connections).flat().find(c=>c.open&&c.label==='marmalade-buffer-v1');
+        if(!bulk)throw Error('Missing active movie transfer');
+        window.__lostBulk=bulk;
+        bulk.close();
+      });
+      await viewer.waitForFunction(()=>{
+        const state=window.MarmaladeAddonBridge.state;
+        return Object.values(state.peer.connections).flat().some(c=>c.open&&c!==window.__lostBulk&&c.label==='marmalade-buffer-v1');
+      },null,{timeout:30000});
+      await sender.locator('#player').evaluate(v=>{v.currentTime=5;});
+      await full('reconnect and seek back',0,125);
+      assert.equal(await viewer.locator('#player').evaluate(v=>v.currentSrc),original);
+      const sample=await viewer.locator('#player').evaluate(async v=>{
+        const before=v.getVideoPlaybackQuality(),start=performance.now(),initial=v.currentTime;
+        await new Promise(resolve=>setTimeout(resolve,10000));
+        const after=v.getVideoPlaybackQuality(),seconds=(performance.now()-start)/1000;
+        return {seconds,advanced:v.currentTime-initial,
+          displayedFPS:(after.totalVideoFrames-before.totalVideoFrames-after.droppedVideoFrames+before.droppedVideoFrames)/seconds,
+          dropped:after.droppedVideoFrames-before.droppedVideoFrames};
+      });
+      console.log('Buffered guest playback',height,JSON.stringify(sample));
+      assert(sample.advanced>=9&&sample.displayedFPS>=23.5,'24 FPS source must sustain playback within half a frame/s');
+    }finally{await viewer.close();await sender.close();}
+  }
+  assert.deepEqual(errors,[],'Buffered room runtime errors');
 } catch(error) {
   console.error('MARMALADE FULL PEERJS TEST FAILED',error);
   process.exitCode=1;

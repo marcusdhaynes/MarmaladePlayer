@@ -153,7 +153,7 @@
    }
  }
  function request(s,offset,length){
-   if(!current(s)||!s.conn.open||!validRange(offset,length,s.offer.size))return Promise.reject(Error('Invalid or disconnected range'));
+   if(!current(s)||!s.conn?.open||!validRange(offset,length,s.offer.size))return Promise.reject(Error('Invalid or disconnected range'));
    return new Promise((resolve,reject)=>{
      const id=++s.sequence,req={bytes:new Uint8Array(length),received:0,resolve,reject,timer:0};
      req.timer=setTimeout(()=>{s.requests.delete(id);reject(Error('Movie range timed out'));},30000);
@@ -171,6 +171,20 @@
    }else if(m.type==='done'){finish(req.received===req.bytes.length?null:Error('Incomplete movie range'));}
    else if(m.type==='failed')finish(Error('Host could not read movie range'));
  }
+ // Keep an in-flight decoder read alive while its transport is replaced.
+ // Rejecting a read here can permanently fault the worker even if MSE survived.
+ async function requestRecoverable(s,offset,length){
+   for(let attempt=0;;attempt++){
+     if(!current(s))throw Error('Buffer session cancelled');
+     const channel=s.conn;
+     try{return await request(s,offset,length);}
+     catch(error){
+       if(!current(s)||attempt>=2||
+          (channel===s.conn&&channel?.open&&!s.reconnecting))throw error;
+       await reconnect(s);
+     }
+   }
+ }
  async function read(s,offset,size){
    if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(size)||offset<0||size<0||size>16*BLOCK)throw Error('Invalid decoder read');
    const length=Math.max(0,Math.min(size,s.offer.size-offset));
@@ -185,7 +199,7 @@
        block=await s.disk?.get(start);
        if(!block||block.length!==expected){
          if(!current(s))throw Error('Buffer session cancelled');
-         block=new Uint8Array(await request(s,start,expected));
+         block=new Uint8Array(await requestRecoverable(s,start,expected));
        }
        if(!current(s))throw Error('Buffer session cancelled');
        s.cache.set(start,block);s.cacheBytes+=block.length;
@@ -292,8 +306,14 @@
      conn.on('open',()=>{clearTimeout(timer);resolve();});conn.on('error',e=>{clearTimeout(timer);reject(e);});conn.on('close',()=>{clearTimeout(timer);reject(Error('Media transfer closed'));});
    });
  }
- async function reconnect(s){
-   if(!current(s)||s.reconnecting)return;
+ function reconnect(s){
+   if(!current(s))return;
+   if(!s.reconnectTask){
+     s.reconnectTask=restoreChannel(s).finally(()=>{s.reconnectTask=null;});
+   }
+   return s.reconnectTask;
+ }
+ async function restoreChannel(s){
    s.reconnecting=true;
    // Keep already appended A/V available while the bulk channel reconnects.
    // A data interruption does not discard the guest's downloaded window.
