@@ -150,3 +150,6 @@ Sections 03 and 15 — Guest recovery. Decoder reads and asynchronous appends no
 
 
 Section 06: Embedded WebVTT dialogue extraction supports Matroska S_TEXT/WEBVTT and WebM D_WEBVTT/SUBTITLES and CAPTIONS. Preserves multiline dialogue, container cue times and supported inline word boundaries. Identifier and placement metadata are not rendered. All 35 local codec tests passed including generated EBML fixtures for each mapping. Authored placement, commercial-file/browser rendering and full section acceptance remain open.
+
+
+Section 06 — Independent embedded WebVTT playback acceptance. Local Chrome passed all three playable fixtures via the production subtitle studio: FFmpeg-muxed MKV and WebM with D_WEBVTT/SUBTITLES and a webm-muxer Matroska movie with S_TEXT/WEBVTT. Each verified Find Tracks, track selection, Load Track, visible first cue, forward seek, clear interval and Arabic text after a backward seek. The repeatable Chromium regression runs in the audit workflow. This verifies the tested UI/render paths; authored layout, other engines and devices remain open.

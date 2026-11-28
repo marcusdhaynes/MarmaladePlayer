@@ -47,6 +47,12 @@ jobs:
             if [ "$attempt" = 3 ]; then exit 1; fi
             sleep 5
           done
+      - name: Verify embedded captions with independently muxed movies
+        if: matrix.engine == 'chromium'
+        run: |
+          sudo apt-get install -y ffmpeg
+          npm install --no-save --no-package-lock playwright@1.51.1 webm-muxer@5.1.4
+          node tests/embedded-caption-playback.mjs
       - run: node scripts/install-mkv-decoder.mjs
       - run: |
           python3 -m http.server 8080 > /tmp/marmalade-server.log 2>&1 &
