@@ -1160,14 +1160,28 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
     try{gain.disconnect(route.nodes[0]||ctx.destination);}catch{}
     for(const node of route.nodes)try{node.disconnect();}catch{}
   }
-  function routePersonalAudio(gain,ctx,source,force=false,delayMs=typeof audioDelay==='undefined'?0:Number(audioDelay.value)){
+  // Safety ceiling on amplified personal output. The pre-gain broadcast
+  // branch never passes through this transfer function. Below 90% of digital
+  // full scale the curve is linear; loud boosted peaks approach 0.995
+  // smoothly rather than hitting the output's hard clipping boundary.
+  let boostCeilingCurve=null;
+  function makeBoostCeilingCurve(){
+    if(boostCeilingCurve)return boostCeilingCurve;
+    const curve=new Float32Array(16385),range=12,knee=.9,ceiling=.995;
+    for(let i=0;i<curve.length;i++){
+      const x=(i/(curve.length-1)*2-1)*range,a=Math.abs(x);
+      curve[i]=Math.sign(x)*(a<=knee?a:knee+(ceiling-knee)*Math.tanh((a-knee)/(ceiling-knee)));
+    }
+    return boostCeilingCurve=curve;
+  }
+  function routePersonalAudio(gain,ctx,source,force=false,delayMs=typeof audioDelay==='undefined'?0:Number(audioDelay.value),boost=typeof state!=='undefined'&&state.volumePercent>100){
     const delay=Number.isFinite(delayMs)?Math.max(0,Math.min(500,delayMs))/1000:0;
     if(!gain||!ctx)return;
     const mode=audioNightMode.checked?'night':audioProtection.checked?'peak':'off';
     const dialogue=['mild','strong'].includes(audioDialogue.value)?audioDialogue.value:'off';
     const normalize=audioNormalize.checked;
     const eq=eqBands.slice();
-    const signature=mode+'|'+dialogue+'|'+normalize+'|'+eq.join(',')+'|'+delay;
+    const signature=mode+'|'+dialogue+'|'+normalize+'|'+eq.join(',')+'|'+delay+'|'+!!boost;
     const previous=personalAudioRoutes.get(gain);
     source=source||previous?.source;
     if(!force&&previous?.signature===signature&&previous.source===source)return;
@@ -1206,6 +1220,13 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
         node.threshold.value=night?-30:-8;node.knee.value=night?24:12;
         node.ratio.value=night?6:12;node.attack.value=night?.008:.003;
         node.release.value=night?.25:.16;
+      }
+      if(boost&&typeof ctx.createWaveShaper==='function'){
+        // WaveShaper's domain is [-1,1]; scale up to ±12 original sample
+        // units into that domain so the linear section retains quiet boosts.
+        const scale=ctx.createGain();scale.gain.value=1/12;
+        const ceiling=ctx.createWaveShaper();ceiling.curve=makeBoostCeilingCurve();
+        ceiling.oversample='none';nodes.push(scale,ceiling);
       }
       if(delay>0){
         const node=ctx.createDelay(.5);nodes.push(node);node.delayTime.value=delay;
@@ -5250,6 +5271,12 @@ body.native-pip-active.floating-overlay-active .stage.pip-interactive .subtitle-
   }
   function applyVolume() {
     const level = state.soundMuted ? 0 : state.volumePercent / 100;
+    // Crossing 100% toggles the personal safety ceiling. The route signature
+    // avoids rebuilding the graph on every ordinary slider movement.
+    for(const gain of [state.speakerGain,state.guestAudioGain,hostMonitorAudioGain]){
+      const route=gain&&personalAudioRoutes.get(gain);
+      if(route&&route.ctx.state!=='closed')routePersonalAudio(gain,route.ctx,route.source);
+    }
     // Native mute is a hard safety gate even when Web Audio exists but is suspended.
     // Gain is applied to speakers only; it is never part of the outgoing P2P track.
     const hardMute = (state.role === 'host' && state.source === 'screen') || state.soundMuted || level === 0;

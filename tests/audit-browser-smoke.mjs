@@ -263,7 +263,7 @@ try{
     const Offline=window.OfflineAudioContext||window.webkitOfflineAudioContext;
     const settings={checked:false},dialogue={value:'off'};
     const eqBands=[0,0,0,0,0,0,0],freq=[60,150,400,1000,2500,6000,12000];
-    const {routePersonalAudio:route,levelingGain}=new Function('audioProtection','audioNightMode','audioDialogue','audioNormalize','eqBands','EQ_FREQUENCIES',source+';return {routePersonalAudio,levelingGain};')(settings,{checked:false},dialogue,{checked:false},eqBands,freq);
+    const {routePersonalAudio:route,levelingGain,makeBoostCeilingCurve}=new Function('audioProtection','audioNightMode','audioDialogue','audioNormalize','eqBands','EQ_FREQUENCIES',source+';return {routePersonalAudio,levelingGain,makeBoostCeilingCurve};')(settings,{checked:false},dialogue,{checked:false},eqBands,freq);
     async function measure(level,frequency){
       const ctx=new Offline(1,24000,48000),osc=ctx.createOscillator(),gain=ctx.createGain();
       dialogue.value=level;osc.frequency.value=frequency;gain.gain.value=.2;osc.connect(gain);route(gain,ctx);
@@ -289,13 +289,36 @@ try{
     pulse.start();const rendered=await ctx.startRendering();
     const onset=channel=>rendered.getChannelData(channel).findIndex(v=>Math.abs(v)>.1);
     const delayOnset=onset(0),directOnset=onset(1);
+    // Actual rendered samples, not just a settings flag: a 600% personal
+    // boost must preserve quiet input while preventing digital hard clipping.
+    async function boostResponse(amplitude,boost){
+      const c=new Offline(2,4096,48000),buffer=c.createBuffer(1,4096,48000);
+      const samples=buffer.getChannelData(0);
+      for(let i=0;i<samples.length;i++)samples[i]=amplitude*Math.sin(i*2*Math.PI/48);
+      const p=c.createBufferSource(),g=c.createGain(),direct=c.createGain(),m=c.createChannelMerger(2);
+      p.buffer=buffer;g.gain.value=6;p.connect(g);p.connect(direct);
+      route(g,c,undefined,false,0,boost);direct.connect(m,0,1);m.connect(c.destination);
+      p.start();const out=await c.startRendering();
+      const peak=channel=>Math.max(...out.getChannelData(channel).map(Math.abs));
+      // The personal branch is mono and is upmixed into both output channels;
+      // use a separate direct-only context to prove the unprocessed source.
+      const solo=new Offline(1,4096,48000),q=solo.createBufferSource(),g2=solo.createGain();
+      q.buffer=buffer;g2.gain.value=6;q.connect(g2);route(g2,solo,undefined,false,0,boost);q.start();
+      const clean=await solo.startRendering();
+      return {personal:Math.max(...clean.getChannelData(0).map(Math.abs)),direct:peak(1)};
+    }
+    const curve=makeBoostCeilingCurve();
+    const boostedQuiet=await boostResponse(.05,true),boostedLoud=await boostResponse(.8,true);
     const tone=amplitude=>Float32Array.from({length:4096},(_,i)=>amplitude*Math.sin(i*2*Math.PI/48));
-    return {delayOnset,directOnset,off:offSpeech/offBass,mild:mildSpeech/mildBass,strong:strongSpeech/strongBass,speech:strongSpeech/offSpeech,
+    return {delayOnset,directOnset,boostedQuiet,boostedLoud,curveMax:Math.max(...curve.map(Math.abs)),off:offSpeech/offBass,mild:mildSpeech/mildBass,strong:strongSpeech/strongBass,speech:strongSpeech/offSpeech,
       equalizer:{center:eqCenter/eqFlat,remote:eqRemote/offBass,relative:eqCenter/eqRemote},
       leveling:{silence:levelingGain(tone(.0001)),quiet:levelingGain(tone(.02)),loud:levelingGain(tone(.8)),normal:levelingGain(tone(.1123)),invalid:levelingGain([NaN])}};
   },routeSource);
   assert(Math.abs(response.delayOnset-4800)<=2,'100 ms personal audio delay measured in actual rendered samples '+JSON.stringify(response));
   assert.equal(response.directOnset,0,'Independent direct audio remains undelayed');
+  assert(Math.abs(response.boostedQuiet.personal-.3)<.005,'Quiet 600% boost remains linear');
+  assert(response.boostedLoud.personal<1&&response.boostedLoud.personal>.9,'Boosted loud samples have a bounded soft ceiling');
+  assert(response.curveMax<1&&response.curveMax>.99,'Ceiling curve never exceeds digital full scale');
   assert(response.off>.95&&response.off<1.05,'Off mode is transparent');
   assert(response.equalizer.center>.9&&response.equalizer.center<1.1,'Equalizer headroom compensates center gain');
   assert(response.equalizer.remote<.65&&response.equalizer.relative>1.6,'Real audio response emphasizes selected band');
