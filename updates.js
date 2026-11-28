@@ -32,13 +32,57 @@
     }
     return false;
   }
+  function nativePackage(){
+    var shell=document.querySelector('meta[name="marmalade-native-shell"]')?.content;
+    var ua=typeof navigator==='undefined'?'':navigator.userAgent||'';
+    var platform=window.Capacitor?.getPlatform?.();
+    if(shell==='mobile'){
+      if(platform==='android'||/Android/i.test(ua))return {label:'Android',ext:'apk',preview:true};
+      // A simulator ZIP is never an installable iPhone update.
+      throw Error('No iOS device installer feed');
+    }
+    if(shell==='desktop'){
+      if(/Windows/i.test(ua))return {label:'Windows',ext:'exe'};
+      if(/Macintosh|Mac OS X/i.test(ua))return {label:'macOS',ext:'dmg'};
+      if(/Linux/i.test(ua))return {label:'Linux',ext:'AppImage'};
+    }
+    throw Error('Unknown native platform');
+  }
+  function githubJson(path){
+    return fetch('https://api.github.com/repos/'+REPO+path,{headers:{Accept:'application/vnd.github+json'},cache:'no-store'}).then(function(res){
+      if(!res.ok)throw Error('Native release check failed');
+      return res.json();
+    });
+  }
+  async function checkNativeInstaller(){
+    var pkg=nativePackage();
+    var [history,releases]=await Promise.all([githubJson('/commits?sha=main&per_page=100'),githubJson('/releases?per_page=100')]);
+    if(!Array.isArray(history)||!history.length||!Array.isArray(releases)||
+       history.some(c=>! /^[a-f0-9]{40}$/.test(c?.sha||'')))throw Error('Invalid native release feed');
+    var installedIndex=history.findIndex(c=>c.sha===nativeBuild);
+    var newer=installedIndex<0?history:history.slice(0,installedIndex);
+    for(var commit of newer){
+      var sha=commit.sha,short=sha.slice(0,12),tag='marmalade-backup-'+short;
+      var release=releases.find(r=>r&&!r.draft&&r.tag_name===tag&&r.target_commitish===sha);
+      if(!release||!Array.isArray(release.assets))continue;
+      var name='Marmaladeum-'+pkg.label+'-'+short+'.'+pkg.ext;
+      var expected='https://github.com/'+REPO+'/releases/download/'+tag+'/'+name;
+      var asset=release.assets.find(a=>a&&a.name===name&&a.state==='uploaded'&&Number.isFinite(a.size)&&a.size>0&&a.browser_download_url===expected);
+      if(!asset)continue;
+      // Prove ancestry even if the installed commit is older than the bounded
+      // history window. Never offer a rollback or divergent branch as an update.
+      var comparison=await githubJson('/compare/'+nativeBuild+'...'+sha);
+      if(comparison?.status==='behind'||comparison?.status==='identical'||comparison?.status==='diverged')continue;
+      if(comparison?.status!=='ahead'||!(comparison.ahead_by>0)||comparison.behind_by!==0)throw Error('Unverified installer ancestry');
+      return {version:short,tag:sha,native:true,preview:!!pkg.preview,downloadUrl:expected,
+        notes:pkg.preview?'Android debug preview; manual installation and signature compatibility are required.':'Native installer download; confirm OS and architecture compatibility before installing.'};
+    }
+    if(installedIndex<0)throw Error('Installed commit outside recent release history');
+    return null;
+  }
   function checkForUpdate() {
     if(inFlight)return inFlight;
-    // Commit-pinned native packages are not semantic releases. Until a
-    // platform-specific installer feed is available, never claim they are
-    // current based on the unrelated web deployment or old version 0.1.0.
-    if(nativeStamped)return Promise.reject(Error('Native installer update feed unavailable'));
-    var request=stamped?fetch(new URL('build-info.json',document.baseURI),{cache:'no-store'}).then(function(res){
+    var request=nativeStamped?checkNativeInstaller():stamped?fetch(new URL('build-info.json',document.baseURI),{cache:'no-store'}).then(function(res){
       if(!res.ok)throw Error('Deployment check failed');
       return res.json();
     }).then(function(data){
@@ -75,7 +119,8 @@
     // version. APK/native builds hand the download to the platform
     // installer; Android still requires the user's install tap.
     if(activePlayback()){window.MarmaladeAddonBridge?.notify('Pause playback and leave the room before updating.');return;}
-    if(info.web){window.location.reload();return;}
+    if(info.web){if(!nativeStamped)window.location.reload();return;}
+    if(nativeStamped&&!info.native)return;
     if (info.downloadUrl) window.open(info.downloadUrl, '_blank', 'noopener');
     if(!nativeStamped)window.location.reload();
   }
@@ -94,7 +139,7 @@
     else if(status)statusText.dataset.state='error';
     heading.append(caption,statusText);el.append(heading);
     var versions=document.createElement('div');versions.className='updates-versions';
-    for(var entry of [['Installed',installed],['Available',info?(info.web?info.version:'v'+info.version):status==='You are up to date.'?installed:'—']]){
+    for(var entry of [['Installed',installed],['Available',info?(info.web||info.native?info.version:'v'+info.version):status==='You are up to date.'?installed:'—']]){
       var item=document.createElement('div');item.className='updates-version';
       var label=document.createElement('small');label.textContent=entry[0];
       var value=document.createElement('strong');value.textContent=entry[1];
@@ -114,7 +159,7 @@
     actions.append(check);
     if(info){
       var update=document.createElement('button');update.type='button';
-      update.className='updates-install';update.textContent=info.web?'Reload Deployed Build':'Get v'+info.version;
+      update.className='updates-install';update.textContent=info.web?'Reload Deployed Build':info.native?(info.preview?'Get Android Preview':'Download Installer'):'Get v'+info.version;
       update.addEventListener('click',function(){applyUpdate(info);});
       actions.append(update);
     }
@@ -126,7 +171,7 @@
     var revision=++renderRevision;
     renderSection(el, null, 'Checking…');
     checkForUpdate().then(function (info) {
-      if(revision===renderRevision)renderSection(el, info, info ? '' : 'You are up to date.');
+      if(revision===renderRevision)renderSection(el, info, info ? '' : nativeStamped?'No newer installer in recent releases.':'You are up to date.');
     }).catch(function () { if(revision===renderRevision)renderSection(el, null, 'Could not check for updates.'); });
   }
 
@@ -141,7 +186,7 @@
       'font-size:12px;line-height:1.4;background:rgba(127,127,127,.16);' +
       'border:1px solid rgba(127,127,127,.35);backdrop-filter:blur(6px);cursor:pointer;';
     var label = document.createElement('span');
-    label.textContent = info.web?'Different deployed build · '+info.version:'Update available · v' + info.version;
+    label.textContent = info.web?'Different deployed build · '+info.version:info.native?'Installer available · '+info.version:'Update available · v' + info.version;
     var close = document.createElement('button');
     close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', 'Dismiss this update');
     close.style.cssText = 'background:none;border:none;color:inherit;cursor:pointer;padding:0 4px;font-size:12px;';
