@@ -4,6 +4,14 @@ const assert=require('node:assert/strict');
 const zlib=require('node:zlib');
 const zip=require('../subtitle-archive.js');
 const codec=require('../subtitle-codec.js');
+// Independent reference CRC implementation for real ZIP fixtures.
+function crc32(bytes){
+ let crc=0xffffffff;
+ for(const byte of bytes){
+  crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);
+ }
+ return (crc^0xffffffff)>>>0;
+}
 function archive(files,method=8){
   const locals=[],central=[];let at=0;
   for(const [name,body] of files){
@@ -11,12 +19,12 @@ function archive(files,method=8){
     const packed=method===8?zlib.deflateRawSync(raw):raw;
     const local=Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50,0);
-    local.writeUInt16LE(method,8);local.writeUInt32LE(packed.length,18);
+    local.writeUInt16LE(method,8);local.writeUInt32LE(crc32(raw),14);local.writeUInt32LE(packed.length,18);
     local.writeUInt32LE(raw.length,22);local.writeUInt16LE(label.length,26);
     locals.push(local,label,packed);
     const dir=Buffer.alloc(46);
     dir.writeUInt32LE(0x02014b50,0);dir.writeUInt16LE(method,10);
-    dir.writeUInt32LE(packed.length,20);dir.writeUInt32LE(raw.length,24);
+    dir.writeUInt32LE(crc32(raw),16);dir.writeUInt32LE(packed.length,20);dir.writeUInt32LE(raw.length,24);
     dir.writeUInt16LE(label.length,28);dir.writeUInt32LE(at,42);
     central.push(dir,label);at+=30+label.length+packed.length;
   }
@@ -65,4 +73,29 @@ test('SubDL .srt with missing blank separators still displays readable dialogue'
 test('Do not display ZIP or HTML download response as subtitle text',()=>{
   assert.equal(codec.decode('PK\u0003\u0004BAD','download.srt').format,'archive');
   assert.equal(codec.decode('<html>Unavailable</html>','file.sub').format,'response');
+});
+
+test('single wrong episode and explicit wrong requested file are refused',async()=>{
+ const packed=archive([['Show.S02E06.srt','Wrong episode']],0);
+ await assert.rejects(()=>zip.extract(packed,{video:'Show.S02E05.mkv'}),/no subtitle/i);
+ await assert.rejects(()=>zip.extract(packed,{video:'Show.S02E05.mkv',filename:'Show.S02E06.srt'}),/different episode/i);
+});
+test('ambiguous same-name files and wrong-episode regular captions never win selection',async()=>{
+ const packed=archive([['a/Show.S01E02.srt','A'],['b/Show.S01E02.srt','B']],0);
+ await assert.rejects(()=>zip.extract(packed,{filename:'Show.S01E02.srt'}),/duplicate/i);
+ const episodes=archive([['Show.S01E02.SDH.srt','Correct SDH'],['Show.S01E02.HI.srt','Correct HI'],['Show.S01E03.srt','Wrong']],0);
+ await assert.rejects(()=>zip.extract(episodes,{video:'Show.S01E02.mkv'}),/several subtitle/i);
+});
+test('ZIP validates CRC, local headers and exact central directory',async()=>{
+ const original=archive([['film.srt','hello']],0);
+ const damaged=Buffer.from(original);damaged[30+'film.srt'.length]^=1;
+ await assert.rejects(()=>zip.extract(damaged),/checksum/i);
+ const wrongHeader=Buffer.from(original);wrongHeader[30]=0x78;
+ await assert.rejects(()=>zip.extract(wrongHeader),/local header/i);
+ const wrongDirectory=Buffer.from(original);wrongDirectory.writeUInt32LE(1,wrongDirectory.length-22+12);
+ await assert.rejects(()=>zip.extract(wrongDirectory),/directory/i);
+});
+test('ZIP path traversal and absolute paths are not valid subtitle candidates',()=>{
+ const packed=archive([['../bad.srt','bad'],['..\\bad.srt','bad'],['/bad.srt','bad'],['C:\\bad.srt','bad'],['good.srt','ok']],0);
+ assert.deepEqual(zip.list(packed).map(e=>e.name),['good.srt']);
 });
